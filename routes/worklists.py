@@ -11,7 +11,8 @@ What people read says Report Composer and "report". The code keeps the word work
     /report-composer           the editor (saved tree · definition · SQL & results)
     /worklists/api/...         catalog, list, load, save, delete, versions,
                                compile, run, csv, options, sql-reference,
-                               schedules, mail-settings
+                               schedules (the mail server itself is set in
+                               Administration > Email Server, routes/email_server.py)
     /worklists, /reports/custom[/...]   earlier addresses, now redirects here
 
 ACCESS
@@ -20,7 +21,7 @@ ACCESS
                                       and existing grants carry over unchanged)
     share, edit a shared worklist     admin (an owner may edit their own)
     write SQL by hand                 admin
-    schedule emails, the mail server  admin (rows can leave the hospital this way)
+    schedule emails                   admin (rows can leave the hospital this way)
 
 A personal worklist is visible to its owner only. Every save is kept in
 worklist_versions. Shift hours are Report 25's (settings shift_*), edited there.
@@ -482,39 +483,5 @@ def api_schedule_send(schedule_id):
     if not s:
         abort(404)
     if not mailer.is_ready(mailer.mail_config()):
-        return _error('set up the mail server first')
+        return _error('set up the mail server first (Administration > Email Server)')
     return jsonify(mailer.send_schedule(s, started_by=current_user.id))
-
-
-@worklists_bp.route('/worklists/api/mail-settings', methods=['POST'])
-@login_required
-def api_mail_settings():
-    _require_scheduling()
-    try:
-        mailer.save_mail_config(_body())
-    except ScheduleError as e:
-        return _error(e)
-    cfg = mailer.mail_config()
-    return jsonify({'status': 'ok', 'mail': mailer.public_config(cfg), 'ready': mailer.is_ready(cfg)})
-
-
-@worklists_bp.route('/worklists/api/mail-settings/test', methods=['POST'])
-@login_required
-def api_mail_test():
-    """A message with no data in it, to prove the relay takes mail for this address."""
-    _require_scheduling()
-    cfg = mailer.mail_config()
-    if not mailer.is_ready(cfg):
-        return _error('save the mail server first')
-    try:
-        to = mailer.clean_recipients(_body().get('to'), cfg)
-        refused = mailer.send_mail(cfg, to, 'RAYD test email',
-                                   'The mail server is set up correctly.\n\nSent by RAYD, Report Composer.')
-    except ScheduleError as e:
-        return _error(e)
-    except Exception as e:
-        logger.warning("worklist test email failed: %s", e)
-        return _error(f'the mail server did not take the message: {e}', 502)
-    if refused:
-        return _error('the mail server refused: ' + ', '.join(sorted(refused)), 502)
-    return jsonify({'status': 'ok'})

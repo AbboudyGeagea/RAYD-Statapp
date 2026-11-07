@@ -71,7 +71,7 @@ Set-CASMailbox -Identity "<mailbox>" -SmtpClientAuthenticationDisabled $false
 
 ## In RAYD
 
-A RAYD admin opens *Report Composer > Scheduled emails > Mail server*, chooses **Microsoft 365
+A RAYD admin opens *Administration > Email Server* in the left sidebar, chooses **Microsoft 365
 (OAuth)**, fills in the IDs and secret, sets the From address to the mailbox from step 1, lists the
 allowed recipient domains, and uses **Save and send a test email**.
 

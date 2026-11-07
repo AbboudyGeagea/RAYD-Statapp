@@ -156,6 +156,8 @@
         .wl .sc .run-failed { color: var(--bad); font-weight: 600; }
         .wl .sc .run-partial { color: var(--warn); font-weight: 600; }
         .wl .sc .run-sent { color: var(--rayd); font-weight: 600; }
+        .wl .sc a.btn { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+        .wl .sc .note a { color: inherit; text-decoration: underline; font-weight: 600; }
         .wl .sc .pick { flex-direction: column; flex-wrap: nowrap; max-height: 200px; overflow-y: auto; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; background: var(--panel-2); }
     </style>
 </head>
@@ -813,14 +815,11 @@ async function openReference() {
 $('btn-ref').onclick = openReference;
 
 // ── Scheduled emails: which saved worklists go to whom, and when (admin) ─────
-// One view at a time (list, a schedule's form, its history, the mail server), so nothing
-// redraws over a form someone is filling in.
+// One view at a time (list, a schedule's form, its history), so nothing redraws over a
+// form someone is filling in. The mail server is set in Administration > Email Server.
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const RUN_WORDS = {running: 'Running', sent: 'Sent', partial: 'Sent, incomplete', failed: 'Failed'};
-const SECURITY_WORDS = {starttls: 'STARTTLS (usually port 587)', ssl: 'SSL/TLS (usually port 465)',
-  starttls_unverified: 'STARTTLS, certificate not checked (private certificate authority)',
-  none: 'None: not encrypted (internal relay only)'};
-const AUTH_WORDS = {password: 'Username and password, or none', oauth_o365: 'Microsoft 365 (OAuth)'};
+const MAIL_SERVER_URL = {{ url_for('email_server.page')|tojson }};
 let SC = null;
 const scWhen = s => (s.frequency === 'weekly' ? 'Every ' + WEEKDAYS[s.weekday]
   : s.frequency === 'monthly' ? `Day ${s.month_day} of each month` : 'Every day') + ' at ' + s.send_time;
@@ -843,10 +842,10 @@ function scListView() {
       <button class="btn small" type="button" data-act="runs" data-id="${s.id}">History</button>
       <button class="btn small danger" type="button" data-act="del" data-id="${s.id}">Delete</button>
     </div></td></tr>`).join('');
-  return `${SC.ready ? '' : '<div class="note warn">Nothing can be sent until the mail server is set.</div>'}
+  return `${SC.ready ? '' : `<div class="note warn">Nothing can be sent until the mail server is set in <a href="${esc(MAIL_SERVER_URL)}">Administration &gt; Email Server</a>.</div>`}
     <div class="inline">
       <button class="btn small primary" type="button" data-act="new"${SC.ready ? '' : ' disabled'}>New schedule</button>
-      <button class="btn small" type="button" data-act="mail"><i class="bi bi-gear"></i> Mail server</button>
+      <a class="btn small" href="${esc(MAIL_SERVER_URL)}"><i class="bi bi-gear"></i> Mail server</a>
     </div>
     ${rows ? `<div class="table-wrap"><table><thead><tr><th>Schedule</th><th>When (hospital time)</th><th>Recipients</th><th>Last run</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
       : '<div class="empty">No scheduled emails yet.</div>'}`;
@@ -870,27 +869,6 @@ function scFormView() {
     </div>
     <div class="inline" style="justify-content:flex-end"><button class="btn" type="button" data-act="back">Cancel</button><button class="btn primary" type="button" data-act="save">Save schedule</button></div>`;
 }
-function scMailView() {
-  const m = SC.mail;
-  return `<div class="def-grid">
-      <div class="field"><label for="mx-host">Server</label><input class="input" id="mx-host" value="${esc(m.smtp_host)}" placeholder="relay.laumc.com"><span class="hint">Empty: nothing is sent.</span></div>
-      <div class="field"><label for="mx-port">Port</label><input class="input" type="number" id="mx-port" value="${esc(m.smtp_port)}"></div>
-      <div class="field wide"><label for="mx-sec">Security</label><select class="input" id="mx-sec">${Object.entries(SECURITY_WORDS).map(([v, l]) => `<option value="${v}"${m.smtp_security === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
-      <div class="field wide"><label for="mx-auth">Sign in with</label><select class="input" id="mx-auth">${Object.entries(AUTH_WORDS).map(([v, l]) => `<option value="${v}"${m.smtp_auth === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
-        <span class="hint" data-auth="oauth_o365">RAYD signs in as an app registered in your Microsoft tenant, and sends as the From address below, which must be the mailbox IT gave that app. IT's steps: docs/LAUMC_O365_EMAIL_SETUP.md.</span></div>
-      <div class="field" data-auth="oauth_o365"><label for="mx-tenant">Directory (tenant) ID</label><input class="input" id="mx-tenant" autocomplete="off" value="${esc(m.smtp_oauth_tenant)}" placeholder="From the app's Overview page"></div>
-      <div class="field" data-auth="oauth_o365"><label for="mx-client">Application (client) ID</label><input class="input" id="mx-client" autocomplete="off" value="${esc(m.smtp_oauth_client_id)}" placeholder="From the app's Overview page"></div>
-      <div class="field wide" data-auth="oauth_o365"><label for="mx-secret">Client secret</label><input class="input" type="password" id="mx-secret" autocomplete="new-password" placeholder="${m.client_secret_set ? 'Saved: leave empty to keep it' : 'The secret\'s Value, not its ID'}"></div>
-      <div class="field" data-auth="password"><label for="mx-user">Username</label><input class="input" id="mx-user" autocomplete="off" value="${esc(m.smtp_username)}" placeholder="Empty if the relay needs no login"></div>
-      <div class="field" data-auth="password"><label for="mx-pass">Password</label><input class="input" type="password" id="mx-pass" autocomplete="new-password" placeholder="${m.password_set ? 'Saved: leave empty to keep it' : 'None saved'}">
-        ${m.password_set ? '<label class="hint" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="mx-clear"> Remove the saved password</label>' : ''}</div>
-      <div class="field"><label for="mx-from">From address</label><input class="input" id="mx-from" value="${esc(m.smtp_from)}" placeholder="rayd@laumc.com"></div>
-      <div class="field"><label for="mx-dom">Allowed recipient domains</label><input class="input" id="mx-dom" value="${esc(m.smtp_allowed_domains)}" placeholder="laumc.com"><span class="hint">Comma-separated. The attachments can hold patient data: they go to these domains and no others.</span></div>
-    </div>
-    <div class="inline" style="justify-content:flex-end"><button class="btn" type="button" data-act="back">Back</button><button class="btn primary" type="button" data-act="mail-save">Save mail server</button></div>
-    <div class="panel-head" style="padding:0;border:0"><h2>Try it</h2></div>
-    <div class="inline"><input class="input" id="mx-to" placeholder="you@laumc.com" aria-label="Test address" style="min-width:260px"><button class="btn" type="button" data-act="mail-test">Save and send a test email</button></div>`;
-}
 function scRunsView() {
   const rows = SC.runs.list.map(r => `<tr>
     <td class="txt">${esc(r.started_at)}<br><span class="hint">${r.started_by ? 'Sent by ' + esc(r.started_by) : 'On schedule'}</span></td>
@@ -902,23 +880,12 @@ function scRunsView() {
     <div class="inline" style="justify-content:flex-end"><button class="btn" type="button" data-act="back">Back</button></div>`;
 }
 function scDraw() {
-  const views = {list: scListView, edit: scFormView, mail: scMailView, runs: scRunsView};
+  const views = {list: scListView, edit: scFormView, runs: scRunsView};
   $('modal').innerHTML = `<div class="modal-back"><div class="modal wide sc" id="sc" role="dialog" aria-modal="true" aria-label="Scheduled emails">
     <div class="panel-head"><h2>Scheduled emails</h2><button class="btn small" type="button" data-act="close" style="margin-left:auto">Close</button></div>
     <div class="panel-body">${views[SC.view]()}</div></div></div>`;
   $('sc').addEventListener('click', scClick);
   if (SC.view === 'edit') { $('sc-freq').addEventListener('change', scFreq); scFreq(); }
-  if (SC.view === 'mail') { $('mx-auth').addEventListener('change', () => { scAuth(); scAuthDefaults(); }); scAuth(); }
-}
-// A token only goes over encryption with the certificate checked, so OAuth offers nothing else.
-function scAuth() {
-  const auth = $('mx-auth').value, oauth = auth === 'oauth_o365';
-  document.querySelectorAll('#sc [data-auth]').forEach(el => el.hidden = el.dataset.auth !== auth);
-  [...$('mx-sec').options].forEach(o => o.disabled = oauth && !['starttls', 'ssl'].includes(o.value));
-  if ($('mx-sec').selectedOptions[0].disabled) $('mx-sec').value = 'starttls';
-}
-function scAuthDefaults() {
-  if ($('mx-auth').value === 'oauth_o365' && !$('mx-host').value.trim()) { $('mx-host').value = 'smtp.office365.com'; $('mx-port').value = '587'; $('mx-sec').value = 'starttls'; }
 }
 function scFreq() { $('sc-weekly').hidden = $('sc-freq').value !== 'weekly'; $('sc-monthly').hidden = $('sc-freq').value !== 'monthly'; }
 function scClose() { SC = null; $('modal').innerHTML = ''; document.removeEventListener('keydown', scKey); }
@@ -928,11 +895,6 @@ async function scOpen(view = 'list') {
   try { SC = await api('/worklists/api/schedules'); } catch (e) { SC = was; return toast(e.message); }
   SC.view = view; scDraw();
 }
-const scMailForm = () => ({smtp_host: $('mx-host').value, smtp_port: $('mx-port').value, smtp_security: $('mx-sec').value,
-  smtp_username: $('mx-user').value, smtp_password: $('mx-pass').value, smtp_from: $('mx-from').value,
-  smtp_allowed_domains: $('mx-dom').value, clear_password: !!($('mx-clear') && $('mx-clear').checked),
-  smtp_auth: $('mx-auth').value, smtp_oauth_tenant: $('mx-tenant').value, smtp_oauth_client_id: $('mx-client').value,
-  smtp_oauth_client_secret: $('mx-secret').value});
 async function scClick(e) {
   const b = e.target.closest('button[data-act]'); if (!b) return;
   const act = b.dataset.act, s = SC.schedules.find(x => x.id === +b.dataset.id);
@@ -942,7 +904,6 @@ async function scClick(e) {
   if (act === 'back') { SC.view = 'list'; return scDraw(); }
   if (act === 'new') { SC.edit = {}; SC.view = 'edit'; return scDraw(); }
   if (act === 'edit') { SC.edit = s; SC.view = 'edit'; return scDraw(); }
-  if (act === 'mail') { SC.view = 'mail'; return scDraw(); }
   if (act === 'runs') return busy('Loading…', async () => { SC.runs = {name: s.name, list: await api(`/worklists/api/schedules/${s.id}/runs`)}; SC.view = 'runs'; scDraw(); });
   if (act === 'save') return busy('Saving…', async () => {
     await api('/worklists/api/schedules/save', {id: SC.edit.id, name: $('sc-name').value, recipients: $('sc-to').value,
@@ -962,13 +923,6 @@ async function scClick(e) {
       await scOpen();
     });
   }
-  if (act === 'mail-save') return busy('Saving…', async () => { const r = await api('/worklists/api/mail-settings', scMailForm()); SC.mail = r.mail; SC.ready = r.ready; toast('Mail server saved.'); SC.view = 'list'; scDraw(); });
-  if (act === 'mail-test') return busy('Sending…', async () => {
-    const to = $('mx-to').value;
-    const r = await api('/worklists/api/mail-settings', scMailForm()); SC.mail = r.mail; SC.ready = r.ready;
-    await api('/worklists/api/mail-settings/test', {to});
-    toast('Test email sent to ' + to + '.');
-  });
 }
 $('btn-sched').onclick = () => { document.addEventListener('keydown', scKey); scOpen(); };
 

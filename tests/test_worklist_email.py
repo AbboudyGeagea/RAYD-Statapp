@@ -574,7 +574,7 @@ MAIL = {'smtp_host': 'relay.laumc.test', 'smtp_port': '587', 'smtp_security': 's
 
 def test_the_password_is_encrypted_and_never_comes_back(client):
     users()
-    r = h(client, 'post', '/worklists/api/mail-settings', json=MAIL)
+    r = h(client, 'post', '/admin/email-server/api/save', json=MAIL)
     assert r.status_code == 200 and 's3cret' not in r.get_data(as_text=True)
     stored = sql("SELECT value FROM settings WHERE key = 'smtp_password'")[0]['value']
     assert stored and stored != 's3cret'
@@ -583,11 +583,14 @@ def test_the_password_is_encrypted_and_never_comes_back(client):
     assert got.get_json()['mail']['password_set'] is True and stored not in got.get_data(as_text=True)
     assert 'smtp_password' not in got.get_json()['mail']
     assert got.get_json()['mail']['smtp_allowed_domains'] == 'laumc.test, lau.edu.test'
+    own = h(client, 'get', '/admin/email-server/api')
+    assert own.get_json()['mail']['password_set'] is True and own.get_json()['ready'] is True
+    assert 's3cret' not in own.get_data(as_text=True) and stored not in own.get_data(as_text=True)
 
     # left empty: kept; asked to: removed
-    h(client, 'post', '/worklists/api/mail-settings', json={**MAIL, 'smtp_password': ''})
+    h(client, 'post', '/admin/email-server/api/save', json={**MAIL, 'smtp_password': ''})
     assert sql("SELECT value FROM settings WHERE key = 'smtp_password'")[0]['value'] == stored
-    h(client, 'post', '/worklists/api/mail-settings', json={**MAIL, 'smtp_password': '', 'clear_password': True})
+    h(client, 'post', '/admin/email-server/api/save', json={**MAIL, 'smtp_password': '', 'clear_password': True})
     assert sql("SELECT value FROM settings WHERE key = 'smtp_password'")[0]['value'] == ''
 
 
@@ -598,24 +601,24 @@ def test_the_password_is_encrypted_and_never_comes_back(client):
 ])
 def test_bad_mail_settings_are_refused(client, change, word):
     users()
-    r = h(client, 'post', '/worklists/api/mail-settings', json={**MAIL, **change})
+    r = h(client, 'post', '/admin/email-server/api/save', json={**MAIL, **change})
     assert r.status_code == 400 and word in r.get_json()['error']
 
 
 def test_an_empty_host_switches_sending_off(client):
     users()
-    r = h(client, 'post', '/worklists/api/mail-settings', json={'smtp_host': ''})
+    r = h(client, 'post', '/admin/email-server/api/save', json={'smtp_host': ''})
     assert r.status_code == 200 and r.get_json()['ready'] is False
 
 
 def test_the_test_email_has_no_data_and_reports_failure(client, relay):
     users()
-    assert h(client, 'post', '/worklists/api/mail-settings/test', json={'to': 'me@laumc.test'}).status_code == 200
+    assert h(client, 'post', '/admin/email-server/api/test', json={'to': 'me@laumc.test'}).status_code == 200
     assert relay.mails[0].rcpts == ['me@laumc.test'] and attachments(relay.mails[0]) == {}
-    outside = h(client, 'post', '/worklists/api/mail-settings/test', json={'to': 'me@gmail.com'})
+    outside = h(client, 'post', '/admin/email-server/api/test', json={'to': 'me@gmail.com'})
     assert outside.status_code == 400
     setting('smtp_port', '1')
-    down = h(client, 'post', '/worklists/api/mail-settings/test', json={'to': 'me@laumc.test'})
+    down = h(client, 'post', '/admin/email-server/api/test', json={'to': 'me@laumc.test'})
     assert down.status_code == 502 and 'did not take' in down.get_json()['error']
 
 
@@ -704,8 +707,9 @@ def test_deleting_a_schedule_keeps_the_record_of_what_it_sent(client, relay):
 @pytest.mark.parametrize('method, url', [
     ('get', '/worklists/api/schedules'), ('post', '/worklists/api/schedules/save'),
     ('post', '/worklists/api/schedules/1/delete'), ('get', '/worklists/api/schedules/1/runs'),
-    ('post', '/worklists/api/schedules/1/send'), ('post', '/worklists/api/mail-settings'),
-    ('post', '/worklists/api/mail-settings/test'),
+    ('post', '/worklists/api/schedules/1/send'), ('get', '/admin/email-server'),
+    ('get', '/admin/email-server/api'), ('post', '/admin/email-server/api/save'),
+    ('post', '/admin/email-server/api/test'),
 ])
 def test_only_an_admin_gets_near_it(client, relay, method, url):
     users()
@@ -743,6 +747,40 @@ def test_the_editor_offers_scheduling_to_admins_only(client):
     html = h(client, 'get', '/report-composer', uid=VIEWER).get_data(as_text=True)
     assert 'id="btn-sched" type="button" hidden' in html
     assert h(client, 'get', '/worklists/api/catalog', uid=VIEWER).get_json()['me']['can_schedule'] is False
+
+
+def test_the_mail_server_is_set_in_administration_not_in_report_composer(client):
+    """Moved 2026-11-07: Report Composer and the Sticky Notes monthly report both send
+    through it, so it is an Administration page of its own, and the composer only links to it."""
+    users()
+    page = h(client, 'get', '/admin/email-server')
+    html = page.get_data(as_text=True)
+    assert page.status_code == 200 and 'Email Server' in html and 'id="mx-host"' in html
+    assert 'href="/admin/email-server"' in html                      # the sidebar, under Administration
+    composer = h(client, 'get', '/report-composer').get_data(as_text=True)
+    assert 'mx-host' not in composer and 'mail-settings' not in composer
+    assert '"/admin/email-server"' in composer                       # the link where the form was
+    assert 'href="/admin/email-server"' not in h(client, 'get', '/report-composer', uid=VIEWER).get_data(as_text=True)
+    for gone in ('/worklists/api/mail-settings', '/worklists/api/mail-settings/test'):
+        assert h(client, 'post', gone, json=MAIL).status_code == 404
+
+
+def test_the_email_server_page_script_is_valid_js():
+    import shutil
+    import subprocess
+    import jinja2
+    src = open(os.path.join(ROOT, 'templates', 'email_server.html'), encoding='utf-8').read()
+    jinja2.Environment().parse(src)
+    if not shutil.which('node'):
+        pytest.skip('node not installed')
+    script = re.sub(r'\{\{.*?\}\}', 'x', re.search(r'<script>\n(.*?)</script>', src, re.S).group(1))
+    tmp = os.path.join(os.path.dirname(__file__), '_email_server_page.js')
+    try:
+        open(tmp, 'w', encoding='utf-8').write(script)
+        done = subprocess.run(['node', '--check', tmp], capture_output=True, text=True)
+        assert done.returncode == 0, done.stderr
+    finally:
+        os.remove(tmp)
 
 
 # ── Microsoft 365 ─────────────────────────────────────────────────────────────
@@ -1017,7 +1055,7 @@ def stored(key):
 
 def test_o365_settings_keep_the_secret_encrypted_and_to_themselves(client):
     users()
-    r = h(client, 'post', '/worklists/api/mail-settings', json=O365_FORM)
+    r = h(client, 'post', '/admin/email-server/api/save', json=O365_FORM)
     assert r.status_code == 200 and r.get_json()['ready'] is True and SECRET not in r.get_data(as_text=True)
     saved = stored('smtp_oauth_client_secret')
     assert saved != SECRET and decrypt(saved) == SECRET
@@ -1029,15 +1067,15 @@ def test_o365_settings_keep_the_secret_encrypted_and_to_themselves(client):
 
     # left empty it is kept, and an earlier password does not linger
     setting('smtp_password', encrypt('old'))
-    assert h(client, 'post', '/worklists/api/mail-settings',
+    assert h(client, 'post', '/admin/email-server/api/save',
              json={**O365_FORM, 'smtp_oauth_client_secret': ''}).status_code == 200
     assert stored('smtp_oauth_client_secret') == saved and stored('smtp_password') == ''
 
 
 def test_going_back_to_a_password_drops_the_microsoft_settings(client):
     users()
-    h(client, 'post', '/worklists/api/mail-settings', json=O365_FORM)
-    r = h(client, 'post', '/worklists/api/mail-settings',
+    h(client, 'post', '/admin/email-server/api/save', json=O365_FORM)
+    r = h(client, 'post', '/admin/email-server/api/save',
           json={**O365_FORM, 'smtp_auth': 'password', 'smtp_username': 'u', 'smtp_password': 'p'})
     assert r.status_code == 200
     assert stored('smtp_oauth_client_secret') == '' and stored('smtp_oauth_tenant') == ''
@@ -1056,13 +1094,13 @@ def test_going_back_to_a_password_drops_the_microsoft_settings(client):
 ])
 def test_bad_microsoft_settings_are_refused(client, change, word):
     users()
-    r = h(client, 'post', '/worklists/api/mail-settings', json={**O365_FORM, **change})
+    r = h(client, 'post', '/admin/email-server/api/save', json={**O365_FORM, **change})
     assert r.status_code == 400 and word in r.get_json()['error']
 
 
 def test_a_tenant_may_be_its_domain(client):
     users()
-    r = h(client, 'post', '/worklists/api/mail-settings',
+    r = h(client, 'post', '/admin/email-server/api/save',
           json={**O365_FORM, 'smtp_oauth_tenant': 'laumc.onmicrosoft.com'})
     assert r.status_code == 200 and stored('smtp_oauth_tenant') == 'laumc.onmicrosoft.com'
 
@@ -1078,9 +1116,9 @@ def test_not_ready_until_every_microsoft_setting_is_there(client, microsoft):
 
 def test_the_o365_test_email_goes_through_the_same_sign_in(client, microsoft):
     users()
-    r = h(client, 'post', '/worklists/api/mail-settings/test', json={'to': 'me@laumc.test'})
+    r = h(client, 'post', '/admin/email-server/api/test', json={'to': 'me@laumc.test'})
     assert r.status_code == 200, r.get_data(as_text=True)
     assert microsoft.signed_in_with and attachments(microsoft.mails[0]) == {}
     microsoft.answer = (401, {'error_description': 'AADSTS7000222: The provided client secret keys are expired.'})
-    r = h(client, 'post', '/worklists/api/mail-settings/test', json={'to': 'me@laumc.test'})
+    r = h(client, 'post', '/admin/email-server/api/test', json={'to': 'me@laumc.test'})
     assert r.status_code == 502 and 'AADSTS7000222' in r.get_json()['error']

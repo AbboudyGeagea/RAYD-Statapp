@@ -466,7 +466,7 @@ function renderSettings(d) {
     document.getElementById('recipients-input').value = d.monthly_recipients.join(', ');
     document.getElementById('mail-status').textContent = d.mail_ready
         ? 'The mail server is set, so the report is emailed when it is generated.'
-        : 'The mail server is not set yet (Report Composer > Scheduled emails), so reports are kept here for download and nothing is emailed.';
+        : 'The mail server is not set yet (Administration > Email Server), so reports are kept here for download and nothing is emailed.';
 }
 
 async function generateMonth() {

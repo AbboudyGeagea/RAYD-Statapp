@@ -276,6 +276,8 @@ def register_blueprints(app):
     app.register_blueprint(groups_bp)
     app.register_blueprint(crn_admin_bp)
     app.register_blueprint(brayn_bp)              # BRAYN console, admin only
+    from routes.email_server import email_server_bp
+    app.register_blueprint(email_server_bp)       # the mail server every feature sends through, admin only
 
     # ── Licensed reports (auto-discovered from report_registry) ─
     licensed_reports = lic.get('reports', [])

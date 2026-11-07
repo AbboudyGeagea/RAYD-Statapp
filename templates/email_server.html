@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Email Server</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #181f1c; color: #e2e8f0; }
+        [hidden] { display: none !important; }
+        .card { background: #232b28; border-radius: 1.25rem; padding: 1.5rem; border: 1px solid #28332e; }
+        .card h3 { color: #fff; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; margin-bottom: .9rem; }
+        .input-field { background: #141b19; border: 1px solid #334155; color: #e2e8f0; padding: .6rem .9rem; border-radius: .75rem; width: 100%; font-size: .85rem; outline: none; }
+        .input-field:focus { border-color: #38bdf8; }
+        .input-field option:disabled { color: #475569; }
+        .label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .2em; color: #64748b; margin-bottom: 6px; display: block; }
+        .hint { color: #64748b; font-size: 11.5px; margin-top: 4px; display: block; }
+        .btn-primary { background: #38bdf8; color: #0c1a22; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; padding: .65rem 1.3rem; border-radius: .75rem; border: none; cursor: pointer; }
+        .btn-ghost { background: transparent; color: #94a3b8; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; padding: .65rem 1.3rem; border-radius: .75rem; border: 1px solid #334155; cursor: pointer; }
+        .btn-primary:hover, .btn-ghost:hover { opacity: .85; }
+        .btn-primary:disabled, .btn-ghost:disabled { opacity: .5; cursor: wait; }
+        .s-ok { color: #34d399; } .s-off { color: #fbbf24; }
+        .msg { border-radius: .75rem; padding: .6rem .9rem; font-size: 12.5px; }
+        .msg-ok { background: rgba(16,185,129,.1); color: #a7f3d0; border: 1px solid rgba(16,185,129,.25); }
+        .msg-err { background: rgba(244,63,94,.1); color: #fecdd3; border: 1px solid rgba(244,63,94,.25); }
+        body.light { background: #f0f4f8 !important; color: #1a202c !important; }
+        body.light main { background: #f0f4f8 !important; }
+        body.light .card { background: #ffffff; border-color: #e2e8f0; }
+        body.light .card h3 { color: #1a202c; }
+        body.light .input-field { background: #ffffff; border-color: #cbd5e1; color: #1a202c; }
+        body.light .msg-ok { color: #065f46; } body.light .msg-err { color: #9f1239; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden {{ 'light' if ui_theme == 'light' }}">
+    {% include '_header.html' %}
+    <div class="flex flex-1 overflow-hidden">
+        {% include '_sidebar.html' %}
+        <main class="flex-1 overflow-y-auto p-8 bg-[#181f1c]">
+            <div class="max-w-3xl mx-auto space-y-4">
+                <div>
+                    <h2 class="text-2xl font-black uppercase tracking-tight">Email Server</h2>
+                    <p class="hint">The one mail server RAYD sends through: Report Composer's scheduled emails and the
+                        Sticky Notes monthly report.</p>
+                </div>
+
+                <div id="msg" class="msg" role="status" hidden></div>
+
+                <section class="card">
+                    <h3>Status</h3>
+                    <p id="status" class="font-bold">Loading…</p>
+                </section>
+
+                <section class="card" id="form" hidden>
+                    <h3>Mail server</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><label class="label" for="mx-host">Server</label><input class="input-field" id="mx-host" placeholder="relay.laumc.com"><span class="hint">Empty: nothing is sent.</span></div>
+                        <div><label class="label" for="mx-port">Port</label><input class="input-field" type="number" id="mx-port"></div>
+                        <div class="md:col-span-2"><label class="label" for="mx-sec">Security</label><select class="input-field" id="mx-sec"></select></div>
+                        <div class="md:col-span-2"><label class="label" for="mx-auth">Sign in with</label><select class="input-field" id="mx-auth"></select>
+                            <span class="hint" data-auth="oauth_o365">RAYD signs in as an app registered in your Microsoft tenant, and sends as the From address below, which must be the mailbox IT gave that app. IT's steps: docs/LAUMC_O365_EMAIL_SETUP.md.</span></div>
+                        <div data-auth="oauth_o365"><label class="label" for="mx-tenant">Directory (tenant) ID</label><input class="input-field" id="mx-tenant" autocomplete="off" placeholder="From the app's Overview page"></div>
+                        <div data-auth="oauth_o365"><label class="label" for="mx-client">Application (client) ID</label><input class="input-field" id="mx-client" autocomplete="off" placeholder="From the app's Overview page"></div>
+                        <div class="md:col-span-2" data-auth="oauth_o365"><label class="label" for="mx-secret">Client secret</label><input class="input-field" type="password" id="mx-secret" autocomplete="new-password"></div>
+                        <div data-auth="password"><label class="label" for="mx-user">Username</label><input class="input-field" id="mx-user" autocomplete="off" placeholder="Empty if the relay needs no login"></div>
+                        <div data-auth="password"><label class="label" for="mx-pass">Password</label><input class="input-field" type="password" id="mx-pass" autocomplete="new-password">
+                            <label class="hint" id="mx-clear-wrap" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer" hidden><input type="checkbox" id="mx-clear"> Remove the saved password</label></div>
+                        <div><label class="label" for="mx-from">From address</label><input class="input-field" id="mx-from" placeholder="rayd@laumc.com"></div>
+                        <div><label class="label" for="mx-dom">Allowed recipient domains</label><input class="input-field" id="mx-dom" placeholder="laumc.com"><span class="hint">Comma-separated. The attachments can hold patient data: they go to these domains and no others.</span></div>
+                    </div>
+                    <div class="flex justify-end mt-5"><button class="btn-primary" type="button" id="btn-save"><i class="bi bi-floppy"></i> Save mail server</button></div>
+                </section>
+
+                <section class="card" id="try" hidden>
+                    <h3>Try it</h3>
+                    <p class="hint" style="margin:0 0 .8rem">Saves the form above, then sends a message with no data in it.</p>
+                    <div class="flex flex-wrap gap-3">
+                        <input class="input-field" id="mx-to" placeholder="you@laumc.com" aria-label="Test address" style="max-width:320px">
+                        <button class="btn-ghost" type="button" id="btn-test"><i class="bi bi-send"></i> Save and send a test email</button>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+    <script>
+    (function () {
+        const $ = id => document.getElementById(id);
+        const SECURITY_WORDS = {starttls: 'STARTTLS (usually port 587)', ssl: 'SSL/TLS (usually port 465)',
+            starttls_unverified: 'STARTTLS, certificate not checked (private certificate authority)',
+            none: 'None: not encrypted (internal relay only)'};
+        const AUTH_WORDS = {password: 'Username and password, or none', oauth_o365: 'Microsoft 365 (OAuth)'};
+        const BASE = {{ url_for('email_server.api_settings')|tojson }};
+        const options = (words, chosen) => Object.entries(words).map(([v, l]) => {
+            const o = document.createElement('option'); o.value = v; o.textContent = l; o.selected = v === chosen; return o; });
+
+        async function api(url, body) {
+            const opt = body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)};
+            const r = await fetch(url, opt);
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+            return d;
+        }
+        function say(text, ok) { const m = $('msg'); m.textContent = text; m.className = 'msg ' + (ok ? 'msg-ok' : 'msg-err'); m.hidden = false; }
+
+        function fill(state) {
+            const m = state.mail;
+            $('status').innerHTML = state.ready
+                ? '<span class="s-ok"><i class="bi bi-check-circle-fill"></i> Set: RAYD can send email.</span>'
+                : '<span class="s-off"><i class="bi bi-exclamation-triangle-fill"></i> Not set: nothing is emailed until a server, a From address and the allowed domains are saved.</span>';
+            $('mx-host').value = m.smtp_host || ''; $('mx-port').value = m.smtp_port || '';
+            $('mx-sec').replaceChildren(...options(SECURITY_WORDS, m.smtp_security));
+            $('mx-auth').replaceChildren(...options(AUTH_WORDS, m.smtp_auth));
+            $('mx-tenant').value = m.smtp_oauth_tenant || ''; $('mx-client').value = m.smtp_oauth_client_id || '';
+            $('mx-secret').value = ''; $('mx-secret').placeholder = m.client_secret_set ? 'Saved: leave empty to keep it' : "The secret's Value, not its ID";
+            $('mx-user').value = m.smtp_username || '';
+            $('mx-pass').value = ''; $('mx-pass').placeholder = m.password_set ? 'Saved: leave empty to keep it' : 'None saved';
+            $('mx-clear').checked = false; $('mx-clear-wrap').hidden = !m.password_set;
+            $('mx-from').value = m.smtp_from || ''; $('mx-dom').value = m.smtp_allowed_domains || '';
+            authShown();
+            $('form').hidden = false; $('try').hidden = false;
+        }
+        // A token only goes over encryption with the certificate checked, so OAuth offers nothing else.
+        function authShown() {
+            const auth = $('mx-auth').value, oauth = auth === 'oauth_o365';
+            document.querySelectorAll('#form [data-auth]').forEach(el => el.hidden = el.dataset.auth !== auth);
+            [...$('mx-sec').options].forEach(o => o.disabled = oauth && !['starttls', 'ssl'].includes(o.value));
+            if ($('mx-sec').selectedOptions[0] && $('mx-sec').selectedOptions[0].disabled) $('mx-sec').value = 'starttls';
+        }
+        $('mx-auth').addEventListener('change', () => {
+            authShown();
+            if ($('mx-auth').value === 'oauth_o365' && !$('mx-host').value.trim()) { $('mx-host').value = 'smtp.office365.com'; $('mx-port').value = '587'; $('mx-sec').value = 'starttls'; }
+        });
+        const form = () => ({smtp_host: $('mx-host').value, smtp_port: $('mx-port').value, smtp_security: $('mx-sec').value,
+            smtp_username: $('mx-user').value, smtp_password: $('mx-pass').value, smtp_from: $('mx-from').value,
+            smtp_allowed_domains: $('mx-dom').value, clear_password: $('mx-clear').checked,
+            smtp_auth: $('mx-auth').value, smtp_oauth_tenant: $('mx-tenant').value, smtp_oauth_client_id: $('mx-client').value,
+            smtp_oauth_client_secret: $('mx-secret').value});
+        // A slow answer must not be asked for twice: above all not a second email.
+        async function busy(button, label, work) {
+            const old = button.innerHTML; button.disabled = true; button.textContent = label;
+            try { await work(); } catch (e) { say(e.message, false); }
+            button.disabled = false; button.innerHTML = old;
+        }
+        $('btn-save').addEventListener('click', e => busy(e.currentTarget, 'Saving…', async () => {
+            fill(await api(BASE + '/save', form())); say('Mail server saved.', true);
+        }));
+        $('btn-test').addEventListener('click', e => busy(e.currentTarget, 'Sending…', async () => {
+            const to = $('mx-to').value;
+            fill(await api(BASE + '/save', form()));
+            await api(BASE + '/test', {to});
+            say('Test email sent to ' + to + '.', true);
+        }));
+        api(BASE).then(fill).catch(e => { $('status').textContent = ''; say(e.message, false); });
+    })();
+    </script>
+    {% include '_footer.html' %}
+</body>
+</html>

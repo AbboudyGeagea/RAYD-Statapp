@@ -42,8 +42,8 @@ routes/
                                    ETL_JOBS/etl_sticky_notes.py copies note times nightly; note
                                    text is never read. Its two tables are read through a study, so
                                    no rh view. utils/sticky_notes_monthly.py keeps each month's
-                                   workbook from the 2nd and emails it through the Report Composer
-                                   relay. Migrations 0143, 0144, 0146
+                                   workbook from the 2nd and emails it through the mail server
+                                   (email_server.py). Migrations 0143, 0144, 0146
   oru_analytics.py              — HL7 ORU analytics (NLP word cloud, critical findings log)
   viewer_controller.py          — daily briefing, home dashboard
   mapping_controller.py         — AE/modality/procedure mapping config (lazy-loaded tabs)
@@ -74,6 +74,10 @@ routes/
                                    smtp_allowed_domains. Off until the relay is set. Microsoft 365
                                    signs in with OAuth (client credentials, XOAUTH2; migration 0140,
                                    docs/LAUMC_O365_EMAIL_SETUP.md)
+  email_server.py               — Administration > Email Server (/admin/email-server), admin only,
+                                   no licence: the one mail server (settings smtp_*) that Report
+                                   Composer's schedules and the Sticky Notes monthly report send
+                                   through. Moved out of Report Composer 2026-11-07
   report_cache.py               — shared cache/dropdown helpers
 hl7_listener.py                 — MLLP :6661: stores ORU (fill-only), orders, PACS completions;
                                    then hands each message to BRAYN AFTER the ACK
