@@ -114,7 +114,7 @@ from etl_patients_view     import run_patients_etl
 from etl_orders            import run_orders_etl
 from etl_sticky_notes      import run_sticky_notes_etl, record_access_history
 from etl_analytics_refresh import refresh_storage_summary
-from etl_ris_reports       import run_ris_reports_etl
+from etl_ris_oru_reports   import run_ris_oru_reports_etl
 from etl_ris_modality      import run_ris_modality_etl
 from etl_ris_procedures    import run_ris_procedures_etl
 from etl_ris_procedure_rvu import run_ris_procedure_rvu_etl
@@ -570,9 +570,9 @@ def _perform_migration(engine):
             else:
                 logger.info("📋 Phase 9: RIS Reports → hl7_oru_reports")
                 try:
-                    run_ris_reports_etl(
-                        engine, ris_src, 'hl7_oru_reports', database_module.chunked_upsert, go_live
-                    )
+                    # Its own loader since 2026-11-07: from 2026-09-19 this called Phase 19's
+                    # run_ris_reports_etl with this phase's arguments and failed every night.
+                    run_ris_oru_reports_etl(engine, ris_src, go_live)
                     logger.info("✅ Phase 9 done")
                 except Exception as _e:
                     _phase_failures.append("9 (RIS Reports)")
