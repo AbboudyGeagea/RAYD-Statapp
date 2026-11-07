@@ -7,8 +7,9 @@ a department is ticked later or a study is reopened. Only an admin generating it
 it. The 2nd, not the 1st, because the data is a day late: a note written on the night of the
 last day reaches Postgres with the next morning's ETL.
 
-It waits for that morning's note copy to have succeeded, up to the 5th. After that it goes
-ahead, and the workbook says when the data was last copied.
+It waits until a note copy has succeeded on or after the 2nd, however long that takes. A month
+kept from stale data would be frozen wrong, so with the nightly ETL failing it does nothing,
+and an admin can still generate the month by hand.
 
 Email goes through the Report Composer's relay and its rules (utils/worklist_email): nothing
 is sent until an admin has set the relay, the rows travel only in the attachment and only to
@@ -30,7 +31,6 @@ logger = logging.getLogger(__name__)
 
 RECIPIENTS_KEY = 'sticky_notes_monthly_recipients'
 GENERATE_FROM_DAY = 2
-STOP_WAITING_DAY = 5
 RETRY_AFTER = timedelta(days=1)
 
 
@@ -69,13 +69,13 @@ def _exists(first):
                               {'m': first}).scalar() is not None
 
 
-def _notes_copied_on(day):
+def _notes_copied_since(day):
+    """A successful note copy that started on `day` or later."""
     return db.session.execute(text("""
         SELECT 1 FROM etl_job_log
-         WHERE job_name = 'STICKY_NOTES_ETL' AND status = 'SUCCESS'
-           AND start_time >= :day AND start_time < :next
+         WHERE job_name = 'STICKY_NOTES_ETL' AND status = 'SUCCESS' AND start_time >= :day
          LIMIT 1
-    """), {'day': day, 'next': day + timedelta(days=1)}).scalar() is not None
+    """), {'day': day}).scalar() is not None
 
 
 def generate(first, now=None):
@@ -189,7 +189,7 @@ def run_due(now=None):
     first, _ = sticky_notes.previous_month(today)
     done = []
     if not _exists(first):
-        if today.day < STOP_WAITING_DAY and not _notes_copied_on(today):
+        if not _notes_copied_since(today.replace(day=GENERATE_FROM_DAY)):
             db.session.rollback()
             return None
         generate(first, now)

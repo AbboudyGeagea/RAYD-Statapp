@@ -134,18 +134,30 @@ def test_it_waits_for_that_mornings_note_copy(app, sql):
     assert kept(app)[0]['report_month'] == OCT_1
 
 
-def test_a_copy_from_another_day_does_not_count(app, sql):
+def test_a_copy_from_before_the_second_does_not_count(app, sql):
     er_case(sql)
     notes_copied(sql, datetime(2026, 11, 1))
+    notes_copied(sql, datetime(2026, 10, 20))
 
     assert run_due(app, NOV_2_MORNING) is None
 
 
-def test_it_stops_waiting_on_the_fifth(app, sql):
+def test_with_the_etl_failing_it_keeps_waiting_and_freezes_nothing(app, sql):
+    # The note copy failing for days must not produce a month kept from stale data.
     er_case(sql)
+    sql("""INSERT INTO etl_job_log (job_name, status, start_time, records_processed)
+           VALUES ('STICKY_NOTES_ETL', 'FAILED', :t, 0)""", t=datetime(2026, 11, 3, 5, 0))
 
-    assert run_due(app, datetime(2026, 11, 4, 8, 0)) is None
-    assert run_due(app, datetime(2026, 11, 5, 8, 0)) == 'October 2026: generated'
+    for day in range(2, 29):
+        assert run_due(app, datetime(2026, 11, day, 8, 0)) is None
+    assert kept(app) == []
+
+
+def test_a_copy_later_in_the_month_still_counts(app, sql):
+    er_case(sql)
+    notes_copied(sql, datetime(2026, 11, 7))
+
+    assert run_due(app, datetime(2026, 11, 7, 9, 0)) == 'October 2026: generated'
 
 
 def test_demo_mode_generates_nothing(app, sql):
