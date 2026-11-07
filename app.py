@@ -958,6 +958,33 @@ def create_app():
         coalesce=True,
     )
 
+    def sticky_notes_monthly_job():
+        # The JCI urgent emergent report of the preceding month, kept and emailed once
+        # (utils/sticky_notes_monthly.py). Hourly because the ETL it waits for has no fixed
+        # end, and a no-op most of the time. People read it, so it counts RH only.
+        with app.app_context():
+            try:
+                from utils.rh_scope import rh_scope
+                from utils.sticky_notes_monthly import run_due as run_sticky_monthly
+                with rh_scope():
+                    done = run_sticky_monthly()
+                if done:
+                    logger.info(f"[Sticky Notes] monthly report: {done}")
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"🛑 [Sticky Notes] monthly report failed: {e}", exc_info=True)
+
+    scheduler.add_job(
+        func=sticky_notes_monthly_job,
+        trigger='interval',
+        hours=1,
+        id='sticky_notes_monthly',
+        name='Sticky Notes monthly JCI report (hourly check)',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Only start scheduler and HL7 listener when running as server, not manual ETL
     # (manual_mode computed earlier — see STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY)
     if not manual_mode:

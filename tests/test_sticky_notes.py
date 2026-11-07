@@ -35,6 +35,7 @@ def sql(app):
     run("DELETE FROM etl_sticky_notes")
     run("DELETE FROM study_access_history")
     run("DELETE FROM std_ordering_organizations")
+    run("DELETE FROM physician_alias_map")
     run("""INSERT INTO aetitle_modality_map (aetitle, modality, site_id)
            VALUES ('CT_T', 'CT', (SELECT id FROM sites WHERE is_default LIMIT 1)),
                   ('MR_T', 'MR', (SELECT id FROM sites WHERE is_default LIMIT 1)),
@@ -43,6 +44,7 @@ def sql(app):
     run("DELETE FROM etl_sticky_notes")
     run("DELETE FROM study_access_history")
     run("DELETE FROM std_ordering_organizations")
+    run("DELETE FROM physician_alias_map")
 
 
 def study(sql, uid, location='ER', full=None, ae='CT_T', site_label='0', arrived=None):
@@ -108,8 +110,8 @@ def test_only_an_admin_sees_and_changes_the_settings(client, sql):
 
 def test_page_states_what_the_clock_really_is(client, sql):
     page = client.get('/sticky-notes', headers=VIEWER).get_data(as_text=True)
-    assert 'Images reach PACS to first sticky note' in page
-    assert 'cannot yet time from the resident opening the images' in page
+    assert 'images reach pacs to first sticky note' in page.lower()
+    assert 'PACS keeps only the latest open' in page
     assert 'cannot show who received a note' in page
 
 
@@ -237,37 +239,108 @@ def test_exam_done_and_first_signature_across_report_versions(client, sql):
     assert load(client)['kpi']['median_exam_to_sign'] == 120
 
 
-# ── open seen ─────────────────────────────────────────────────────────────────
+# ── first open ────────────────────────────────────────────────────────────────
 
 def history(sql, uid, captured_minutes, access_minutes, login):
     sql("""INSERT INTO study_access_history (study_db_uid, captured_at, last_accessed_time, rep_last_accessed_by)
-           VALUES (:u, :c, :a, :l)""", u=uid, c=m(captured_minutes), a=m(access_minutes), l=login)
+           VALUES (:u, :c, :a, :l)""",
+        u=uid, c=m(captured_minutes), a=m(access_minutes) if access_minutes is not None else None, l=login)
 
 
-def test_open_seen_is_the_authors_open_before_the_note_in_the_next_copy(client, sql):
+def test_first_open_is_the_earliest_copy_and_shows_whoever_opened_it(client, sql):
     study(sql, 1)
-    note(sql, 1, 30)
-    history(sql, 1, -60, -70, 'someone.else@ad')    # a copy from before the note
-    history(sql, 1, 600, 10, 'RES.ONE@AD')          # the next copy; case of the login differs
-    history(sql, 1, 2000, 1900, 'someone.else@ad')  # a later reopening, overwritten by then
+    note(sql, 1, 30, author='res.one@ad')
+    history(sql, 1, 600, 10, 'rad.two@ad')              # someone other than the note's author
+    history(sql, 1, 2000, 1900, 'res.one@ad')           # a later reopening
 
     data = load(client)
     case = data['cases'][0]
 
+    assert case['open_at'] == m(10).strftime('%Y-%m-%d %H:%M')
+    assert case['opened_by_login'] == 'rad.two@ad'
+    assert case['opened_by'] == 'Rad Two'
     assert case['minutes_open_to_note'] == 20
     assert data['kpi']['open_seen'] == 1
 
 
-@pytest.mark.parametrize('access_minutes, login', [(10, 'someone.else@ad'), (40, 'res.one@ad')])
-def test_open_not_seen_when_another_login_or_after_the_note(client, sql, access_minutes, login):
+def test_a_study_with_no_note_still_shows_its_first_open(client, sql):
     study(sql, 1)
-    note(sql, 1, 30)
-    history(sql, 1, 600, access_minutes, login)
+    history(sql, 1, 600, 10, 'res.one@ad')
 
     case = load(client)['cases'][0]
 
+    assert case['open_at'] == m(10).strftime('%Y-%m-%d %H:%M')
+    assert case['outcome'] == 'no_note'
+
+
+def test_an_open_after_the_note_is_not_passed_off_as_the_first(client, sql):
+    study(sql, 1)
+    note(sql, 1, 30)
+    history(sql, 1, 600, 40, 'rad.two@ad')
+
+    data = load(client)
+    case = data['cases'][0]
+
     assert case['open_at'] is None
-    assert case['minutes_open_to_note'] is None
+    assert case['opened_by'] is None
+    assert case['open_overwritten'] is True
+    assert data['kpi']['open_seen'] == 0
+    assert data['kpi']['open_overwritten'] == 1
+
+
+def test_a_copy_with_no_login_or_no_time_is_not_an_open(client, sql):
+    study(sql, 1)
+    history(sql, 1, 100, 5, None)
+    history(sql, 1, 200, None, 'res.one@ad')
+
+    assert load(client)['cases'][0]['open_at'] is None
+
+
+# ── names and the patient ─────────────────────────────────────────────────────
+
+def test_patient_id_is_on_the_page_and_in_the_export(client, sql):
+    study(sql, 1)
+    sql("INSERT INTO etl_patient_view (patient_db_uid, fallback_id) VALUES (1, 'MRN00123')")
+
+    assert load(client)['cases'][0]['patient_id'] == 'MRN00123'
+    body = client.get('/sticky-notes/export.csv', headers=ADMIN, query_string=PERIOD).get_data(as_text=True)
+    assert 'Patient ID,Accession' in body
+    assert 'MRN00123,100501' in body
+
+
+@pytest.mark.parametrize('login, alias, expected', [
+    ('first.last@ad', None, 'First Last'),
+    ('first.middle.last@ad', None, 'First Middle Last'),
+    ('TRAD@AD', None, 'TRAD'),
+    ('first.last@ad', 'Dr First Last', 'Dr First Last'),
+    (None, None, None),
+])
+def test_person_name(login, alias, expected):
+    from utils.sticky_notes import person_name
+    assert person_name(alias, login) == expected
+
+
+def test_a_curated_name_is_used_when_there_is_one(client, sql):
+    sql("INSERT INTO physician_alias_map (alias, canonical_name) VALUES ('res.one@ad', 'Dr Resident One')")
+    study(sql, 1)
+    note(sql, 1, 30)
+    history(sql, 1, 600, 10, 'res.one@ad')
+
+    case = load(client)['cases'][0]
+
+    assert (case['note_by'], case['opened_by']) == ('Dr Resident One', 'Dr Resident One')
+    assert case['note_author'] == 'res.one@ad'
+
+
+def test_the_period_starts_on_the_preceding_month(client, sql):
+    from datetime import date
+    from utils.sticky_notes import previous_month
+    assert previous_month(date(2026, 11, 7)) == (date(2026, 10, 1), date(2026, 10, 31))
+    assert previous_month(date(2027, 1, 1)) == (date(2026, 12, 1), date(2026, 12, 31))
+    assert previous_month(date(2028, 3, 31)) == (date(2028, 2, 1), date(2028, 2, 29))
+    first, last = previous_month()
+    page = client.get('/sticky-notes', headers=VIEWER).get_data(as_text=True)
+    assert f'value="{first.isoformat()}"' in page and f'value="{last.isoformat()}"' in page
 
 
 # ── the limit and the outcomes ────────────────────────────────────────────────

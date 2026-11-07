@@ -65,7 +65,7 @@
                     <span class="badge-jci">JCI</span>
                     <h1 class="text-2xl font-black text-white tracking-tight">Sticky Notes: Urgent Reads</h1>
                 </div>
-                <p class="text-slate-400 text-sm">How long urgent ER and inpatient cases wait for the resident's sticky note, and which have none.</p>
+                <p class="text-slate-400 text-sm">All urgent emergent exams in the period: when each was first opened, when the sticky note was inserted, and by whom. Data is one day old.</p>
             </div>
             <div class="flex flex-wrap items-center gap-3">
                 <input id="start-input" type="date" value="{{ default_start }}" class="field" aria-label="From">
@@ -77,9 +77,8 @@
         </div>
 
         <div class="card p-4 mb-6 text-xs text-slate-400 leading-relaxed">
-            <p><i class="bi bi-info-circle mr-1" style="color:#fbbf24;"></i><strong class="text-white">Clock: {{ clock_label }}.</strong>
-               PACS keeps no history of who first opened a study that RAYD can read, so this page cannot yet time from the resident opening the images.</p>
-            <p class="mt-1">{{ open_seen_note }} PACS cannot show who received a note, so this page shows who wrote it and who signed next.</p>
+            <p><i class="bi bi-info-circle mr-1" style="color:#fbbf24;"></i><strong class="text-white">First open:</strong> {{ open_seen_note }}</p>
+            <p class="mt-1"><strong class="text-white">Limit:</strong> it runs on {{ clock_label|lower }}. PACS cannot show who received a note, so this page shows who wrote it and who signed next.</p>
         </div>
 
         <div id="loading" class="text-center py-20 text-slate-500 text-sm font-bold uppercase tracking-widest">
@@ -116,14 +115,15 @@
                     <table class="w-full text-left text-sm">
                         <thead>
                             <tr class="border-b border-[#28332e] text-[#fbbf24] text-[10px] uppercase tracking-widest font-black">
+                                <th class="pb-3 pr-4">Patient ID</th>
                                 <th class="pb-3 pr-4">Accession</th>
-                                <th class="pb-3 pr-4">Images reached PACS</th>
                                 <th class="pb-3 pr-4">Modality</th>
                                 <th class="pb-3 pr-4">Department</th>
-                                <th class="pb-3 pr-4">Note written</th>
-                                <th class="pb-3 pr-4">To note</th>
-                                <th class="pb-3 pr-4">Note author</th>
-                                <th class="pb-3 pr-4">Open seen</th>
+                                <th class="pb-3 pr-4">First open seen</th>
+                                <th class="pb-3 pr-4">Opened by</th>
+                                <th class="pb-3 pr-4">Sticky note inserted</th>
+                                <th class="pb-3 pr-4">Note by</th>
+                                <th class="pb-3 pr-4">Images to note</th>
                                 <th class="pb-3 pr-4">First signature</th>
                                 <th class="pb-3 pr-4">Signed by</th>
                                 <th class="pb-3 pr-4">Outcome</th>
@@ -132,6 +132,23 @@
                         <tbody id="cases-body" class="divide-y divide-[#28332e]"></tbody>
                     </table>
                 </div>
+            </div>
+
+            <div class="card p-5">
+                <p class="section-title"><i class="bi bi-calendar-month mr-1"></i>Monthly reports</p>
+                <p class="text-xs text-slate-400 mb-3">Each month is generated on the 2nd and kept as it was then, so it does not change later.</p>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm" id="monthly-table"></table>
+                </div>
+                {% if is_admin %}
+                <div class="flex flex-wrap items-center gap-3 mt-4">
+                    <label for="month-input" class="text-xs font-bold text-slate-400">Generate a finished month now, or again</label>
+                    <input id="month-input" type="month" class="field">
+                    <button onclick="generateMonth()" class="btn-soft">Generate</button>
+                    <span id="month-msg" class="text-xs" role="status"></span>
+                </div>
+                <p class="text-xs text-slate-500 mt-2">Generating a month again replaces its kept copy and emails it again. Do this after changing the urgent departments or the limit.</p>
+                {% endif %}
             </div>
 
             {% if is_admin %}
@@ -146,6 +163,11 @@
                     <span id="settings-msg" class="text-xs" role="status"></span>
                 </div>
                 <p class="text-xs text-slate-500 mt-2">Cases show within or over the limit only once a limit is set.</p>
+                <div class="mt-4">
+                    <label for="recipients-input" class="text-xs font-bold text-slate-400 block mb-1">Email the monthly report to (separate addresses with commas)</label>
+                    <input id="recipients-input" type="text" class="field w-full" placeholder="name@laumc.com">
+                    <p id="mail-status" class="text-xs text-slate-500 mt-1"></p>
+                </div>
             </div>
             {% endif %}
         </div>
@@ -195,6 +217,7 @@ async function loadData() {
     renderBreakdown('dept-table', d.by_department, 'department', 'Department');
     renderBreakdown('mod-table', d.by_modality, 'modality', 'Modality');
     renderCases(d);
+    renderMonthly(d);
     {% if is_admin %}renderSettings(d);{% endif %}
 }
 
@@ -232,7 +255,7 @@ function renderKpis(d) {
             ? kpi('Over the limit', k.over, `${k.within} of ${judged} noted cases within ${d.limit_minutes} min`, k.over ? 'red' : 'green')
             : kpi('Over the limit', '—', 'no limit set'),
         kpi('Exam done to signature', fmtTime(k.median_exam_to_sign), `median of ${k.exam_to_sign_cases} cases`),
-        kpi('Open seen to note', fmtTime(k.median_open_to_note), `median, caught on ${k.open_seen} of ${k.noted} notes`),
+        kpi('First open seen', `${k.open_seen} of ${k.cases}`, `median ${fmtTime(k.median_open_to_note)} to note · ${k.open_overwritten} reopened after the note`),
     ].join('');
 }
 
@@ -264,19 +287,44 @@ function renderCases(d) {
     document.getElementById('cases-body').innerHTML = d.cases.map(c => {
         const [label, tone] = OUTCOMES[c.outcome];
         const role = ROLES[c.author_role] ? ` <span class="text-slate-500">${ROLES[c.author_role]}</span>` : '';
+        const open = c.open_overwritten
+            ? '<span class="text-slate-500" title="Reopened after the note, so PACS no longer has the first open">Not kept</span>'
+            : (esc(c.open_at) || '—');
         return `<tr>
+            <td class="py-2 pr-4 whitespace-nowrap">${esc(c.patient_id) || '—'}</td>
             <td class="py-2 pr-4 font-bold text-white">${esc(c.accession)}</td>
-            <td class="py-2 pr-4 whitespace-nowrap">${esc(c.arrived_at)}</td>
             <td class="py-2 pr-4">${esc(c.modality)}</td>
             <td class="py-2 pr-4">${esc(c.department)}</td>
+            <td class="py-2 pr-4 whitespace-nowrap">${open}</td>
+            <td class="py-2 pr-4" title="${esc(c.opened_by_login)}">${esc(c.opened_by) || '—'}</td>
             <td class="py-2 pr-4 whitespace-nowrap">${esc(c.note_at) || '—'}</td>
+            <td class="py-2 pr-4" title="${esc(c.note_author)}">${esc(c.note_by) || '—'}${role}</td>
             <td class="py-2 pr-4 whitespace-nowrap">${fmtTime(c.minutes_to_note)}</td>
-            <td class="py-2 pr-4">${esc(c.note_author) || '—'}${role}</td>
-            <td class="py-2 pr-4 whitespace-nowrap">${esc(c.open_at) || '—'}</td>
             <td class="py-2 pr-4 whitespace-nowrap">${esc(c.signed_at) || '—'}</td>
             <td class="py-2 pr-4">${esc(c.signed_by) || '—'}</td>
             <td class="py-2 pr-4"><span class="pill ${tone}">${label}</span></td></tr>`;
-    }).join('') || '<tr><td colspan="11" class="py-6 text-center text-slate-500">No urgent cases match these filters.</td></tr>';
+    }).join('') || '<tr><td colspan="12" class="py-6 text-center text-slate-500">No urgent cases match these filters.</td></tr>';
+}
+
+function renderMonthly(d) {
+    const head = `<thead><tr class="border-b border-[#28332e] text-[#fbbf24] text-[10px] uppercase tracking-widest font-black">
+        <th class="pb-3 pr-4">Month</th><th class="pb-3 pr-4">Generated</th><th class="pb-3 pr-4">Cases</th>
+        <th class="pb-3 pr-4">With a note</th><th class="pb-3 pr-4">First open seen</th><th class="pb-3 pr-4">Emailed</th>
+        <th class="pb-3 pr-4"></th></tr></thead>`;
+    const rows = d.monthly_reports.map(r => {
+        const mailed = r.emailed_at ? `${esc(r.emailed_at)} to ${esc(r.emailed_to.join(', '))}` : 'Not emailed';
+        const problem = r.email_error ? `<span class="text-rose-400 block">${esc(r.email_error)}</span>` : '';
+        return `<tr class="border-b border-[#28332e]">
+            <td class="py-2 pr-4 font-bold text-white">${esc(r.label)}</td>
+            <td class="py-2 pr-4 whitespace-nowrap">${esc(r.generated_at)}</td>
+            <td class="py-2 pr-4">${r.cases}</td>
+            <td class="py-2 pr-4">${r.noted}</td>
+            <td class="py-2 pr-4">${r.open_seen}</td>
+            <td class="py-2 pr-4">${mailed}${problem}</td>
+            <td class="py-2 pr-4"><a href="/sticky-notes/monthly/${esc(r.month)}.xlsx" class="text-[#fbbf24] font-bold whitespace-nowrap"><i class="bi bi-download mr-1"></i>Excel</a></td></tr>`;
+    }).join('');
+    document.getElementById('monthly-table').innerHTML = head + `<tbody>${rows ||
+        '<tr><td colspan="7" class="py-4 text-center text-slate-500">No monthly report yet. The first is made on the 2nd of the month, after the morning ETL.</td></tr>'}</tbody>`;
 }
 
 {% if is_admin %}
@@ -289,6 +337,29 @@ function renderSettings(d) {
             ${esc(o.name)} <span class="text-slate-500" style="font-weight:400;">${o.count}</span></label>`).join('')
         || '<span class="text-xs text-slate-500">No departments found yet. They appear after the nightly ETL.</span>';
     document.getElementById('limit-input').value = d.limit_minutes || '';
+    document.getElementById('recipients-input').value = d.monthly_recipients.join(', ');
+    document.getElementById('mail-status').textContent = d.mail_ready
+        ? 'The mail server is set, so the report is emailed when it is generated.'
+        : 'The mail server is not set yet (Report Composer > Scheduled emails), so reports are kept here for download and nothing is emailed.';
+}
+
+async function generateMonth() {
+    const msg = document.getElementById('month-msg');
+    msg.textContent = 'Generating…';
+    msg.className = 'text-xs text-slate-400';
+    const r = await fetch(`{{ url_for('sticky_notes.monthly_generate') }}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: document.getElementById('month-input').value }),
+    });
+    const d = await r.json().catch(() => ({ message: 'Could not generate.' }));
+    if (r.ok) {
+        msg.textContent = `Done: ${d.cases} cases${d.emailed ? ', emailed' : ''}.`;
+        msg.className = 'text-xs text-emerald-400';
+        loadData();
+    } else {
+        msg.textContent = d.message || 'Could not generate.';
+        msg.className = 'text-xs text-rose-400';
+    }
 }
 
 async function saveSettings() {
@@ -296,7 +367,11 @@ async function saveSettings() {
     const departments = [...document.querySelectorAll('#dept-options input:checked')].map(b => b.dataset.department);
     const r = await fetch(`{{ url_for('sticky_notes.save_settings') }}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ departments, limit_minutes: document.getElementById('limit-input').value }),
+        body: JSON.stringify({
+            departments,
+            limit_minutes: document.getElementById('limit-input').value,
+            recipients: document.getElementById('recipients-input').value,
+        }),
     });
     const d = await r.json().catch(() => ({ message: 'Could not save.' }));
     if (r.ok) {
