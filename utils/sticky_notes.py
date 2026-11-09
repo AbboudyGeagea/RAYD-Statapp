@@ -13,8 +13,11 @@ FIRST OPEN IS NOT FULLY AVAILABLE. PACS keeps only the latest open and overwrite
 history of opens is readable by RAYD. "First open seen" is the earliest open a nightly copy
 caught that has a login: the last open before that copy, so a study opened twice the same day
 shows the second. It stays blank when that open came after the note, because then the true
-first open is known to be gone. Its time is LAST_ACCESS_TIME, because closing a study moves
-STUDY_LOCK_TIME and leaves that one alone. Nothing exists from before the copy began.
+first open is known to be gone. It also stays blank when the copy that caught it came more than
+36 hours after the study was last seen unopened, or arrived: the first copy (8 November 2026)
+reached back 10 days, so it caught late October opens days late, and a missed night would do
+the same. Its time is LAST_ACCESS_TIME, because closing a study moves STUDY_LOCK_TIME and
+leaves that one alone. Nothing exists from before the copy began.
 
 NAMES. PACS records logins. A name comes from physician_alias_map, as in the other reports,
 otherwise from the login itself (first.last@ad becomes First Last), and the login stays
@@ -52,10 +55,15 @@ UNKNOWN_DEPARTMENT = 'Department unknown'
 TITLE = 'Urgent emergent radiology exams: first open and sticky note'
 CLOCK_LABEL = 'Images reach PACS to first sticky note'
 OPEN_SEEN_NOTE = ('First open seen is the earliest open a nightly copy caught. PACS keeps only the '
-                  'latest open, so a study opened again the same day shows the later open, and it '
-                  'is blank when the study was reopened after the note. It cannot be earlier than '
-                  'the day the copy began.')
+                  'latest open, so a study opened again the same day shows the later open. It is '
+                  'blank when the study was reopened after the note, and when the copy that caught '
+                  'it came more than 36 hours after the study was last seen unopened (or arrived), '
+                  'which covers studies from before the copy began and nights it did not run.')
+OPEN_CAUGHT_WITHIN = timedelta(hours=36)
 OUTCOMES = {'within': 'Within limit', 'over': 'Over limit', 'no_note': 'No note', 'noted': 'Noted'}
+OPEN_BLANK_REASONS = {'late': 'Caught over 36 h after last seen unopened',
+                      'overwritten': 'Reopened after the note',
+                      'none': 'No open caught'}
 
 # The customer's fields first, in their order, then what the operator added.
 COLUMNS = (
@@ -66,6 +74,7 @@ COLUMNS = (
     ('First open seen', 'open_at'),
     ('Opened by', 'opened_by'),
     ('Opened by login', 'opened_by_login'),
+    ('First open blank because', 'open_blank_reason'),
     ('Sticky note inserted', 'note_at'),
     ('Note by', 'note_by'),
     ('Note by login', 'note_author'),
@@ -115,6 +124,8 @@ SELECT c.accession_number, c.insert_time AS arrived_at, c.modality, c.department
        n.user_name AS note_author, n.date_created AS note_at, rl.role AS author_role,
        note_name.canonical_name AS note_alias,
        h.last_accessed_time AS open_at, h.rep_last_accessed_by AS opened_by_login,
+       h.captured_at AS open_caught_at,
+       GREATEST(c.insert_time, h.previous_copy_at) AS open_unwatched_since,
        open_name.canonical_name AS open_alias,
        x.exam_done_at, sig.signed_at, sig.signed_by
 FROM candidates c
@@ -132,7 +143,9 @@ LEFT JOIN role_lookup rl ON rl.login_id = UPPER(SPLIT_PART(n.user_name, '@', 1))
 LEFT JOIN physician_alias_map note_name
        ON note_name.dismissed = false AND note_name.alias = n.user_name
 LEFT JOIN LATERAL (
-    SELECT a.last_accessed_time, a.rep_last_accessed_by
+    SELECT a.last_accessed_time, a.rep_last_accessed_by, a.captured_at,
+           (SELECT MAX(b.captured_at) FROM study_access_history b
+             WHERE b.study_db_uid = a.study_db_uid AND b.captured_at < a.captured_at) AS previous_copy_at
     FROM study_access_history a
     WHERE a.study_db_uid = c.study_db_uid
       AND a.last_accessed_time IS NOT NULL
@@ -250,6 +263,16 @@ def _minutes(earlier, later):
     return round(max((later - earlier).total_seconds(), 0) / 60, 1)
 
 
+def _caught_late(row):
+    """The copy that caught the open came too long after the study was last seen unopened
+    (its previous copy, or its arrival when it had none): more than one night unwatched, so
+    an earlier open may have been overwritten. The first copy reached back 10 days, and a
+    night can be missed; 36 hours allows a late run, not a skipped one."""
+    if row['open_at'] is None or row['open_caught_at'] is None or row['open_unwatched_since'] is None:
+        return False
+    return row['open_caught_at'] - row['open_unwatched_since'] > OPEN_CAUGHT_WITHIN
+
+
 def _shape_case(row, limit):
     minutes = _minutes(row['arrived_at'], row['note_at'])
     if row['note_at'] is None:
@@ -259,16 +282,20 @@ def _shape_case(row, limit):
     else:
         outcome = 'within' if minutes <= limit else 'over'
 
+    late = _caught_late(row)
     # An open after the note cannot be the first: whoever wrote it had the study open earlier.
-    overwritten = row['open_at'] is not None and row['note_at'] is not None and row['open_at'] > row['note_at']
-    open_at = None if overwritten else row['open_at']
-    open_login = None if overwritten else row['opened_by_login']
+    overwritten = (not late and row['open_at'] is not None and row['note_at'] is not None
+                   and row['open_at'] > row['note_at'])
+    hidden = late or overwritten
+    open_at = None if hidden else row['open_at']
+    open_login = None if hidden else row['opened_by_login']
     return {
         **row,
         'open_at': open_at,
         'opened_by_login': open_login,
         'opened_by': person_name(row['open_alias'], open_login),
         'open_overwritten': overwritten,
+        'open_caught_late': late,
         'note_by': person_name(row['note_alias'], row['note_author']),
         'minutes_to_note': minutes,
         'minutes_open_to_note': _minutes(open_at, row['note_at']),
@@ -375,6 +402,7 @@ def build(start, end, unticked=frozenset()):
     kpi.update({
         'open_seen': sum(c['open_at'] is not None for c in kept),
         'open_overwritten': sum(c['open_overwritten'] for c in kept),
+        'open_caught_late': sum(c['open_caught_late'] for c in kept),
         'median_open_to_note': _median(open_gaps),
         'exam_to_sign_cases': sum(g is not None for g in sign_gaps),
         'median_exam_to_sign': _median(sign_gaps),
@@ -397,6 +425,16 @@ def _when(value):
     return value.strftime('%Y-%m-%d %H:%M') if isinstance(value, datetime) else None
 
 
+def _open_blank_reason(case):
+    if case['open_at'] is not None:
+        return None
+    if case['open_caught_late']:
+        return OPEN_BLANK_REASONS['late']
+    if case['open_overwritten']:
+        return OPEN_BLANK_REASONS['overwritten']
+    return OPEN_BLANK_REASONS['none']
+
+
 def case_row(case):
     """One case as the page, the CSV and the workbook show it."""
     return {
@@ -407,6 +445,7 @@ def case_row(case):
         'note_by': case['note_by'], 'note_author': case['note_author'], 'author_role': case['author_role'],
         'open_at': _when(case['open_at']), 'opened_by': case['opened_by'],
         'opened_by_login': case['opened_by_login'], 'open_overwritten': case['open_overwritten'],
+        'open_caught_late': case['open_caught_late'], 'open_blank_reason': _open_blank_reason(case),
         'minutes_open_to_note': case['minutes_open_to_note'],
         'exam_done_at': _when(case['exam_done_at']), 'signed_at': _when(case['signed_at']),
         'signed_by': case['signed_by'], 'minutes_exam_to_sign': case['minutes_exam_to_sign'],

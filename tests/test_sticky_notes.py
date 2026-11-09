@@ -296,6 +296,66 @@ def test_a_copy_with_no_login_or_no_time_is_not_an_open(client, sql):
     assert load(client)['cases'][0]['open_at'] is None
 
 
+HOUR = 60
+
+
+def test_an_open_caught_days_after_arrival_is_not_passed_off_as_the_first(client, sql):
+    """What happened to 29-31 October 2026: the first nightly copy reached back 10 days, so
+    its open is the latest one PACS kept by then, not the first."""
+    study(sql, 1)
+    history(sql, 1, 9 * 24 * HOUR, 8 * 24 * HOUR, 'rad.two@ad')
+
+    data = load(client)
+    case = data['cases'][0]
+
+    assert case['open_at'] is None and case['opened_by'] is None
+    assert case['open_caught_late'] is True and case['open_overwritten'] is False
+    assert case['open_blank_reason'] == 'Caught over 36 h after last seen unopened'
+    assert data['kpi']['open_seen'] == 0
+    assert data['kpi']['open_caught_late'] == 1
+
+
+def test_an_open_caught_the_night_after_an_unopened_copy_is_still_the_first(client, sql):
+    """Nobody had opened it by the first copy, so the open the next copy caught is the first,
+    though it came 44 hours after the images."""
+    study(sql, 1)
+    history(sql, 1, 20 * HOUR, None, None)
+    history(sql, 1, 44 * HOUR, 30 * HOUR, 'res.one@ad')
+
+    case = load(client)['cases'][0]
+
+    assert case['open_at'] == m(30 * HOUR).strftime('%Y-%m-%d %H:%M')
+    assert case['opened_by_login'] == 'res.one@ad'
+    assert case['open_caught_late'] is False and case['open_blank_reason'] is None
+
+
+def test_a_missed_night_blanks_the_open_it_finally_caught(client, sql):
+    study(sql, 1)
+    history(sql, 1, 20 * HOUR, None, None)
+    history(sql, 1, 68 * HOUR, 50 * HOUR, 'res.one@ad')    # 48 hours after the last copy
+
+    case = load(client)['cases'][0]
+
+    assert case['open_at'] is None and case['open_caught_late'] is True
+
+
+def test_the_export_says_why_a_first_open_is_blank(client, sql):
+    study(sql, 1)
+    history(sql, 1, 9 * 24 * HOUR, 8 * 24 * HOUR, 'rad.two@ad')
+    study(sql, 2)
+    note(sql, 2, 30)
+    history(sql, 2, 600, 40, 'rad.two@ad')
+    study(sql, 3)
+
+    body = client.get('/sticky-notes/export.csv', headers=ADMIN, query_string=PERIOD).get_data(as_text=True)
+    lines = {line.split(',')[1]: line for line in body.splitlines() if line.count(',') > 5}
+
+    assert 'First open blank because' in lines['Accession']
+    assert 'Caught over 36 h after last seen unopened' in lines['100501']
+    assert 'Reopened after the note' in lines['100502']
+    assert 'No open caught' in lines['100503']
+
+
 # ── names and the patient ─────────────────────────────────────────────────────
 
 def test_patient_id_is_on_the_page_and_in_the_export(client, sql):

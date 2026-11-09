@@ -37,8 +37,10 @@ routes/
                                    permission `sticky_notes`), worked out in utils/sticky_notes.py,
                                    whose docstring holds the customer's request. Reads Postgres
                                    only, a day late. PACS keeps no history of opens RAYD can read,
-                                   so "first open seen" is the earliest open a nightly copy caught,
-                                   and only the ETL may read the PACS server, so never poll it.
+                                   so "first open seen" is the earliest open a nightly copy caught
+                                   (blank if caught over 36 h after the study was last seen
+                                   unopened), and only the ETL may read the PACS server, so never
+                                   poll it.
                                    ETL_JOBS/etl_sticky_notes.py copies note times nightly; note
                                    text is never read. Its two tables are read through a study, so
                                    no rh view. utils/sticky_notes_monthly.py keeps each month's
