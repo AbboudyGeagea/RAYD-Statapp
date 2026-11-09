@@ -356,6 +356,51 @@ def test_the_export_says_why_a_first_open_is_blank(client, sql):
     assert 'No open caught' in lines['100503']
 
 
+def test_the_admin_buttons_only_report_what_the_server_confirmed(client, sql):
+    """An expired session or page token is answered with a redirect to the login page, which
+    fetch follows and reports as 200: Generate said "Done: undefined cases." and saved
+    nothing (LAUMC, 2026-11-09). Runs the page's own postJson against stand-in answers."""
+    import re
+    import shutil
+    import subprocess
+    if not shutil.which('node'):
+        pytest.skip('node not installed')
+    page = client.get('/sticky-notes', headers=ADMIN).get_data(as_text=True)
+    helper = re.search(r'(const SESSION_EXPIRED = .*?\n)(async function postJson.*?\n\})', page, re.S)
+    assert helper, 'postJson is missing from the page'
+    script = helper.group(1) + helper.group(2) + """
+const answers = {
+    login: { ok: true, redirected: true, json: async () => { throw new Error('html'); } },
+    html: { ok: true, redirected: false, json: async () => { throw new Error('html'); } },
+    done: { ok: true, redirected: false, json: async () => ({ status: 'success', cases: 1430 }) },
+    refused: { ok: false, redirected: false, json: async () => ({ status: 'error', message: 'Only a finished month can be generated.' }) },
+};
+(async () => {
+    const out = {};
+    for (const [name, answer] of Object.entries(answers)) {
+        globalThis.fetch = async () => answer;
+        out[name] = await postJson('/x', {}, 'Could not generate.');
+    }
+    globalThis.fetch = async () => { throw new Error('offline'); };
+    out.offline = await postJson('/x', {}, 'Could not generate.');
+    console.log(JSON.stringify(out));
+})();
+"""
+    tmp = os.path.join(os.path.dirname(__file__), '_sticky_post_json.js')
+    try:
+        open(tmp, 'w', encoding='utf-8').write(script)
+        done = subprocess.run(['node', tmp], capture_output=True, text=True)
+    finally:
+        os.remove(tmp)
+    assert done.returncode == 0, done.stderr
+    out = json.loads(done.stdout)
+    assert out['login']['done'] is False and 'expired' in out['login']['message']
+    assert out['html']['done'] is False and 'expired' in out['html']['message']
+    assert out['done']['done'] is True and out['done']['cases'] == 1430
+    assert out['refused']['done'] is False and out['refused']['message'] == 'Only a finished month can be generated.'
+    assert out['offline']['done'] is False and out['offline']['message'] == 'Could not generate.'
+
+
 # ── names and the patient ─────────────────────────────────────────────────────
 
 def test_patient_id_is_on_the_page_and_in_the_export(client, sql):

@@ -138,7 +138,7 @@
                 {% if is_admin %}
                 <div class="flex flex-wrap items-center gap-3 mt-4">
                     <label for="month-input" class="text-xs font-bold text-slate-400">Generate a finished month now, or again</label>
-                    <input id="month-input" type="month" class="field">
+                    <input id="month-input" type="month" class="field" placeholder="YYYY-MM" pattern="\d{4}-\d{2}">
                     <button onclick="generateMonth()" class="btn-soft">Generate</button>
                     <span id="month-msg" class="text-xs" role="status"></span>
                 </div>
@@ -470,21 +470,41 @@ function renderSettings(d) {
         : 'The mail server is not set yet (Administration > Email Server), so reports are kept here for download and nothing is emailed.';
 }
 
+// An expired session or page token is answered with a redirect to the login page, which
+// fetch follows and reports as 200. Only the server's own "success" counts as done.
+const SESSION_EXPIRED = 'Not done: your session or this page expired. Reload the page, sign in if asked, and try again.';
+async function postJson(url, body, failure) {
+    try {
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = r.redirected ? null : await r.json().catch(() => null);
+        if (!d) return { done: false, message: SESSION_EXPIRED };
+        return { ...d, done: r.ok && d.status === 'success', message: d.message || failure };
+    } catch (e) {
+        return { done: false, message: failure };
+    }
+}
+
+// Last month, the one an admin regenerates; also a text box in browsers with no month picker.
+(() => {
+    const box = document.getElementById('month-input');
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - 1);
+    if (box && !box.value) box.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+})();
+
 async function generateMonth() {
     const msg = document.getElementById('month-msg');
     msg.textContent = 'Generating…';
     msg.className = 'text-xs text-slate-400';
-    const r = await fetch(`{{ url_for('sticky_notes.monthly_generate') }}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ month: document.getElementById('month-input').value }),
-    });
-    const d = await r.json().catch(() => ({ message: 'Could not generate.' }));
-    if (r.ok) {
+    const d = await postJson(`{{ url_for('sticky_notes.monthly_generate') }}`,
+        { month: document.getElementById('month-input').value }, 'Could not generate.');
+    if (d.done) {
         msg.textContent = `Done: ${d.cases} cases${d.emailed ? ', emailed' : ''}.`;
         msg.className = 'text-xs text-emerald-400';
         loadData();
     } else {
-        msg.textContent = d.message || 'Could not generate.';
+        msg.textContent = d.message;
         msg.className = 'text-xs text-rose-400';
     }
 }
@@ -492,21 +512,17 @@ async function generateMonth() {
 async function saveSettings() {
     const msg = document.getElementById('settings-msg');
     const departments = [...document.querySelectorAll('#dept-options input:checked')].map(b => b.dataset.department);
-    const r = await fetch(`{{ url_for('sticky_notes.save_settings') }}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            departments,
-            limit_minutes: document.getElementById('limit-input').value,
-            recipients: document.getElementById('recipients-input').value,
-        }),
-    });
-    const d = await r.json().catch(() => ({ message: 'Could not save.' }));
-    if (r.ok) {
+    const d = await postJson(`{{ url_for('sticky_notes.save_settings') }}`, {
+        departments,
+        limit_minutes: document.getElementById('limit-input').value,
+        recipients: document.getElementById('recipients-input').value,
+    }, 'Could not save.');
+    if (d.done) {
         msg.textContent = 'Saved.';
         msg.className = 'text-xs text-emerald-400';
         loadData();
     } else {
-        msg.textContent = d.message || 'Could not save.';
+        msg.textContent = d.message;
         msg.className = 'text-xs text-rose-400';
     }
 }
