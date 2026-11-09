@@ -1,0 +1,77 @@
+{#
+  The left filter panel of a report: one panel for every report, not one per page (operator,
+  2026-11-09). Same look and behaviour as the panel Reports 25, 35 and 36 each copied: date
+  range, multi-select dropdowns each with an "Apply filter" tick, one button at the bottom,
+  which says Generate on every report. The form sends GET to the page's own address.
+
+      {% from '_report_filter_panel.html' import filter_panel_head, filter_panel %}
+      <head> ... {{ filter_panel_head() }} </head>
+      {% call filter_panel(start, end, filters) %} blocks under the button {% endcall %}
+
+  Each filter is a dict:
+      name      the query parameter of the chosen values (sent once per value)
+      toggle    the parameter of its "Apply filter" tick, as utils/report_filters reads them
+                (modality -> mod_enabled, patient_class -> class_enabled, ...)
+      label     what the panel says above it
+      values    [(value, text)] known when the page is drawn, or []
+      key       optional: filled from /api/filter-options like every report (_header.html)
+      selected  the values chosen now
+      enabled   whether the tick is on
+  A dropdown left empty can be filled by the page itself; data-selected keeps the choice.
+#}
+
+{% macro filter_panel_head() %}
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<style>
+    .rfp { background: #1a2420; border-right: 1px solid #28332e; }
+    .rfp-label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; display: block; }
+    .rfp-input { background: #181f1c; border: 1px solid #28332e; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12px; width: 100%; outline: none; transition: border 0.15s; }
+    .rfp-input:focus { border-color: #60a5fa; }
+    .rfp-tick { width: 1rem; height: 1rem; accent-color: #2563eb; }
+    .rfp-generate { width: 100%; background: #2563eb; color: #fff; padding: 1rem 0; border-radius: 1rem; font-weight: 900; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; box-shadow: 0 10px 20px rgba(0,0,0,0.25); transition: background 0.15s; }
+    .rfp-generate:hover { background: #3b82f6; }
+    .rfp-block { border-top: 1px solid #28332e; padding-top: 1.25rem; margin-top: 1.5rem; }
+    .rfp .select2-container--default .select2-selection--multiple { background: #181f1c !important; border: 1px solid #28332e !important; min-height: 45px !important; border-radius: 12px !important; }
+    .rfp .select2-container--default .select2-selection--multiple .select2-selection__choice { background: #232b28; border-color: #334155; color: #e2e8f0; }
+    body.light .rfp { background: #ffffff !important; border-color: #e2e8f0 !important; }
+    body.light .rfp-input { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1a202c !important; }
+    body.light .rfp .select2-container--default .select2-selection--multiple { background: #ffffff !important; border-color: #e2e8f0 !important; }
+    body.light .rfp .select2-container--default .select2-selection--multiple .select2-selection__choice { background: #f1f5f9; border-color: #cbd5e1; color: #1a202c; }
+    body.light .rfp-block { border-color: #e2e8f0; }
+</style>
+{% endmacro %}
+
+{% macro filter_panel(start, end, filters, button='Generate') %}
+<aside class="rfp w-64 p-5 flex flex-col overflow-y-auto flex-shrink-0" aria-label="Report filters">
+    <form id="mainForm" method="GET" class="space-y-6">
+        <div>
+            <label class="rfp-label" for="rfp-start">Date range</label>
+            <input type="date" id="rfp-start" name="start_date" value="{{ start }}" class="rfp-input mb-2" aria-label="From">
+            <input type="date" id="rfp-end" name="end_date" value="{{ end }}" class="rfp-input" aria-label="To">
+        </div>
+        {% for f in filters %}
+        <div>
+            <label class="rfp-label" for="rfp-{{ f.name }}">{{ f.label }}</label>
+            <select id="rfp-{{ f.name }}" name="{{ f.name }}" multiple class="select2-js w-full"
+                    {% if f.key %}data-filter-key="{{ f.key }}"{% endif %}
+                    data-selected="{{ f.selected | join('||') }}">
+                {% for value, text in f['values'] %}
+                <option value="{{ value }}" {% if value in f.selected %}selected{% endif %}>{{ text }}</option>
+                {% endfor %}
+            </select>
+            <label class="inline-flex items-center mt-2 cursor-pointer">
+                <input type="checkbox" name="{{ f.toggle }}" class="rfp-tick" {% if f.enabled %}checked{% endif %}>
+                <span class="ml-2 text-[10px] font-black text-zinc-500 uppercase">Apply filter</span>
+            </label>
+        </div>
+        {% endfor %}
+        <button type="submit" class="rfp-generate">{{ button }}</button>
+    </form>
+    {% if caller %}{{ caller() }}{% endif %}
+</aside>
+<script>
+    $(function () { $('.rfp .select2-js').select2({ width: '100%' }); });
+</script>
+{% endmacro %}

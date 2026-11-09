@@ -1,12 +1,13 @@
+{% from '_report_filter_panel.html' import filter_panel_head, filter_panel %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RAYD | Sticky Notes</title>
+    <title>RAYD | Urgent Emergent: First Open and Sticky Note</title>
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    {{ filter_panel_head() }}
     <style>
         :root { --accent:#fbbf24; }
         body  { font-family:'Inter',sans-serif; background:#181f1c; color:#e2e8f0; }
@@ -17,9 +18,6 @@
         .kpi-label { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; color:#64748b; margin-bottom:0.25rem; }
         .kpi-value { font-size:1.75rem; font-weight:900; color:#fff; line-height:1.2; }
         .kpi-sub   { font-size:10px; color:#64748b; margin-top:0.25rem; }
-        .sidebar-item { transition:all 0.2s; border-radius:0.75rem; margin-bottom:0.25rem; cursor:pointer; text-decoration:none!important; color:#94a3b8; }
-        .sidebar-item:hover { background:#1d2522; color:var(--accent)!important; }
-        .sidebar-item.active { background:#1d2522; color:var(--accent)!important; border-left:4px solid var(--accent); }
         .section-title { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.15em; color:var(--accent); margin-bottom:0.75rem; }
         .badge-jci { background:rgba(251,191,36,0.15); color:#fbbf24; border:1px solid rgba(251,191,36,0.3); font-size:9px; font-weight:900; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:0.08em; }
         th { white-space:nowrap; }
@@ -27,13 +25,14 @@
         .field { background:#1d2522; border:1px solid #28332e; border-radius:0.5rem; padding:0.375rem 0.75rem; font-size:12px; font-weight:700; color:#fff; }
         .field:focus { outline:none; border-color:var(--accent); }
         .btn-main { background:var(--accent); color:#181f1c; font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; border-radius:0.5rem; padding:0.375rem 1rem; }
-        .btn-soft { border:1px solid #28332e; color:#cbd5e1; font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; border-radius:0.5rem; padding:0.375rem 1rem; }
+        .btn-soft { border:1px solid #334155; color:#cbd5e1; font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; border-radius:0.5rem; padding:0.375rem 1rem; }
+        .month-row { background:#181f1c; border:1px solid #28332e; border-radius:0.75rem; padding:0.6rem 0.75rem; font-size:11px; color:#94a3b8; }
+        .month-row b { color:#fff; font-size:12px; }
+        .month-row a { color:var(--accent); font-weight:800; }
         /* Light mode */
         body.light { background:#f0f4f8; color:#1a202c; }
-        body.light aside, body.light header { background:#ffffff!important; border-color:#e2e8f0!important; }
+        body.light header { background:#ffffff!important; border-color:#e2e8f0!important; }
         body.light main { background:#f0f4f8!important; }
-        body.light .sidebar-item { color:#4a5568; }
-        body.light .sidebar-item:hover, body.light .sidebar-item.active { background:#e2e8f0!important; color:#c0392b!important; }
         body.light .card, body.light .kpi-card { background:#ffffff; border-color:#e2e8f0; }
         body.light .kpi-card.red   { background:#fff5f5; border-color:#fca5a5; }
         body.light .kpi-card.green { background:#f0fdf4; border-color:#86efac; }
@@ -43,7 +42,9 @@
         body.light .text-slate-500, body.light .kpi-label, body.light .kpi-sub { color:#718096!important; }
         body.light table thead tr, body.light table tbody tr { border-color:#e2e8f0!important; }
         body.light .field { background:#f8fafc; border-color:#e2e8f0; color:#1a202c; }
-        body.light .btn-soft { border-color:#e2e8f0; color:#2d3748; }
+        body.light .btn-soft { border-color:#cbd5e1; color:#2d3748; }
+        body.light .month-row { background:#f8fafc; border-color:#e2e8f0; color:#4a5568; }
+        body.light .month-row b { color:#1a202c; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -51,7 +52,30 @@
 {% include '_header.html' %}
 
 <div class="flex flex-1 overflow-hidden">
-    {% include '_sidebar.html' %}
+    {% call filter_panel(start, end, filters) %}
+    <div class="rfp-block" aria-labelledby="monthly-title">
+        <p class="rfp-label" id="monthly-title">Monthly JCI report</p>
+        <p class="text-[11px] text-slate-500 mb-3">Made on the 2nd for the month before, then kept as it was.</p>
+        <div id="monthly-list" class="space-y-2">
+            {% for m in monthly_reports %}
+            <div class="month-row">
+                <b>{{ m.label }}</b> · <a href="{{ url_for('report_37.monthly_workbook', month=m.month) }}"><i class="bi bi-download"></i> Excel</a>
+                <div>{{ '{:,}'.format(m.cases) }} cases · {{ '{:,}'.format(m.noted) }} with a note · {{ '{:,}'.format(m.open_seen) }} first opens</div>
+                <div>Made {{ m.generated_at }} · {{ ('emailed ' ~ m.emailed_at) if m.emailed_at else 'not emailed' }}</div>
+            </div>
+            {% else %}
+            <p class="text-[11px] text-slate-500">No month kept yet. The first is made on the 2nd, after the morning ETL.</p>
+            {% endfor %}
+        </div>
+        {% if is_admin %}
+        <label for="month-input" class="rfp-label mt-4">Regenerate a finished month</label>
+        <input id="month-input" type="month" class="rfp-input mb-2" placeholder="YYYY-MM" pattern="\d{4}-\d{2}">
+        <button type="button" onclick="generateMonth()" class="btn-main w-full py-2"><i class="bi bi-arrow-repeat mr-1"></i>Regenerate</button>
+        <p id="month-msg" class="text-xs mt-2" role="status"></p>
+        <p class="text-[11px] text-slate-500 mt-2">Replaces the kept copy and emails it again. Do this after changing the urgent departments or the limit.</p>
+        {% endif %}
+    </div>
+    {% endcall %}
 
     <main class="flex-1 overflow-y-auto bg-[#181f1c] p-8">
 
@@ -59,38 +83,25 @@
             <div>
                 <div class="flex items-center gap-3 mb-1">
                     <span class="badge-jci">JCI</span>
-                    <h1 class="text-2xl font-black text-white tracking-tight">Sticky Notes: Urgent Reads</h1>
+                    <h1 class="text-2xl font-black text-white tracking-tight">Urgent Emergent: First Open and Sticky Note</h1>
                 </div>
                 <p class="text-slate-400 text-sm">All urgent emergent exams in the period: when each was first opened, when the sticky note was inserted, and by whom. Data is one day old.</p>
             </div>
-            <div class="flex flex-wrap items-center gap-3">
-                <input id="start-input" type="date" value="{{ default_start }}" class="field" aria-label="From">
-                <span class="text-xs text-slate-500">to</span>
-                <input id="end-input" type="date" value="{{ default_end }}" class="field" aria-label="To">
-                <button onclick="loadData()" class="btn-main">Apply</button>
-                <button onclick="exportCsv()" class="btn-soft"><i class="bi bi-download mr-1"></i>CSV</button>
-            </div>
+            <button type="button" onclick="exportCsv()" class="btn-soft"><i class="bi bi-download mr-1"></i>Export CSV</button>
         </div>
 
         <div class="card p-4 mb-6 text-xs text-slate-400 leading-relaxed">
             <p><i class="bi bi-info-circle mr-1" style="color:#fbbf24;"></i><strong class="text-white">First open:</strong> {{ open_seen_note }}</p>
-            <p class="mt-1"><strong class="text-white">Limit:</strong> it runs on {{ clock_label|lower }}. PACS cannot show who received a note, so this page shows who wrote it and who signed next.</p>
+            <p class="mt-1"><strong class="text-white">Limit:</strong> it runs on {{ clock_label[:1]|lower }}{{ clock_label[1:] }}. PACS cannot show who received a note, so this page shows who wrote it and who signed next.</p>
+            <p class="mt-1"><strong class="text-white">Urgent:</strong> <span id="urgent-summary">…</span>
+               &nbsp;·&nbsp; <strong class="text-white">Limit:</strong> <span id="limit-summary">…</span></p>
         </div>
 
         <div id="loading" class="text-center py-20 text-slate-500 text-sm font-bold uppercase tracking-widest">
-            <i class="bi bi-hourglass-split text-2xl block mb-3"></i>Loading sticky notes…
+            <i class="bi bi-hourglass-split text-2xl block mb-3"></i>Loading the report…
         </div>
 
         <div id="content" class="hidden space-y-6">
-
-            <div class="card p-4 space-y-3">
-                <div>
-                    <p class="section-title" style="margin-bottom:0.5rem;">Modalities counted</p>
-                    <div id="modality-filter" class="flex flex-wrap gap-4"></div>
-                </div>
-                <p class="text-xs text-slate-400"><strong class="text-white">Urgent:</strong> <span id="urgent-summary"></span>
-                   &nbsp;·&nbsp; <strong class="text-white">Limit:</strong> <span id="limit-summary"></span></p>
-            </div>
 
             <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4" id="kpi-row"></div>
 
@@ -129,23 +140,6 @@
                 <p id="drill-more" class="text-xs text-slate-500 mt-2"></p>
             </div>
 
-            <div class="card p-5">
-                <p class="section-title"><i class="bi bi-calendar-month mr-1"></i>Monthly reports</p>
-                <p class="text-xs text-slate-400 mb-3">Each month is generated on the 2nd and kept as it was then, so it does not change later.</p>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm" id="monthly-table"></table>
-                </div>
-                {% if is_admin %}
-                <div class="flex flex-wrap items-center gap-3 mt-4">
-                    <label for="month-input" class="text-xs font-bold text-slate-400">Generate a finished month now, or again</label>
-                    <input id="month-input" type="month" class="field" placeholder="YYYY-MM" pattern="\d{4}-\d{2}">
-                    <button onclick="generateMonth()" class="btn-main"><i class="bi bi-arrow-repeat mr-1"></i>Generate</button>
-                    <span id="month-msg" class="text-xs" role="status"></span>
-                </div>
-                <p class="text-xs text-slate-500 mt-2">Generating a month again replaces its kept copy and emails it again. Do this after changing the urgent departments or the limit.</p>
-                {% endif %}
-            </div>
-
             {% if is_admin %}
             <div class="card p-5">
                 <p class="section-title"><i class="bi bi-gear-fill mr-1"></i>Settings (admin only)</p>
@@ -170,8 +164,6 @@
 </div>
 
 <script>
-let unticked = new Set();
-
 function esc(value) {
     const div = document.createElement('div');
     div.textContent = value === null || value === undefined ? '' : value;
@@ -183,22 +175,19 @@ function fmtTime(minutes) {
     return minutes < 60 ? `${Math.round(minutes)} min` : `${(minutes / 60).toFixed(1)} h`;
 }
 
+// The filters are the panel's: Generate reloads the page with them in its address, as on
+// every report, and the figures are fetched for that same address.
 function queryString() {
-    const params = new URLSearchParams({
-        start: document.getElementById('start-input').value,
-        end: document.getElementById('end-input').value,
-    });
-    if (unticked.size) params.set('unticked', [...unticked].join(','));
-    return params.toString();
+    return window.location.search.replace(/^\?/, '');
 }
 
 function exportCsv() {
-    window.location = `{{ url_for('sticky_notes.export_csv') }}?${queryString()}`;
+    window.location = `{{ url_for('report_37.export_csv') }}?${queryString()}`;
 }
 
 async function loadData() {
-    const r = await fetch(`{{ url_for('sticky_notes.data') }}?${queryString()}`);
-    const d = await r.json().catch(() => ({ error: 'The sticky notes data could not be loaded.' }));
+    const r = await fetch(`{{ url_for('report_37.data') }}?${queryString()}`);
+    const d = await r.json().catch(() => ({ error: 'The report could not be loaded.' }));
     if (!r.ok || d.error) {
         document.getElementById('loading').classList.remove('hidden');
         document.getElementById('loading').innerHTML =
@@ -207,7 +196,8 @@ async function loadData() {
     }
     document.getElementById('loading').classList.add('hidden');
     document.getElementById('content').classList.remove('hidden');
-    renderFilters(d);
+    renderSummary(d);
+    fillChoices(d);
     lastData = d;
     renderKpis(d);
     renderCharts(d);
@@ -216,21 +206,24 @@ async function loadData() {
     {% if is_admin %}renderSettings(d);{% endif %}
 }
 
-function renderFilters(d) {
-    document.getElementById('modality-filter').innerHTML = d.modalities.length
-        ? d.modalities.map(m => `
-            <label class="check"><input type="checkbox" data-modality="${esc(m)}" ${unticked.has(m) ? '' : 'checked'}
-                onchange="toggleModality(this)"> ${esc(m)}</label>`).join('')
-        : '<span class="text-xs text-slate-500">No urgent cases in this period.</span>';
+function renderSummary(d) {
     document.getElementById('urgent-summary').textContent = ['ER (always)', ...d.urgent_departments].join(', ');
     document.getElementById('limit-summary').textContent =
         d.limit_minutes ? `${d.limit_minutes} minutes` : 'not set, so no case is marked within or over';
 }
 
-function toggleModality(box) {
-    if (box.checked) unticked.delete(box.dataset.modality);
-    else unticked.add(box.dataset.modality);
-    loadData();
+// Modality and department list what the period holds, before any filter. A value chosen
+// earlier stays listed, so it can be taken off again.
+function fillChoices(d) {
+    ['modality', 'department'].forEach(name => {
+        const select = document.getElementById(`rfp-${name}`);
+        if (!select) return;
+        const chosen = new Set((select.dataset.selected || '').split('||').filter(Boolean));
+        const values = [...new Set([...(d.choices[name] || []), ...chosen])].sort();
+        select.innerHTML = values.map(v =>
+            `<option value="${esc(v)}" ${chosen.has(v) ? 'selected' : ''}>${esc(v)}</option>`).join('');
+        if (window.$ && $(select).data('select2')) $(select).trigger('change.select2');
+    });
 }
 
 function kpi(label, value, sub, tone) {
@@ -433,25 +426,20 @@ window.addEventListener('resize', () => Object.values(charts).forEach(c => c.res
 new MutationObserver(() => { if (lastData) renderCharts(lastData); })
     .observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
+// The kept months in the left panel, drawn as the page first drew them.
+const WORKBOOK_URL = `{{ url_for('report_37.monthly_workbook', month='MONTH') }}`;
 function renderMonthly(d) {
-    const head = `<thead><tr class="border-b border-[#28332e] text-[#fbbf24] text-[10px] uppercase tracking-widest font-black">
-        <th class="pb-3 pr-4">Month</th><th class="pb-3 pr-4">Generated</th><th class="pb-3 pr-4">Cases</th>
-        <th class="pb-3 pr-4">With a note</th><th class="pb-3 pr-4">First open seen</th><th class="pb-3 pr-4">Emailed</th>
-        <th class="pb-3 pr-4"></th></tr></thead>`;
+    const n = v => Number(v || 0).toLocaleString('en-US');
     const rows = d.monthly_reports.map(r => {
-        const mailed = r.emailed_at ? `${esc(r.emailed_at)} to ${esc(r.emailed_to.join(', '))}` : 'Not emailed';
-        const problem = r.email_error ? `<span class="text-rose-400 block">${esc(r.email_error)}</span>` : '';
-        return `<tr class="border-b border-[#28332e]">
-            <td class="py-2 pr-4 font-bold text-white">${esc(r.label)}</td>
-            <td class="py-2 pr-4 whitespace-nowrap">${esc(r.generated_at)}</td>
-            <td class="py-2 pr-4">${r.cases}</td>
-            <td class="py-2 pr-4">${r.noted}</td>
-            <td class="py-2 pr-4">${r.open_seen}</td>
-            <td class="py-2 pr-4">${mailed}${problem}</td>
-            <td class="py-2 pr-4"><a href="/sticky-notes/monthly/${esc(r.month)}.xlsx" class="text-[#fbbf24] font-bold whitespace-nowrap"><i class="bi bi-download mr-1"></i>Excel</a></td></tr>`;
+        const mailed = r.emailed_at ? `emailed ${esc(r.emailed_at)}` : 'not emailed';
+        const problem = r.email_error ? `<div class="text-rose-400">${esc(r.email_error)}</div>` : '';
+        return `<div class="month-row">
+            <b>${esc(r.label)}</b> · <a href="${WORKBOOK_URL.replace('MONTH', encodeURIComponent(r.month))}"><i class="bi bi-download"></i> Excel</a>
+            <div>${n(r.cases)} cases · ${n(r.noted)} with a note · ${n(r.open_seen)} first opens</div>
+            <div>Made ${esc(r.generated_at)} · ${mailed}</div>${problem}</div>`;
     }).join('');
-    document.getElementById('monthly-table').innerHTML = head + `<tbody>${rows ||
-        '<tr><td colspan="7" class="py-4 text-center text-slate-500">No monthly report yet. The first is made on the 2nd of the month, after the morning ETL.</td></tr>'}</tbody>`;
+    document.getElementById('monthly-list').innerHTML = rows ||
+        '<p class="text-[11px] text-slate-500">No month kept yet. The first is made on the 2nd, after the morning ETL.</p>';
 }
 
 {% if is_admin %}
@@ -497,7 +485,7 @@ async function generateMonth() {
     const msg = document.getElementById('month-msg');
     msg.textContent = 'Generating…';
     msg.className = 'text-xs text-slate-400';
-    const d = await postJson(`{{ url_for('sticky_notes.monthly_generate') }}`,
+    const d = await postJson(`{{ url_for('report_37.monthly_generate') }}`,
         { month: document.getElementById('month-input').value }, 'Could not generate.');
     if (d.done) {
         msg.textContent = `Done: ${d.cases} cases${d.emailed ? ', emailed' : ''}.`;
@@ -512,7 +500,7 @@ async function generateMonth() {
 async function saveSettings() {
     const msg = document.getElementById('settings-msg');
     const departments = [...document.querySelectorAll('#dept-options input:checked')].map(b => b.dataset.department);
-    const d = await postJson(`{{ url_for('sticky_notes.save_settings') }}`, {
+    const d = await postJson(`{{ url_for('report_37.save_settings') }}`, {
         departments,
         limit_minutes: document.getElementById('limit-input').value,
         recipients: document.getElementById('recipients-input').value,

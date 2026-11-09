@@ -21,6 +21,7 @@ import routes.report_33   # noqa: F401
 import routes.report_34   # noqa: F401
 import routes.report_35   # noqa: F401
 import routes.report_36   # noqa: F401
+import routes.report_37   # noqa: F401
 from routes.report_registry import get_all_reports, get_report_ids
 from routes.api_controller   import api_bp
 from routes.hl7_orders       import hl7_orders_bp
@@ -343,11 +344,6 @@ def register_blueprints(app):
     from routes.ai_alerts import ai_alerts_bp
     app.register_blueprint(ai_alerts_bp)
     logger.info("  ai_alerts: enabled")
-
-    # ── Sticky Notes (JCI requirement at LAUMC, gated by its page permission) ─────
-    from routes.sticky_notes import sticky_notes_bp
-    app.register_blueprint(sticky_notes_bp)
-    logger.info("  sticky_notes: enabled")
 
     # ── Inject license into templates ─────────────────────────
     @app.context_processor

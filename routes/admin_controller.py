@@ -127,7 +127,6 @@ def _get_user_page_columns():
         ('oru',             'Report Intelligence'),
         ('referring_intel', 'Referring Intel'),
         ('custom_reports',  'Report Composer'),
-        ('sticky_notes',    'Sticky Notes'),
         ('mapping',         'Modality / Procedures'),
         ('report_ai',       'AI Reports'),
         ('financial',       'Revenue Intelligence'),

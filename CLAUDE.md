@@ -33,8 +33,10 @@ routes/
   super_report.py               — aggregated multi-section report
   report_25.py                  — shift & device utilization
   er_dashboard.py               — ER unread studies panel + SLA tracking
-  sticky_notes.py               — JCI urgent emergent report (card next to ER in Clinical KPIs; page
-                                   permission `sticky_notes`), worked out in utils/sticky_notes.py,
+  report_37.py                  — Report 37, JCI urgent emergent (the former Sticky Notes page,
+                                   /sticky-notes redirects; report card next to ER in Clinical KPIs;
+                                   per-user report access; report_template row + licence in migration
+                                   0147; shared filter panel), worked out in utils/sticky_notes.py,
                                    whose docstring holds the customer's request. Reads Postgres
                                    only, a day late. PACS keeps no history of opens RAYD can read,
                                    so "first open seen" is the earliest open a nightly copy caught
@@ -45,7 +47,7 @@ routes/
                                    text is never read. Its two tables are read through a study, so
                                    no rh view. utils/sticky_notes_monthly.py keeps each month's
                                    workbook from the 2nd and emails it through the mail server
-                                   (email_server.py). Migrations 0143, 0144, 0146
+                                   (email_server.py). Migrations 0143, 0144, 0146, 0147
   oru_analytics.py              — HL7 ORU analytics (NLP word cloud, critical findings log)
   viewer_controller.py          — daily briefing, home dashboard
   mapping_controller.py         — AE/modality/procedure mapping config (lazy-loaded tabs)
@@ -253,6 +255,14 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    truncate `brayn_rules`, `hl7_status_map` or `hl7_result_status_map` (seeded config).
    RIS-dependent checks (ORPHAN_EVENT, SKIPPED_RUNG, ORPHAN_ORDER, STALLED_*) are seeded
    OFF until the ATH real-time R2I feed is live.
+8. **One report UI, no standalone pages** (operator, 2026-11-09: "i really don't want the
+   application to be like a workaround for every feature") — a feature that shows data is a
+   numbered report: `routes/report_NN.py` calling `register_report()`, its `report_template`
+   row and licence entry added by migration (see 0147), per-user report access, opened at
+   `/viewer/NN`. Its left filter panel is `templates/_report_filter_panel.html` (dates,
+   multi-select dropdowns each with an "Apply filter" tick named like `sidebar_filters` reads
+   them, one **Generate** button). Report 37 uses it; Reports 22, 25, 34, 35, 36 and the Super
+   Report still carry their own copies and move onto it one at a time, each tested.
 
 ## Dev Workflow
 

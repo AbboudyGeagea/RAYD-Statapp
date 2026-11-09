@@ -2,8 +2,9 @@
 tests/test_sticky_notes_monthly.py
 ────────────────────────────────────────────────────────────────
 The automated monthly JCI report (utils/sticky_notes_monthly.py): generated once for the
-preceding month, kept as it was, and emailed through the Report Composer's relay. The relay is
-the real SMTP stand-in from tests/test_worklist_email.py, and the workbooks are read back.
+preceding month, kept as it was, and emailed through the mail server (Administration > Email
+Server). The relay is the real SMTP stand-in from tests/test_worklist_email.py, and the
+workbooks are read back. Report 37's page lists and downloads them.
 """
 import io
 from datetime import datetime, timedelta
@@ -12,11 +13,12 @@ import openpyxl
 import pytest
 from sqlalchemy import text
 
+from test_sticky_notes import GRANTED, access
 from test_worklist_email import Relay
 from utils import sticky_notes_monthly as monthly
 
 ADMIN = {'X-Test-Role': 'admin'}
-VIEWER = {'X-Test-Role': 'viewer'}
+VIEWER = {'X-Test-Role': 'viewer', 'X-Test-Uid': str(GRANTED)}     # report 37 access on
 
 OCT_1 = datetime(2026, 10, 1).date()
 NOV_2_MORNING = datetime(2026, 11, 2, 8, 0)
@@ -40,6 +42,7 @@ def sql(app):
     clear()
     run("""INSERT INTO aetitle_modality_map (aetitle, modality, site_id)
            VALUES ('CT_T', 'CT', (SELECT id FROM sites WHERE is_default LIMIT 1))""")
+    access(run, GRANTED, 'viewer', True)
     yield run
     clear()
 
@@ -362,7 +365,7 @@ def test_a_domain_removed_later_is_not_emailed(app, sql, relay):
 # ── the page ──────────────────────────────────────────────────────────────────
 
 def load(client):
-    r = client.get('/sticky-notes/data', headers=ADMIN, query_string={'start': '2026-10-01', 'end': '2026-10-31'})
+    r = client.get('/report/37/data', headers=ADMIN, query_string={'start_date': '2026-10-01', 'end_date': '2026-10-31'})
     assert r.status_code == 200, r.get_data(as_text=True)
     return r.get_json()
 
@@ -375,16 +378,16 @@ def test_the_page_lists_kept_months_and_they_download(app, client, sql):
     listed = load(client)['monthly_reports'][0]
     assert (listed['month'], listed['label'], listed['cases']) == ('2026-10', 'October 2026', 1)
 
-    r = client.get('/sticky-notes/monthly/2026-10.xlsx', headers=VIEWER)
+    r = client.get('/report/37/monthly/2026-10.xlsx', headers=VIEWER)
     assert r.status_code == 200
     assert table(r.data)[2][0][0] == 'MRN00001'
-    assert client.get('/sticky-notes/monthly/2026-09.xlsx', headers=VIEWER).status_code == 404
-    assert client.get('/sticky-notes/monthly/nonsense.xlsx', headers=VIEWER).status_code == 404
-    assert client.get('/sticky-notes/monthly/2026-10.xlsx', headers={'X-Test-Role': 'tec'}).status_code == 403
+    assert client.get('/report/37/monthly/2026-09.xlsx', headers=VIEWER).status_code == 404
+    assert client.get('/report/37/monthly/nonsense.xlsx', headers=VIEWER).status_code == 404
+    assert client.get('/report/37/monthly/2026-10.xlsx', headers={'X-Test-Role': 'tec'}).status_code == 403
 
 
 def test_only_an_admin_sees_recipients_and_the_mail_state(client, sql):
-    viewer = client.get('/sticky-notes/data', headers=VIEWER).get_json()
+    viewer = client.get('/report/37/data', headers=VIEWER).get_json()
     assert 'monthly_recipients' not in viewer and 'mail_ready' not in viewer
     assert load(client)['mail_ready'] is False
 
@@ -396,7 +399,7 @@ def test_an_admin_can_generate_a_month_again_and_it_goes_out_again(app, client, 
     run_due(app, NOV_2_MORNING)
     er_case(sql, uid=2)
 
-    r = client.post('/sticky-notes/monthly/generate', headers=ADMIN, json={'month': '2026-10'})
+    r = client.post('/report/37/monthly/generate', headers=ADMIN, json={'month': '2026-10'})
 
     assert r.status_code == 200
     assert r.get_json()['cases'] == 2 and r.get_json()['emailed'] is True
@@ -405,33 +408,33 @@ def test_an_admin_can_generate_a_month_again_and_it_goes_out_again(app, client, 
 
 
 def test_a_viewer_cannot_generate(client, sql):
-    r = client.post('/sticky-notes/monthly/generate', headers=VIEWER, json={'month': '2026-10'})
+    r = client.post('/report/37/monthly/generate', headers=VIEWER, json={'month': '2026-10'})
     assert r.status_code == 403
 
 
 @pytest.mark.parametrize('month', ['nonsense', '', None, '2999-01'])
 def test_only_a_finished_month_can_be_generated(client, sql, month):
-    r = client.post('/sticky-notes/monthly/generate', headers=ADMIN, json={'month': month})
+    r = client.post('/report/37/monthly/generate', headers=ADMIN, json={'month': month})
     assert r.status_code == 400
 
 
 def test_the_current_month_cannot_be_generated(client, sql):
-    r = client.post('/sticky-notes/monthly/generate', headers=ADMIN,
+    r = client.post('/report/37/monthly/generate', headers=ADMIN,
                     json={'month': datetime.now().strftime('%Y-%m')})
     assert r.status_code == 400
 
 
 def test_recipients_are_saved_with_the_settings_and_follow_the_relays_rules(client, sql, relay):
-    ok = client.post('/sticky-notes/settings', headers=ADMIN, json={'departments': [], 'recipients': 'JCI@laumc.test; b@laumc.test'})
+    ok = client.post('/report/37/settings', headers=ADMIN, json={'departments': [], 'recipients': 'JCI@laumc.test; b@laumc.test'})
     assert ok.status_code == 200 and ok.get_json()['recipients'] == ['jci@laumc.test', 'b@laumc.test']
     assert load(client)['monthly_recipients'] == ['jci@laumc.test', 'b@laumc.test']
 
-    bad = client.post('/sticky-notes/settings', headers=ADMIN, json={'departments': ['ICU'], 'recipients': 'x@elsewhere.test'})
+    bad = client.post('/report/37/settings', headers=ADMIN, json={'departments': ['ICU'], 'recipients': 'x@elsewhere.test'})
     assert bad.status_code == 400 and 'allowed domains' in bad.get_json()['message']
     assert load(client)['urgent_departments'] == []     # nothing saved from a refused form
 
-    assert client.post('/sticky-notes/settings', headers=ADMIN, json={'departments': []}).status_code == 200
+    assert client.post('/report/37/settings', headers=ADMIN, json={'departments': []}).status_code == 200
     assert load(client)['monthly_recipients'] == ['jci@laumc.test', 'b@laumc.test']     # left alone
 
-    client.post('/sticky-notes/settings', headers=ADMIN, json={'departments': [], 'recipients': ''})
+    client.post('/report/37/settings', headers=ADMIN, json={'departments': [], 'recipients': ''})
     assert load(client)['monthly_recipients'] == []

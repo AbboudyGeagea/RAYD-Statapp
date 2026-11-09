@@ -384,11 +384,18 @@ def _breakdown(cases, field):
     return sorted(rows, key=lambda r: (-r['cases'], str(r[field])))
 
 
-def build(start, end, unticked=frozenset()):
-    """(cases kept after the modality filter, newest first; the figures about them)."""
+FILTERED_FIELDS = ('modality', 'department', 'outcome')
+
+
+def build(start, end, chosen=None):
+    """(cases kept after the report's filters, newest first; the figures about them).
+    `chosen` maps modality, department and outcome to the values a viewer picked; a field
+    left out, or given no values, hides nothing. The monthly workbook passes none."""
+    chosen = {field: set(values) for field, values in (chosen or {}).items()
+              if field in FILTERED_FIELDS and values}
     urgent, limit = load_settings()
     cases = [_shape_case(r, limit) for r in _fetch_cases(start, end, urgent)]
-    kept = [c for c in cases if c['modality'] not in unticked]
+    kept = [c for c in cases if all(c[field] in values for field, values in chosen.items())]
     weekly = (end - start).days + 1 > WEEKLY_AFTER_DAYS
     for case in kept:
         case['bucket'] = bucket_of(case['minutes_to_note'])
@@ -414,8 +421,11 @@ def build(start, end, unticked=frozenset()):
         'by_bucket': by_bucket,
         'trend': trend,
         'trend_granularity': granularity,
-        'modalities': sorted({c['modality'] for c in cases}),
-        'unticked': sorted(unticked),
+        # What each dropdown can offer for the period, before any filter, so choosing one
+        # department does not take the others off the list.
+        'choices': {'modality': sorted({c['modality'] for c in cases}),
+                    'department': sorted({c['department'] for c in cases})},
+        'filters': {field: sorted(values) for field, values in chosen.items()},
         'limit_minutes': limit,
         'urgent_departments': urgent,
     }
@@ -456,13 +466,14 @@ def case_row(case):
 
 def describe(start, end, summary):
     """What was counted, as (label, value), for the top of every export."""
-    selected = [m for m in summary['modalities'] if m not in summary['unticked']]
+    filters = summary['filters']
     limit = summary['limit_minutes']
     return [
         ('Period', f'{start.isoformat()} to {end.isoformat()}'),
         ('Site', 'RH only'),
-        ('Modalities counted', ', '.join(selected) or 'none'),
-        ('Modalities left out', ', '.join(summary['unticked']) or 'none'),
+        ('Modalities', ', '.join(filters.get('modality', [])) or 'all'),
+        ('Departments shown', ', '.join(filters.get('department', [])) or 'all urgent departments'),
+        ('Outcomes shown', ', '.join(OUTCOMES[o] for o in filters.get('outcome', []) if o in OUTCOMES) or 'all'),
         ('Urgent departments', ', '.join(['ER (always)'] + summary['urgent_departments'])),
         ('Clock', CLOCK_LABEL),
         ('Limit (minutes)', limit if limit is not None else 'not set'),

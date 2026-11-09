@@ -1,8 +1,9 @@
 """
 tests/test_sticky_notes.py
 ────────────────────────────────────────────────────────────────
-The Sticky Notes page (routes/sticky_notes.py): the JCI measure on urgent ER and inpatient
-cases, reading only what the nightly ETL copied into Postgres.
+Report 37 (routes/report_37.py, the former Sticky Notes page): the JCI measure on urgent ER
+and inpatient cases, reading only what the nightly ETL copied into Postgres. A report like
+every other since 2026-11-09: shared filter panel, report access, report_template row 37.
 """
 import json
 import os
@@ -12,12 +13,13 @@ import pytest
 from flask import render_template_string
 from sqlalchemy import text
 
+GRANTED, REFUSED, NO_ROW = 9371, 9372, 9373     # users with report 37 on, off, never set
 ADMIN = {'X-Test-Role': 'admin'}
-VIEWER = {'X-Test-Role': 'viewer'}
+VIEWER = {'X-Test-Role': 'viewer', 'X-Test-Uid': str(GRANTED)}
 
 T0 = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0) - timedelta(days=1)
 DAY = T0.date().isoformat()
-PERIOD = {'start': DAY, 'end': DAY}
+PERIOD = {'start_date': DAY, 'end_date': DAY}
 
 
 def m(minutes):
@@ -40,11 +42,23 @@ def sql(app):
            VALUES ('CT_T', 'CT', (SELECT id FROM sites WHERE is_default LIMIT 1)),
                   ('MR_T', 'MR', (SELECT id FROM sites WHERE is_default LIMIT 1)),
                   ('SR_T', 'SR', (SELECT id FROM sites WHERE is_default LIMIT 1))""")
+    access(run, GRANTED, 'viewer', True)
     yield run
     run("DELETE FROM etl_sticky_notes")
     run("DELETE FROM study_access_history")
     run("DELETE FROM std_ordering_organizations")
     run("DELETE FROM physician_alias_map")
+
+
+def access(sql, uid, role, enabled):
+    """A real user (report access points at users) and, unless None, its report 37 access."""
+    sql("""INSERT INTO users (id, username, password_hash, role) VALUES (:u, :n, 'x', :r)
+           ON CONFLICT (id) DO NOTHING""", u=uid, n=f'r37-{uid}', r=role)
+    if enabled is not None:
+        sql("""INSERT INTO report_access_control (user_id, report_template_id, is_enabled)
+               VALUES (:u, 37, :e)
+               ON CONFLICT (user_id, report_template_id) DO UPDATE SET is_enabled = EXCLUDED.is_enabled""",
+            u=uid, e=enabled)
 
 
 def study(sql, uid, location='ER', full=None, ae='CT_T', site_label='0', arrived=None):
@@ -69,13 +83,13 @@ def organization(sql, order_key, uid, org_key, name):
 
 
 def settings(client, departments=(), limit=None):
-    r = client.post('/sticky-notes/settings', headers=ADMIN,
+    r = client.post('/report/37/settings', headers=ADMIN,
                     json={'departments': list(departments), 'limit_minutes': limit})
     assert r.status_code == 200, r.get_data(as_text=True)
 
 
 def load(client, **extra):
-    r = client.get('/sticky-notes/data', headers=ADMIN, query_string={**PERIOD, **extra})
+    r = client.get('/report/37/data', headers=ADMIN, query_string={**PERIOD, **extra})
     assert r.status_code == 200, r.get_data(as_text=True)
     return r.get_json()
 
@@ -86,30 +100,41 @@ def by_accession(data):
 
 # ── who can see it ────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize('role, expected', [('admin', 200), ('viewer', 200), ('viewer2', 200),
-                                            ('tec', 403), ('finance', 403)])
-def test_page_permission(client, sql, role, expected):
-    headers = {'X-Test-Role': role}
-    assert client.get('/sticky-notes', headers=headers).status_code == expected
-    assert client.get('/sticky-notes/data', headers=headers).status_code == expected
-    assert client.get('/sticky-notes/export.csv', headers=headers).status_code == expected
+@pytest.mark.parametrize('who, expected', [('admin', 200), ('granted', 200), ('refused', 403),
+                                           ('no_row', 403)])
+def test_report_access_decides_who_opens_it(client, sql, who, expected):
+    """As /viewer/37 decides it: an admin, or a user whose access to report 37 is on. The
+    data and the export check it too, so they cannot be reached around the page."""
+    access(sql, REFUSED, 'viewer', False)
+    access(sql, NO_ROW, 'finance', None)
+    headers = {'admin': ADMIN, 'granted': VIEWER,
+               'refused': {'X-Test-Role': 'viewer', 'X-Test-Uid': str(REFUSED)},
+               'no_row': {'X-Test-Role': 'finance', 'X-Test-Uid': str(NO_ROW)}}[who]
+    assert client.get('/report/37', headers=headers).status_code == expected
+    assert client.get('/report/37/data', headers=headers).status_code == expected
+    assert client.get('/report/37/export.csv', headers=headers).status_code == expected
+
+
+def test_the_old_address_leads_to_report_37(client, sql):
+    r = client.get('/sticky-notes', headers=VIEWER)
+    assert r.status_code == 302 and r.headers['Location'].endswith('/viewer/37')
 
 
 def test_page_needs_a_login(client, sql):
-    assert client.get('/sticky-notes/data').status_code in (302, 401)
+    assert client.get('/report/37/data').status_code in (302, 401)
 
 
 def test_only_an_admin_sees_and_changes_the_settings(client, sql):
-    assert b'limit-input' in client.get('/sticky-notes', headers=ADMIN).data
-    assert b'limit-input' not in client.get('/sticky-notes', headers=VIEWER).data
-    r = client.post('/sticky-notes/settings', headers=VIEWER, json={'departments': ['ICU'], 'limit_minutes': 5})
+    assert b'limit-input' in client.get('/report/37', headers=ADMIN).data
+    assert b'limit-input' not in client.get('/report/37', headers=VIEWER).data
+    r = client.post('/report/37/settings', headers=VIEWER, json={'departments': ['ICU'], 'limit_minutes': 5})
     assert r.status_code == 403
     assert load(client)['urgent_departments'] == []
     assert load(client)['limit_minutes'] is None
 
 
 def test_page_states_what_the_clock_really_is(client, sql):
-    page = client.get('/sticky-notes', headers=VIEWER).get_data(as_text=True)
+    page = client.get('/report/37', headers=VIEWER).get_data(as_text=True)
     assert 'images reach pacs to first sticky note' in page.lower()
     assert 'PACS keeps only the latest open' in page
     assert 'cannot show who received a note' in page
@@ -347,7 +372,7 @@ def test_the_export_says_why_a_first_open_is_blank(client, sql):
     history(sql, 2, 600, 40, 'rad.two@ad')
     study(sql, 3)
 
-    body = client.get('/sticky-notes/export.csv', headers=ADMIN, query_string=PERIOD).get_data(as_text=True)
+    body = client.get('/report/37/export.csv', headers=ADMIN, query_string=PERIOD).get_data(as_text=True)
     lines = {line.split(',')[1]: line for line in body.splitlines() if line.count(',') > 5}
 
     assert 'First open blank because' in lines['Accession']
@@ -365,7 +390,7 @@ def test_the_admin_buttons_only_report_what_the_server_confirmed(client, sql):
     import subprocess
     if not shutil.which('node'):
         pytest.skip('node not installed')
-    page = client.get('/sticky-notes', headers=ADMIN).get_data(as_text=True)
+    page = client.get('/report/37', headers=ADMIN).get_data(as_text=True)
     helper = re.search(r'(const SESSION_EXPIRED = .*?\n)(async function postJson.*?\n\})', page, re.S)
     assert helper, 'postJson is missing from the page'
     script = helper.group(1) + helper.group(2) + """
@@ -408,7 +433,7 @@ def test_patient_id_is_on_the_page_and_in_the_export(client, sql):
     sql("INSERT INTO etl_patient_view (patient_db_uid, fallback_id) VALUES (1, 'MRN00123')")
 
     assert load(client)['cases'][0]['patient_id'] == 'MRN00123'
-    body = client.get('/sticky-notes/export.csv', headers=ADMIN, query_string=PERIOD).get_data(as_text=True)
+    body = client.get('/report/37/export.csv', headers=ADMIN, query_string=PERIOD).get_data(as_text=True)
     assert 'Patient ID,Accession' in body
     assert 'MRN00123,100501' in body
 
@@ -444,7 +469,7 @@ def test_the_period_starts_on_the_preceding_month(client, sql):
     assert previous_month(date(2027, 1, 1)) == (date(2026, 12, 1), date(2026, 12, 31))
     assert previous_month(date(2028, 3, 31)) == (date(2028, 2, 1), date(2028, 2, 29))
     first, last = previous_month()
-    page = client.get('/sticky-notes', headers=VIEWER).get_data(as_text=True)
+    page = client.get('/report/37', headers=VIEWER).get_data(as_text=True)
     assert f'value="{first.isoformat()}"' in page and f'value="{last.isoformat()}"' in page
 
 
@@ -493,7 +518,7 @@ def test_exactly_at_the_limit_is_within(client, sql):
 
 @pytest.mark.parametrize('bad', [0, -5, 'soon'])
 def test_a_bad_limit_is_refused(client, sql, bad):
-    r = client.post('/sticky-notes/settings', headers=ADMIN, json={'departments': [], 'limit_minutes': bad})
+    r = client.post('/report/37/settings', headers=ADMIN, json={'departments': [], 'limit_minutes': bad})
     assert r.status_code == 400
 
 
@@ -505,7 +530,7 @@ def test_clearing_the_limit_goes_back_to_no_judgement(client, sql):
     assert load(client)['limit_minutes'] is None
 
 
-# ── the modality filter ───────────────────────────────────────────────────────
+# ── the panel's filters ───────────────────────────────────────────────────────
 
 def test_every_modality_starts_counted_and_the_filter_changes_the_figures(client, sql):
     study(sql, 1, ae='CT_T')
@@ -513,14 +538,65 @@ def test_every_modality_starts_counted_and_the_filter_changes_the_figures(client
     study(sql, 2, ae='MR_T')
 
     everything = load(client)
-    ct_only = load(client, unticked='MR')
+    ct_only = load(client, modality=['CT'], mod_enabled='on')
 
-    assert everything['modalities'] == ['CT', 'MR']
+    assert everything['choices']['modality'] == ['CT', 'MR']
     assert everything['kpi']['noted_pct'] == 50
-    assert ct_only['modalities'] == ['CT', 'MR']        # MR stays on the list to tick again
-    assert ct_only['unticked'] == ['MR']
+    assert ct_only['choices']['modality'] == ['CT', 'MR']   # MR stays on the list to choose again
+    assert ct_only['filters'] == {'modality': ['CT']}
     assert ct_only['kpi']['noted_pct'] == 100
     assert [r['modality'] for r in ct_only['by_modality']] == ['CT']
+
+
+def test_a_choice_counts_only_while_apply_filter_is_ticked(client, sql):
+    """As on every report: an unticked "Apply filter" sends no *_enabled, and hides nothing."""
+    study(sql, 1, ae='CT_T')
+    study(sql, 2, ae='MR_T')
+
+    data = load(client, modality=['CT'])
+
+    assert data['kpi']['cases'] == 2 and data['filters'] == {}
+
+
+def test_department_and_outcome_filter_like_modality(client, sql):
+    settings(client, departments=['ICU'], limit=60)
+    study(sql, 1, location='ER')
+    note(sql, 1, 20)                                    # within
+    study(sql, 2, location='ICU')
+    note(sql, 2, 300)                                   # over
+    study(sql, 3, location='ER')                        # no note
+
+    icu = load(client, department=['ICU'], dept_enabled='on')
+    late_or_missing = load(client, outcome=['over', 'no_note'], outcome_enabled='on')
+
+    assert sorted(by_accession(icu)) == ['100502']
+    assert icu['choices']['department'] == ['ER', 'ICU']
+    assert sorted(by_accession(late_or_missing)) == ['100502', '100503']
+
+
+def test_the_report_uses_the_shared_filter_panel(client, sql):
+    """The left panel every report uses (templates/_report_filter_panel.html), with the
+    monthly workbook under it, not a filter strip of its own."""
+    page = client.get('/report/37', headers=ADMIN, query_string={**PERIOD, 'modality': 'CT', 'mod_enabled': 'on'})
+    html = page.get_data(as_text=True)
+    panel = html[html.index('aria-label="Report filters"'):html.index('</aside>')]
+
+    assert page.status_code == 200
+    assert f'name="start_date" value="{DAY}"' in panel and f'name="end_date" value="{DAY}"' in panel
+    for name, toggle in (('modality', 'mod_enabled'), ('department', 'dept_enabled'), ('outcome', 'outcome_enabled')):
+        assert f'name="{name}" multiple' in panel and f'name="{toggle}"' in panel
+    assert '<option value="CT" selected>CT</option>' in panel           # the choice shows at once
+    assert 'class="rfp-generate">Generate</button>' in panel
+    assert 'id="monthly-list"' in panel and 'Regenerate' in panel
+    assert 'Regenerate' not in client.get('/report/37', headers=VIEWER).get_data(as_text=True)
+
+
+def test_the_period_starts_on_the_preceding_month(client, sql):
+    from utils.sticky_notes import previous_month
+    first, last = previous_month()
+    html = client.get('/report/37', headers=VIEWER).get_data(as_text=True)
+    assert f'name="start_date" value="{first.isoformat()}"' in html
+    assert f'name="end_date" value="{last.isoformat()}"' in html
 
 
 def test_breakdowns_add_up_to_the_page(client, sql):
@@ -566,7 +642,7 @@ def test_the_trend_has_a_bar_for_every_day_including_empty_ones(client, sql):
     note(sql, 1, 20)
     day_before = (T0 - timedelta(days=1)).date().isoformat()
 
-    data = load(client, start=day_before, end=DAY)
+    data = load(client, start_date=day_before, end_date=DAY)
 
     assert data['trend_granularity'] == 'day'
     assert [(r['key'], r['cases'], r['noted']) for r in data['trend']] == [(day_before, 0, 0), (DAY, 1, 1)]
@@ -577,7 +653,7 @@ def test_a_long_period_is_drawn_week_by_week(client, sql):
     study(sql, 1)
     start = (T0 - timedelta(days=90)).date()
 
-    data = load(client, start=start.isoformat(), end=DAY)
+    data = load(client, start_date=start.isoformat(), end_date=DAY)
 
     week_of_case = (T0.date() - timedelta(days=T0.weekday())).isoformat()
     assert data['trend_granularity'] == 'week'
@@ -587,7 +663,7 @@ def test_a_long_period_is_drawn_week_by_week(client, sql):
 
 
 def test_the_page_draws_charts_instead_of_listing_every_case(client, sql):
-    page = client.get('/sticky-notes', headers=VIEWER).get_data(as_text=True)
+    page = client.get('/report/37', headers=VIEWER).get_data(as_text=True)
     for chart in ('chart-buckets', 'chart-departments', 'chart-modalities', 'chart-trend'):
         assert f'id="{chart}"' in page
     assert 'id="cases-body"' not in page
@@ -602,12 +678,14 @@ def test_export_states_what_was_counted(client, sql):
     study(sql, 2, ae='MR_T')
     settings(client, departments=['ICU'], limit=60)
 
-    r = client.get('/sticky-notes/export.csv', headers=VIEWER, query_string={**PERIOD, 'unticked': 'MR'})
+    r = client.get('/report/37/export.csv', headers=VIEWER,
+                   query_string={**PERIOD, 'modality': 'CT', 'mod_enabled': 'on'})
     body = r.get_data(as_text=True)
 
     assert r.mimetype == 'text/csv'
-    assert 'Modalities counted,CT' in body
-    assert 'Modalities left out,MR' in body
+    assert 'Modalities,CT' in body
+    assert 'Departments shown,all urgent departments' in body
+    assert 'Outcomes shown,all' in body
     assert '"ER (always), ICU"' in body
     assert 'Limit (minutes),60.0' in body
     assert 'Images reach PACS to first sticky note' in body
@@ -619,13 +697,13 @@ def test_export_cannot_run_a_cell_as_a_formula(client, sql):
     study(sql, 1)
     organization(sql, 501, 1, 7, '=Emergency()')
 
-    body = client.get('/sticky-notes/export.csv', headers=ADMIN, query_string=PERIOD).get_data(as_text=True)
+    body = client.get('/report/37/export.csv', headers=ADMIN, query_string=PERIOD).get_data(as_text=True)
 
     assert "'=Emergency()" in body
 
 
 def test_bad_dates_are_refused(client, sql):
-    r = client.get('/sticky-notes/data', headers=ADMIN, query_string={'start': 'yesterday'})
+    r = client.get('/report/37/data', headers=ADMIN, query_string={'start_date': 'yesterday'})
     assert r.status_code == 400
 
 
@@ -638,23 +716,83 @@ def _card():
         return f.read()
 
 
-def test_card_sits_after_the_er_card_in_the_clinical_tab():
+def _report_37_card(source):
+    start = source.index('{% for report in reports if report.report_id == 37 %}')
+    return source[start:source.index('{% endfor %}', start) + len('{% endfor %}')]
+
+
+def test_card_sits_after_the_er_card_in_the_clinical_tab_and_nowhere_else():
     source = _card()
     assert (source.index('id="grid-clinical"') < source.index('<!-- ER Dashboard card -->')
-            < source.index('<!-- Sticky Notes card -->') < source.index('id="grid-it"'))
+            < source.index('report.report_id == 37') < source.index('id="grid-it"'))
+    assert 'not in [22,23,25,27,28,30,35,36,37]' in source      # not repeated in the IT tab
 
 
-@pytest.mark.parametrize('role, shown', [('admin', True), ('viewer', True), ('tec', False)])
-def test_card_follows_the_page_permission(app, sql, role, shown):
-    source = _card()
-    fragment = source[source.index('<!-- Sticky Notes card -->'):source.index('<!-- /Sticky Notes card -->')]
-    with app.test_request_context('/', headers={'X-Test-Role': role}):
-        html = render_template_string(fragment)
-    assert ('Open Sticky Notes' in html) is shown
+@pytest.mark.parametrize('has_access', [True, False])
+def test_card_is_the_standard_report_card_for_whoever_has_report_37(app, sql, has_access):
+    """viewer_dashboard passes only the reports a user may open, as for every report."""
+    class Row:
+        report_id, report_name, long_description = 37, 'Urgent Emergent: First Open & Sticky Note', 'JCI'
+    with app.test_request_context('/', headers=ADMIN):
+        html = render_template_string(_report_37_card(_card()),
+                                      reports=[Row] if has_access else [], user_favorites=[])
+    assert ('Open Analysis' in html) is has_access
+    assert ('Urgent Emergent: First Open &amp; Sticky Note' in html) is has_access
 
 
-def test_the_page_key_can_be_switched_per_user():
-    from db import ALL_FEATURE_KEYS, ROLE_PAGE_DEFAULTS
-    assert 'sticky_notes' in ALL_FEATURE_KEYS
-    assert 'sticky_notes' in ROLE_PAGE_DEFAULTS['viewer']
-    assert 'sticky_notes' not in ROLE_PAGE_DEFAULTS['tec']
+def test_report_access_replaced_the_page_permission():
+    from db import ALL_FEATURE_KEYS
+    assert 'sticky_notes' not in ALL_FEATURE_KEYS
+
+
+# ── its registration (migration 0147) ─────────────────────────────────────────
+
+MIGRATION = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         'migrations', '0147_register_report_37.sql')
+
+
+def _statements():
+    body = '\n'.join(l for l in open(MIGRATION, encoding='utf-8').read().splitlines()
+                     if not l.strip().startswith('--'))
+    return [s.strip() for s in body.split(';') if s.strip()]
+
+
+def test_report_37_is_in_the_report_catalogue(app):
+    from db import db
+    with app.app_context():
+        row = db.session.execute(text(
+            "SELECT report_name, is_base FROM report_template WHERE report_id = 37")).first()
+    assert row == ('Urgent Emergent: First Open & Sticky Note', True)
+
+
+def test_the_licence_gains_report_37_once(app, sql):
+    from db import db
+    update = next(s for s in _statements() if s.startswith('UPDATE settings'))
+    with app.app_context():
+        db.session.execute(text("""INSERT INTO settings (key, value) VALUES ('license', '{"reports": [22, 36]}')
+                                   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"""))
+        db.session.execute(text(update))
+        db.session.execute(text(update))
+        reports = db.session.execute(text("SELECT value::jsonb->'reports' FROM settings WHERE key = 'license'")).scalar()
+        db.session.rollback()
+    assert reports == [22, 36, 37]
+
+
+def test_access_carries_over_who_had_the_page(app, sql):
+    """An explicit grant or block of the old page stays; otherwise the role decides, as the
+    old page permission did (viewer yes, tec no)."""
+    from db import db
+    grant = next(s for s in _statements() if s.startswith('INSERT INTO report_access_control'))
+    people = {9381: ('viewer', None), 9382: ('tec', None), 9383: ('viewer', False), 9384: ('tec', True)}
+    with app.app_context():
+        for uid, (role, page) in people.items():
+            db.session.execute(text("INSERT INTO users (id, username, password_hash, role) VALUES (:u, :n, 'x', :r)"),
+                               {'u': uid, 'n': f'r37m-{uid}', 'r': role})
+            if page is not None:
+                db.session.execute(text("""INSERT INTO user_page_permissions (user_id, page_key, is_enabled)
+                                           VALUES (:u, 'sticky_notes', :e)"""), {'u': uid, 'e': page})
+        db.session.execute(text(grant))
+        got = dict(db.session.execute(text("""SELECT user_id, is_enabled FROM report_access_control
+                                              WHERE report_template_id = 37 AND user_id BETWEEN 9381 AND 9384""")).fetchall())
+        db.session.rollback()
+    assert got == {9381: True, 9382: False, 9383: False, 9384: True}
