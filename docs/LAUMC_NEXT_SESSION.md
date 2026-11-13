@@ -187,6 +187,18 @@ read; radiologists approve or finalise (check both).
 - **CRN go-live.** CRN is off (`crn_live_since` empty, provider "log"). It needs a real
   provider and signed-off message wording before it is switched on.
 
+## Very low priority — later, as a goodwill gesture (added 2026-11-14)
+
+- **Patient schedule lead time.** The time between when the patient booked the exam and the
+  date and time the exam was booked for, with every breakdown the data allows: modality,
+  procedure, room, patient class, ordering department, referring physician, priority, age
+  band and sex, weekday and hour of booking, same-day vs advance bookings, and how many were
+  later cancelled or rescheduled. The RIS orders pull already copies the exam's
+  `SCHEDULED_DATE`, but not when the booking was made (`ORDERS.CREATED_ON_DATE` is only used
+  as a filter). Decide with the operator which moment counts as "booked": the order's
+  creation, or the time the step first got a Scheduled status in the RIS status history
+  (Phase 17 already reads that history for arrivals).
+
 ---
 
 ## ⚠️ GOTCHAS / DECISIONS TO NOT RE-LITIGATE
