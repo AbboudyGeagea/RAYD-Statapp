@@ -12,7 +12,7 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 - **Deadline for this list: 2026-11-30.** Item 2 (first open) has its own deadline, 2026-11-20.
 - **Monday 2026-11-16, 10:00: run the two room-name queries (item 4)** and compare the RIS
   room names with the labels RAYD shows. Then a working session on the PACS audit table
-  (item 2).
+  (item 2). Sessions start at 9:30.
 
   RIS Oracle (the query `ETL_JOBS/etl_ris_modality.py` runs; `ORDER BY` added for reading):
   ```sql
@@ -32,9 +32,9 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
                   NULLIF(BTRIM(station_name),''), aetitle) AS label_on_screen
   FROM aetitle_modality_map ORDER BY aetitle;
   ```
-- **Tuesday 2026-11-17:** double-check session on Report 27 Order Status Mix, mainly the
-  scheduled status (item 7), and a session on the PACS user columns in `MEDILINK.SECM_USERS`
-  (item 9).
+- **Tuesday 2026-11-17, from 9:30:** double-check session on Report 27 Order Status Mix,
+  mainly the scheduled status (item 7); a session on the PACS user columns in
+  `MEDILINK.SECM_USERS` (item 9); and finding the RIS column that holds ORC-2 (item 1).
 
 ## Priorities from the meeting of 2026-11-13 (highest first)
 
@@ -87,15 +87,15 @@ read; radiologists approve or finalise (check both).
    (capacity, opening hours) untouched. The label typed in RAYD (floor plan,
    `display_aetitle`) is dropped, so the RIS name wins. Everywhere = every chart, table,
    sidebar filter and export, the Department board and Report Composer. Gateway AE titles
-   (modality "PACS", no RIS room): the operator picks manually what to show.
+   (modality "PACS", no RIS room): validated by hand between the systems.
 5. **ORU tab severity — on hold until the chief radiologist answers.** It is RAYD's own
    rule-based score (`nlp_worker/clustering.py`, `classify_report`), averaged per modality in
    `routes/oru_analytics.py`, with no published medical reference. It must follow a recognised
    standard.
 6. **Report 27 hourly load:** one chart, blue = when orders were scheduled, red = when they
    were started (RIS status Started; exams, not reports). Each hour shows the average per day
-   over the range. Busiest day counted on started, by weekday. Working pattern: Monday to
-   Friday full days, Saturday half day, Sunday ER only.
+   over the range. Busiest day counted on started, ranked Monday to Friday; Saturday (half
+   day) and Sunday (ER only) shown separately.
 7. **Report 27 Order Status Mix:** double-check session on both ends (Oracle and RAYD) on
    Tuesday 2026-11-17, mainly the scheduled status. Compare at the same cut-off time (RAYD
    copies nightly, Oracle is live). Last tied out 2026-09-18, see
@@ -106,7 +106,8 @@ read; radiologists approve or finalise (check both).
    `REP_WET_READ_SIGNED_BY/_TIMESTAMP`; the nightly pull reads `didb_studies`, which lacks
    them. Look deeper at the PACS report timestamps first (in July the final time was blank on
    recent studies the RIS showed signed; the operator suspects data migrated from the old
-   PACS). A resident is anyone in the PACS "residents" security group.
+   PACS): pull example studies with blank sign times per AE title to see where they come
+   from. A resident is anyone in the PACS "residents" security group.
 9. **Staff who left.** Export the names of everyone in RIS and PACS (no RAYD accounts),
    grouped by PACS group and RIS resource role, for the manager, who sets leavers inactive on
    the RIS and PACS herself. Then, automatically: inactive on RIS and/or PACS → the person is
@@ -134,14 +135,19 @@ read; radiologists approve or finalise (check both).
        delete them from the LAUMC database (approved by the operator 2026-11-14: "all my
        rules can be broken with customer needs"). After that the LAUMC ETL stops loading SJH
        at the source, and the SJH database gets its own nightly ETL; measure ETL run times to
-       choose when it runs. Done over a weekend.
+       choose when it runs. Work that loads only Postgres runs any time; anything that loads
+       Oracle runs only at weekends. CARD is always dropped, in the SJH database too.
     d. All HL7 messages carry the site ID (R2I includes it in every message); the operator
        will explain where, so BRAYN routes each message to the right database.
     e. AE mappings separate per database in RAYD; procedure codes shared.
     f. One set of RAYD logins; a user signs in once and switches site if allowed. The old
-       roles (viewer, viewer2, tec, admin) are replaced by a new set of roles, with
-       permissions per site and per page.
-    g. One licence covering both sites. Two mail servers, each with its own domain.
+       roles (viewer, viewer2, tec, admin) are replaced by: Super user (R&D, everything),
+       CHT (Cure Health Tech implementation staff: mapping, ETL, BRAYN console),
+       Administrator (users and settings of the sites granted), User (pages granted). Each
+       user is granted sites, then pages per site. Existing admins become Administrators,
+       viewer/viewer2/tec become Users keeping their pages.
+    g. One licence covering both sites. Two mail servers, one per site, each with its own
+       domain.
 14. **Radiologists TAT and radiologists' number of reports: revamp and validate thoroughly;
     this is the selling point.** Source is PACS Oracle (rule above). Show both start clocks,
     RIS exam done and PACS insert time (`DIDB_STUDIES.INSERT_TIME`), because they disagree.
