@@ -36,6 +36,48 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
   mainly the scheduled status (item 7); a session on the PACS user columns in
   `MEDILINK.SECM_USERS` (item 9); and finding the RIS column that holds ORC-2 (item 1).
 
+## Estimates (2026-11-14)
+
+Working days. A day is one working day of building, with the operator available for
+questions; validation days need the operator (and Oracle queries he runs). Waiting on others
+(Mirth forwarding, the chief radiologist, the vendor) is not counted. Oracle backfills run
+only at weekends, which can add calendar time.
+
+| # | Item | Analysis | Build + tests | Validation | Total | Waits on |
+|---|---|---|---|---|---|---|
+| 1 | HIS vs RIS orders (Report 27) | 0.5–1 | 2–3 | 0.5–1 | 3–5 | Mirth ORM forwarding; RIS column for ORC-2 |
+| 2 | First open from PACS audit (due 2026-11-20) | 1–2 | 2–3 | 0.5–1 | 3.5–6 | audit table logs opens; JCI definition |
+| 3 | Report 22 AE filter + stress test of all filters | 0.5 | 3–4 | 0.5 | 4–5 | — |
+| 4 | RIS room names everywhere | 0.5 | 3–4 | 0.5–1 | 4–5.5 | RIS data fixed after the Monday queries |
+| 5 | ORU severity on a standard | 1–2 | 2–3 | 1–2 | 4–7 | chief radiologist |
+| 6 | Report 27 hourly load, scheduled vs started | 0.25 | 0.5–1 | 0.25 | 1–1.5 | — |
+| 7 | Report 27 status mix check | 0.5 | 0–2 | 0.5 | 1–3 | Tuesday session |
+| 8 | Super Report residents by wet read (PACS) | 1–1.5 | 2–2.5 | 0.5–1 | 3.5–5 | PACS timestamp check |
+| 9 | Staff who left, hidden from KPIs | 1 | 2.5–3 | 0.5 | 4–4.5 | Tuesday session; manager’s list |
+| 10 | Modality "PACS" samples | 0.25 | 0–1 | 0.25 | 0.5–1.5 | operator’s review |
+| 11 | Report start date setting | 0.1 | 1 | 0.25 | 1–1.5 | — |
+| 12 | Chart explanations (~60 charts, 15 pages) | 0.5 | 2.5–3.5 | 0.5 | 3.5–4.5 | — |
+| 13 | SJH database, all parts | 3–4 | 14–18 | 2–3 | 19–25 | BRAYN on; site-ID walkthrough |
+| 14 | Radiologist TAT and report counts on PACS | 2 | 4–5 | 1–2 | 7–9 | shares item 8’s PACS copy |
+
+Item 13 splits into: second database, per-request switch, migrations and SJH ETL (6–8);
+migrate, count and delete SJH rows (2–3); site dropdown (1); RH vs SJH per-modality views
+(2–3); BRAYN routing by site (1–2); new roles and permissions (3–4); mail server per site and
+licence (1).
+
+Items 1–14 without item 5 add up to about 54–76 days (35–51 without item 13). Items 8 and 14
+share about one day. Doing item 3 together with the shared filter panel saves 1–2 days.
+
+| Earlier items | Total | Waits on |
+|---|---|---|
+| Urgent emergent in HL7 | 2 | end user and HIS answer |
+| Shared filter panel, 6 reports | 4–5.5 | — |
+| R2I and BRAYN switch-on checks | 2 | feed live |
+| ORU final-only via BRAYN | 2 | meaning of `FAP` or a prelim sample |
+| Placeholders via BRAYN | 1.5–2 | — |
+| CRN go-live (low) | 3.5–4.5 | provider, signed-off wording |
+| Patient schedule lead time (very low) | 2.5–3 | which moment counts as "booked" |
+
 ## Priorities from the meeting of 2026-11-13 (highest first)
 
 Operator's answers of 2026-11-13 and 2026-11-14 are folded in below.
