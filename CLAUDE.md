@@ -242,6 +242,9 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    column of a filtered table must drop its `rh` view first. To decide a study's site use
    `utils/report_filters.study_site_sql`, never the PACS label alone: double reading stamps RH
    mammography with PACS site '1'. Lists read from `aetitle_modality_map` use `rh_device_sql`.
+   **Changing (operator, 2026-11-14):** SJH gets its own database in the same web app; its
+   rows are migrated out of this database, counted, then deleted here (docs/LAUMC_NEXT_SESSION.md
+   item 13). Until that is built and run, this rule holds as written.
 1. **DB changes** — always via `migrations/NNNN_description.sql`. Never run DDL from psql CLI directly.
 2. **SR exclusion** — every query touching `etl_didb_studies` must filter:
    `COALESCE(m.modality, s.study_modality, '') != 'SR'`
@@ -255,6 +258,10 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    truncate `brayn_rules`, `hl7_status_map` or `hl7_result_status_map` (seeded config).
    RIS-dependent checks (ORPHAN_EVENT, SKIPPED_RUNG, ORPHAN_ORDER, STALLED_*) are seeded
    OFF until the ATH real-time R2I feed is live.
+   **Changing (operator, 2026-11-14):** BRAYN becomes the gate that decides what reaches
+   RAYD's tables (duplicates, final-only ORU, placeholders, RH/SJH routing), switched on the
+   week of 2026-11-16, rolled out one message type at a time (docs/LAUMC_NEXT_SESSION.md).
+   Until a message type is moved, this rule holds for it.
 8. **One report UI, no standalone pages** (operator, 2026-11-09: "i really don't want the
    application to be like a workaround for every feature") — a feature that shows data is a
    numbered report: `routes/report_NN.py` calling `register_report()`, its `report_template`
