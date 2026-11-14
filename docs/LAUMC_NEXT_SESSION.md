@@ -43,22 +43,22 @@ questions; validation days need the operator (and Oracle queries he runs). Waiti
 (Mirth forwarding, the chief radiologist, the vendor) is not counted. Oracle backfills run
 only at weekends, which can add calendar time.
 
-| # | Item | Analysis | Build + tests | Validation | Total | Waits on |
-|---|---|---|---|---|---|---|
-| 1 | HIS vs RIS orders (Report 27) | 0.5–1 | 2–3 | 0.5–1 | 3–5 | Mirth ORM forwarding; RIS column for ORC-2 |
-| 2 | First open from PACS audit (due 2026-11-20) | 1–2 | 2–3 | 0.5–1 | 3.5–6 | audit table logs opens; JCI definition |
-| 3 | Report 22 AE filter + stress test of all filters | 0.5 | 3–4 | 0.5 | 4–5 | — |
-| 4 | RIS room names everywhere | 0.5 | 3–4 | 0.5–1 | 4–5.5 | RIS data fixed after the Monday queries |
-| 5 | ORU severity on a standard | 1–2 | 2–3 | 1–2 | 4–7 | chief radiologist |
-| 6 | Report 27 hourly load, scheduled vs started | 0.25 | 0.5–1 | 0.25 | 1–1.5 | — |
-| 7 | Report 27 status mix check | 0.5 | 0–2 | 0.5 | 1–3 | Tuesday session |
-| 8 | Super Report residents by wet read (PACS) | 1–1.5 | 2–2.5 | 0.5–1 | 3.5–5 | PACS timestamp check |
-| 9 | Staff who left, hidden from KPIs | 1 | 2.5–3 | 0.5 | 4–4.5 | Tuesday session; manager’s list |
-| 10 | Modality "PACS" samples | 0.25 | 0–1 | 0.25 | 0.5–1.5 | operator’s review |
-| 11 | Report start date setting | 0.1 | 1 | 0.25 | 1–1.5 | — |
-| 12 | Chart explanations (~60 charts, 15 pages) | 0.5 | 2.5–3.5 | 0.5 | 3.5–4.5 | — |
-| 13 | SJH database, all parts | 3–4 | 14–18 | 2–3 | 19–25 | BRAYN on; site-ID walkthrough |
-| 14 | Radiologist TAT and report counts on PACS | 2 | 4–5 | 1–2 | 7–9 | shares item 8’s PACS copy |
+| # | Item | Difficulty | Analysis | Build + tests | Validation | Total | Waits on |
+|---|---|---|---|---|---|---|---|
+| 1 | HIS vs RIS orders (Report 27) | Medium | 0.5–1 | 2–3 | 0.5–1 | 3–5 | Mirth ORM forwarding; RIS column for ORC-2 |
+| 2 | First open from PACS audit (due 2026-11-20) | High | 1–2 | 2–3 | 0.5–1 | 3.5–6 | audit table logs opens; JCI definition |
+| 3 | Report 22 AE filter + stress test of all filters — **done** | Medium | 0.5 | 3–4 | 0.5 | 4–5 | — |
+| 4 | RIS room names everywhere — **built** | Medium | 0.5 | 3–4 | 0.5–1 | 4–5.5 | RIS data fixed after the Monday queries |
+| 5 | ORU severity on a standard | Medium | 1–2 | 2–3 | 1–2 | 4–7 | chief radiologist |
+| 6 | Report 27 hourly load, scheduled vs started — **built** | Low | 0.25 | 0.5–1 | 0.25 | 1–1.5 | — |
+| 7 | Report 27 status mix check | Low–Medium | 0.5 | 0–2 | 0.5 | 1–3 | Tuesday session |
+| 8 | Super Report residents by wet read (PACS) | Medium–High | 1–1.5 | 2–2.5 | 0.5–1 | 3.5–5 | PACS timestamp check |
+| 9 | Staff who left, hidden from KPIs | Medium | 1 | 2.5–3 | 0.5 | 4–4.5 | Tuesday session; manager’s list |
+| 10 | Modality "PACS" samples | Low | 0.25 | 0–1 | 0.25 | 0.5–1.5 | operator’s review |
+| 11 | Report start date setting — **done** | Low | 0.1 | 1 | 0.25 | 1–1.5 | — |
+| 12 | Chart explanations (~150 notes, 16 pages) — **done** | Low–Medium | 0.5 | 2.5–3.5 | 0.5 | 3.5–4.5 | — |
+| 13 | SJH database, all parts | High | 3–4 | 14–18 | 2–3 | 19–25 | BRAYN on; site-ID walkthrough |
+| 14 | Radiologist TAT and report counts on PACS | High | 2 | 4–5 | 1–2 | 7–9 | shares item 8’s PACS copy |
 
 Item 13 splits into: second database, per-request switch, migrations and SJH ETL (6–8);
 migrate, count and delete SJH rows (2–3); site dropdown (1); RH vs SJH per-modality views
@@ -68,15 +68,23 @@ licence (1).
 Items 1–14 without item 5 add up to about 54–76 days (35–51 without item 13). Items 8 and 14
 share about one day. Doing item 3 together with the shared filter panel saves 1–2 days.
 
-| Earlier items | Total | Waits on |
-|---|---|---|
-| Urgent emergent in HL7 | 2 | end user and HIS answer |
-| Shared filter panel, 6 reports | 4–5.5 | — |
-| R2I and BRAYN switch-on checks | 2 | feed live |
-| ORU final-only via BRAYN | 2 | meaning of `FAP` or a prelim sample |
-| Placeholders via BRAYN | 1.5–2 | — |
-| CRN go-live (low) | 3.5–4.5 | provider, signed-off wording |
-| Patient schedule lead time (very low) | 2.5–3 | which moment counts as "booked" |
+| # | Earlier and added items | Difficulty | Total | Waits on |
+|---|---|---|---|---|
+| 15 | Urgent emergent in HL7 | Low | 2 | end user and HIS answer |
+| 16 | Shared filter panel, 6 reports | Medium | 4–5.5 | — |
+| 17 | R2I and BRAYN switch-on checks | Medium | 2 | feed live |
+| 18 | ORU final-only via BRAYN | Low–Medium | 2 | meaning of `FAP` or a prelim sample |
+| 19 | Placeholders via BRAYN | Low | 1.5–2 | — |
+| 20 | CRN go-live (low) | Medium | 3.5–4.5 | provider, signed-off wording |
+| 21 | Patient schedule lead time (very low) | Low–Medium | 2.5–3 | which moment counts as "booked" |
+| 22 | Daily Briefing snapshot RH only (found 2026-11-14) | Low | 1 | — (counts checked on the server) |
+| 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) | Low | 0.5–1 | — |
+| 24 | Deploy the 2026-11-14 work (migrations 0148, 0149) | Low | 0.5 | item 4's Monday check |
+| 25 | ER dashboard and ORU tab onto the one report UI | Medium–High | 6–9 | best after item 16 |
+
+Item 25 splits into: analysis, which ORU parts are admin tools rather than report content
+(0.5–1); ER dashboard as a numbered report (2–3); ORU tab as a numbered report (3–4);
+validation (0.5–1).
 
 ## Server access (2026-11-14)
 
@@ -310,6 +318,24 @@ read; radiologists approve or finalise (check both).
 - **Placeholder records — to be filtered by BRAYN.** "Referring, Generic"
   (`4101031379966`/`...68`), test patients and the CSH service account are loaded faithfully
   and not yet excluded from any report. Same BRAYN note as above.
+
+Numbered 15–21 in the estimates above, in this order: urgent emergent, shared filter panel,
+R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedule lead time.
+
+## Added 2026-11-14
+
+22. **Daily Briefing snapshot, RH only.** See item 12's note: `ETL_JOBS/daily_analytics.py`
+    reads the real tables, keeps SR and times TAT on the PACS final signature.
+23. **Yesterday tab, Orders ↔ PACS reconciliation.** See item 12's note: groups on
+    `proc_id`; redo with Report 27's linked-group method, RH only, then give it its icon.
+24. **Deploy the 2026-11-14 work** (items 3, 4, 6, 11, 12; migrations 0148 and 0149) after
+    item 4's Monday room-name check.
+25. **ER dashboard and ORU tab onto the one report UI** (CLAUDE.md rule 8): today both are
+    standalone pages (`/er`, `/oru`) with their own layout and filters. Make each a numbered
+    report (next free: 38 and 39) with `register_report()`, its `report_template` row and
+    licence by migration, per-user report access, `/viewer/NN`, and the shared left panel
+    `_report_filter_panel.html`; old URLs redirect. Decide which ORU parts are admin tools
+    (critical keyword dictionary, NLP processing) and move those under Administration.
 
 ## Low priority
 
