@@ -519,7 +519,7 @@ const ChartExplanations = {
     'sr-briefing': {
       title: 'Daily Briefing',
       purpose: 'A short written summary computed every night for three fixed periods: the last 30 days, the last 90 days and the year to date, each ending yesterday.',
-      valueMeaning: 'Each period is compared with the one before it of the same length (the year to date with the same dates last year). It covers volume and studies per day, median TAT (PACS arrival to PACS final signature), orders linked to a study, storage, the share of studies with a report, top referring physicians and the modality mix. Alerts: median TAT over 8 h, reports on under 90% of studies, fewer than 85% of orders linked to a study, storage up more than 30%, volume down more than 20%.',
+      valueMeaning: 'Rizk Hospital only; structured reports, other objects and bone densitometry are left out. Each period is compared with the one before it of the same length (the year to date with the same dates last year). It covers volume and studies per day, median TAT (PACS arrival to the report time: last composed, else PACS final), orders linked to a study, storage, the share of studies with a report, top referring physicians and the modality mix. Alerts: median TAT over 8 h, reports on under 90% of studies, fewer than 85% of orders linked to a study, storage up more than 30%, volume down more than 20%.',
       interpretation: 'It does not follow the dates or filters on this page; it is the same text for everyone that day. “Updated” beside the title is when it was computed; an older date means the nightly job did not run.'
     },
     'sr-summary': {

@@ -2,8 +2,8 @@
 """
 ETL_JOBS/daily_analytics.py
 ----------------------------
-Nightly analytics job — scheduled via Docker cron at 5:15 AM.
-Runs after the ETL daily jobs complete (max 5 min).
+Nightly analytics job: app.py's APScheduler job 'daily_analytics_snapshot', 05:30, after
+the 05:00 ETL. Feeds the Super Report's Daily Briefing card.
 
 Computes executive KPIs for three standard periods:
   last_30d  — last 30 days vs prior 30 days
@@ -12,6 +12,13 @@ Computes executive KPIs for three standard periods:
 
 Stores one row per period in analytics_snapshots.
 Prunes rows older than 30 days to keep the table lean.
+
+RH only (CLAUDE.md rule 0): people read the briefing, so it reads the rh views
+(utils/rh_scope.py). The scheduler runs it inside rh_scope(); a manual run does the same
+below. summary_storage_daily needs no view: it is built from RH devices only
+(ETL_JOBS/etl_analytics_refresh.py). Studies count as every report counts them: structured
+reports, other objects and bone densitometry left out, TAT from the PACS arrival to the
+report time (last composed, else PACS final) — LAUMC to-do item 22, 2026-11-14.
 
 Run manually:  python ETL_JOBS/daily_analytics.py
 """
@@ -84,30 +91,48 @@ def _periods():
 
 # ── KPI collection ────────────────────────────────────────────────────────────
 
+# The studies every figure counts: the period's studies minus structured reports, other
+# objects and bone densitometry (CLAUDE.md rule 2), modality from the device first (rule 3).
+# LATERAL ... LIMIT 1 so two case-variant rows of one AE title cannot double a study (see
+# routes/super_report.py's _collect_data).
+_STUDIES = """
+    FROM etl_didb_studies s
+    LEFT JOIN LATERAL (
+        SELECT m0.modality FROM aetitle_modality_map m0
+        WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae))
+        ORDER BY m0.id LIMIT 1
+    ) m ON TRUE
+    WHERE s.study_date BETWEEN :s AND :e
+      AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
+"""
+
+# The report time, as every report reads it: last composed, else PACS final (the final
+# signature alone is blank on many LAUMC studies).
+_REPORT_TS = "COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp)"
+
+
 def _collect(conn, start, end):
     p = {"s": str(start), "e": str(end)}
 
-    kpis = conn.execute(text("""
+    kpis = conn.execute(text(f"""
         SELECT
             COUNT(DISTINCT s.study_db_uid)   AS total_studies,
             COUNT(DISTINCT s.patient_db_uid) AS total_patients,
             SUM(s.number_of_study_images)    AS total_images,
             COUNT(*) FILTER (WHERE s.study_has_report = TRUE) AS studies_with_report,
             COUNT(DISTINCT s.study_date)     AS active_days
-        FROM etl_didb_studies s
-        WHERE s.study_date BETWEEN :s AND :e
+        {_STUDIES}
     """), p).mappings().fetchone()
 
-    tat = conn.execute(text("""
+    tat = conn.execute(text(f"""
         SELECT ROUND(
             PERCENTILE_CONT(0.5) WITHIN GROUP (
-                ORDER BY EXTRACT(EPOCH FROM (rep_final_timestamp - insert_time)) / 60.0
+                ORDER BY EXTRACT(EPOCH FROM ({_REPORT_TS} - s.insert_time)) / 60.0
             )::numeric, 1
         ) AS median_tat_min
-        FROM etl_didb_studies
-        WHERE study_date BETWEEN :s AND :e
-          AND insert_time IS NOT NULL
-          AND rep_final_timestamp IS NOT NULL
+        {_STUDIES}
+          AND s.insert_time IS NOT NULL
+          AND {_REPORT_TS} IS NOT NULL
     """), p).fetchone()
 
     orders = conn.execute(text("""
@@ -123,23 +148,20 @@ def _collect(conn, start, end):
         WHERE study_date BETWEEN :s AND :e
     """), p).fetchone()
 
-    physicians = conn.execute(text("""
-        SELECT TRIM(CONCAT(referring_physician_first_name, ' ',
-                           referring_physician_last_name)) AS name,
+    physicians = conn.execute(text(f"""
+        SELECT TRIM(CONCAT(s.referring_physician_first_name, ' ',
+                           s.referring_physician_last_name)) AS name,
                COUNT(*) AS cnt
-        FROM etl_didb_studies
-        WHERE study_date BETWEEN :s AND :e
-          AND referring_physician_last_name IS NOT NULL
-          AND referring_physician_last_name != ''
+        {_STUDIES}
+          AND s.referring_physician_last_name IS NOT NULL
+          AND s.referring_physician_last_name != ''
         GROUP BY 1 ORDER BY cnt DESC LIMIT 5
     """), p).fetchall()
 
-    modalities = conn.execute(text("""
+    modalities = conn.execute(text(f"""
         SELECT COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
                COUNT(*) AS cnt
-        FROM etl_didb_studies s
-        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
-        WHERE s.study_date BETWEEN :s AND :e
+        {_STUDIES}
         GROUP BY 1 ORDER BY cnt DESC LIMIT 5
     """), p).fetchall()
 
@@ -319,7 +341,17 @@ def run(engine=None):
         logger.info("Pruned snapshots older than 30 days.")
 
 
+def run_rh_only(engine=None):
+    """A run outside the app (by hand): the same RH-only reading the scheduler gives it with
+    rh_scope(), on an engine of its own that the app never hooked."""
+    from utils.rh_scope import install, rh_scope
+    engine = engine or _engine()
+    install(engine)
+    with rh_scope():
+        run(engine)
+
+
 if __name__ == "__main__":
     logger.info("=== Daily Analytics Job Starting ===")
-    run()
+    run_rh_only()
     logger.info("=== Done ===")

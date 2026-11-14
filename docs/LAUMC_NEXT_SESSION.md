@@ -77,7 +77,7 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 19 | Placeholders via BRAYN | Low | 1.5–2 | — |
 | 20 | CRN go-live (low) | Medium | 3.5–4.5 | provider, signed-off wording |
 | 21 | Patient schedule lead time (very low) | Low–Medium | 2.5–3 | which moment counts as "booked" |
-| 22 | Daily Briefing snapshot RH only (found 2026-11-14) | Low | 1 | — (counts checked on the server) |
+| 22 | Daily Briefing snapshot RH only (found 2026-11-14) — **done** | Low | 1 | — (counts checked on the server) |
 | 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) — **done** | Low | 0.5–1 | — |
 | 24 | Deploy the 2026-11-14 work (migrations 0148, 0149) | Low | 0.5 | item 4's Monday check |
 | 25 | ER dashboard onto the one report UI (Report 38) — **done** | Low | 1–1.5 | — |
@@ -251,11 +251,11 @@ read; radiologists approve or finalise (check both).
     31–36, the Super Report, the home page (Daily Briefing, Yesterday tab), the ER dashboard
     and the ORU tab. Report 31 and Report 34's shared panels reuse Report 25's notes (same
     query). Not deployed. Writing them turned up two things to fix, not fixed yet:
-    - **Super Report → Daily Briefing card** (`ETL_JOBS/daily_analytics.py`, nightly) reads the
-      real tables, not the `rh` views, so its counts include the other site; it also keeps
-      structured reports and times TAT on the sparse PACS final signature. Fix: run its
-      queries through the `rh` views (`summary_storage_daily` has none yet), exclude SR, use
-      `rep_study_last_composed_ts`.
+    - **Super Report → Daily Briefing card** (`ETL_JOBS/daily_analytics.py`, nightly) keeps
+      structured reports and times TAT on the sparse PACS final signature. **Fixed
+      2026-11-14, item 22.** (First written here as also reading every site: wrong, the
+      scheduler runs it inside `rh_scope()` and `summary_storage_daily` is built from RH
+      devices only; only a run by hand skipped the views.)
     - **Home → Yesterday → Orders ↔ PACS Reconciliation** groups on `etl_orders.proc_id`
       (the procedure code, not the accession) and counts groups as "Orders Placed", so Orders
       Placed always equals Expected Studies. **Fixed 2026-11-14, item 23.**
@@ -329,7 +329,16 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
 ## Added 2026-11-14
 
 22. **Daily Briefing snapshot, RH only.** See item 12's note: `ETL_JOBS/daily_analytics.py`
-    reads the real tables, keeps SR and times TAT on the PACS final signature.
+    keeps SR and times TAT on the PACS final signature.
+    **Done 2026-11-14**, not deployed (`tests/test_daily_briefing.py`): structured reports,
+    other objects and bone densitometry left out of every figure (modality from the device
+    first); TAT from the PACS arrival to `COALESCE(rep_study_last_composed_ts,
+    rep_final_timestamp)`; a run by hand (`python ETL_JOBS/daily_analytics.py`) now goes
+    through the `rh` views too (`run_rh_only`). The site was already RH in the scheduled run.
+    Left as it is: a gateway AE mapped to RH would carry both sites' images into
+    `summary_storage_daily`; check on the server whether any gateway is mapped to a site.
+    After deploy the next 05:30 snapshot shows the new figures; old snapshots age out in
+    30 days.
 23. **Yesterday tab, Orders ↔ PACS reconciliation.** See item 12's note: groups on
     `proc_id`; redo with Report 27's linked-group method, RH only, then give it its icon.
     **Done 2026-11-14**, not deployed (`tests/test_yesterday_reconciliation.py`): yesterday's
