@@ -143,10 +143,15 @@ read; radiologists approve or finalise (check both).
    the raw `storing_ae`, so lower case or a trailing space gave 0. (c) Report 22 cleaned the
    pick with Python `strip()`, which disagrees with SQL `TRIM` on tabs. All now go through
    `utils/report_filters.picked_sql`. Tests: `tests/test_report_22_filters.py` (sums over
-   every value offered) and `tests/test_ae_filter_reports.py`. Left: the same stress test for
-   the other filters (class, modality, location, status) on Reports 25, 34, 35, 36, 37 and
-   the Super Report. Optional, on production: which AE titles were offered before and gave
-   0 (read-only):
+   every value offered) and `tests/test_ae_filter_reports.py`.
+   **Other filters done 2026-11-14:** patient class, location and modality on Reports 25 and
+   34 (main and secondary queries), the shared sidebar filter (Report 36, Report 25's
+   sections), Report 35's modality, and the single-value filters of Reports 23, 31 and 32
+   (class, modality, sex; they had UPPER without TRIM) all match whatever the case or
+   padding. The modality dropdown no longer lists the other site's modalities (rule 0), and
+   the Super Report's AE list only offers AEs it can count. Report 37 needed nothing: its
+   dropdowns list the period's own values. Tests: `tests/test_report_filters_all.py`.
+   Optional, on production: which AE titles were offered before and gave 0 (read-only):
    ```sql
    SELECT TRIM(s.storing_ae) AS ae, COUNT(*) AS studies, m.aetitle AS mapped_as, m.modality, m.site_id
    FROM rh.etl_didb_studies s

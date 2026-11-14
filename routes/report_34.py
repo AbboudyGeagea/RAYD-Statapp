@@ -68,13 +68,16 @@ def get_device_utilization_data(form_data):
     params = {"start": start, "end": end}
     where_clauses = ["study_date BETWEEN :start AND :end", "COALESCE(modality, '') NOT IN ('SR', 'OT', 'BMD')"]
 
-    if form_data.get("class_enabled") == "on" and form_data.getlist("patient_class"):
-        where_clauses.append("patient_class IN :classes")
-        params["classes"] = tuple(form_data.getlist("patient_class"))
+    # Every pick is normalised in SQL the way its column is (utils.report_filters.picked_sql),
+    # so a value stored in another case or with a trailing space still matches (meeting of
+    # 2026-11-13: a filter must never show 0 for a value its dropdown offers).
+    if form_data.get("class_enabled") == "on" and picked(form_data, "patient_class"):
+        where_clauses.append(f"UPPER(TRIM(patient_class)) IN {picked_sql('classes')}")
+        params["classes"] = picked(form_data, "patient_class")
 
-    if form_data.get("mod_enabled") == "on" and form_data.getlist("modality"):
-        where_clauses.append("modality IN :modalities")
-        params["modalities"] = tuple(form_data.getlist("modality"))
+    if form_data.get("mod_enabled") == "on" and picked(form_data, "modality"):
+        where_clauses.append(f"UPPER(TRIM(modality)) IN {picked_sql('modalities')}")
+        params["modalities"] = picked(form_data, "modality")
 
     # As Report 25: the template's aetitle is UPPER(TRIM(storing_ae)), so the pick is
     # normalised the same way in SQL.
@@ -82,9 +85,9 @@ def get_device_utilization_data(form_data):
         where_clauses.append(f"aetitle IN {picked_sql('aetitles')}")
         params["aetitles"] = picked(form_data, "aetitle")
 
-    if form_data.get("loc_enabled") == "on" and form_data.getlist("patient_location"):
-        where_clauses.append("patient_location IN :locations")
-        params["locations"] = tuple(form_data.getlist("patient_location"))
+    if form_data.get("loc_enabled") == "on" and picked(form_data, "patient_location"):
+        where_clauses.append(f"UPPER(TRIM(patient_location)) IN {picked_sql('locations')}")
+        params["locations"] = picked(form_data, "patient_location")
 
     # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main site) only,
     # SJH (satellite) excluded, for now. etl_didb_studies.site_id is never actually populated
@@ -107,13 +110,13 @@ def get_device_utilization_data(form_data):
     # Mirrors report_25's _sec_filters / _sec_needs_mod_join pattern exactly.
     _sec_filters = ""
     if "classes" in params:
-        _sec_filters += " AND s.patient_class IN :classes"
+        _sec_filters += f" AND UPPER(TRIM(s.patient_class)) IN {picked_sql('classes')}"
     if "modalities" in params:
-        _sec_filters += " AND UPPER(TRIM(m.modality)) IN :modalities"
+        _sec_filters += f" AND UPPER(TRIM(m.modality)) IN {picked_sql('modalities')}"
     if "aetitles" in params:
         _sec_filters += f" AND UPPER(TRIM(s.storing_ae)) IN {picked_sql('aetitles')}"
     if "locations" in params:
-        _sec_filters += " AND s.patient_location IN :locations"
+        _sec_filters += f" AND UPPER(TRIM(s.patient_location)) IN {picked_sql('locations')}"
     if rh_site_id is not None:
         _sec_filters += " AND m.site_id = :rh_site_id"
     _sec_needs_mod_join = "modalities" in params or rh_site_id is not None

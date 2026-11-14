@@ -142,6 +142,7 @@ def get_filter_options(db) -> dict:
     Each field is fetched independently so one failure never blanks the rest.
     """
     from sqlalchemy import text
+    from utils.report_filters import rh_device_sql
 
     with _lock:
         entry = _store.get(_FILTER_KEY)
@@ -185,7 +186,9 @@ def get_filter_options(db) -> dict:
                              WHERE storing_ae IS NOT NULL AND TRIM(storing_ae) != ''
                                AND NOT EXISTS (SELECT 1 FROM sites WHERE is_default)
                          ) x""",
-        "modalities": "SELECT ARRAY_AGG(DISTINCT TRIM(modality)        ORDER BY TRIM(modality))        FROM aetitle_modality_map WHERE modality IS NOT NULL AND modality NOT IN ('SR', 'BMD')",
+        # Modalities of RH devices only (CLAUDE.md rule 0: lists read from the map use
+        # rh_device_sql), so a modality only the other site has is no longer offered.
+        "modalities": "SELECT ARRAY_AGG(DISTINCT TRIM(m.modality)      ORDER BY TRIM(m.modality))      FROM aetitle_modality_map m WHERE m.modality IS NOT NULL AND m.modality NOT IN ('SR', 'BMD') AND " + rh_device_sql('m'),
         "sex_values": "SELECT ARRAY_AGG(DISTINCT TRIM(sex)             ORDER BY TRIM(sex))             FROM etl_patient_view WHERE sex IS NOT NULL AND TRIM(sex) != ''",
     }
 

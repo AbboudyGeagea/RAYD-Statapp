@@ -63,6 +63,7 @@ from sqlalchemy import text
 from db import db, get_report_start_date
 from routes.report_cache import cache_get, cache_put, cache_invalidate
 from utils.site_resolver import default_site
+from utils.report_filters import picked, picked_sql
 from utils import tat_sla
 
 logger = logging.getLogger("report_35")
@@ -134,8 +135,8 @@ def get_technician_tat_data(form_data):
     end   = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
 
     params = {"start": start, "end": end}
-    if form_data.get("mod_enabled") == "on" and form_data.getlist("modality"):
-        params["modalities"] = tuple(form_data.getlist("modality"))
+    if form_data.get("mod_enabled") == "on" and picked(form_data, "modality"):
+        params["modalities"] = picked(form_data, "modality")
 
     # LAUMC site rule (see report_25.py's get_gold_standard_data for full rationale):
     # reports show RH (main site) only, SJH (satellite) excluded, for now.
@@ -170,7 +171,7 @@ def get_technician_tat_data(form_data):
         # exams, and its "AND m.site_id = :rh_site_id" clause would silently drop those.
         _filters = []
         if "modalities" in params:
-            _filters.append("UPPER(TRIM(base.modality)) IN :modalities")
+            _filters.append(f"UPPER(TRIM(base.modality)) IN {picked_sql('modalities')}")
         if rh_site_id is not None:
             _filters.append("(base.site_id IS NULL OR base.site_id = :rh_site_id)")
         _filter_clause = ("WHERE " + " AND ".join(_filters)) if _filters else ""

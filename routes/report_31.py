@@ -84,11 +84,11 @@ def get_report_config(form):
     extra = ["COALESCE(modality, '') NOT IN ('SR', 'OT', 'BMD')"]
 
     if form.get("f_mod_active") == "on" and form.get("f_mod"):
-        extra.append("UPPER(modality) = UPPER(:mod)")
+        extra.append("UPPER(TRIM(modality)) = UPPER(TRIM(:mod))")
         params["mod"] = form.get("f_mod")
 
     if form.get("f_class_active") == "on" and form.get("f_class"):
-        extra.append("UPPER(patient_class) = UPPER(:p_class)")
+        extra.append("UPPER(TRIM(patient_class)) = UPPER(TRIM(:p_class))")
         params["p_class"] = form.get("f_class")
 
     # LAUMC site rule (operator instruction, 2026-07-26 — full rationale in

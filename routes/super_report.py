@@ -190,7 +190,17 @@ def super_report_filters():
 
         data = {
             "modality":            distinct("SELECT DISTINCT COALESCE(m.modality, s.study_modality) FROM etl_didb_studies s LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle)) WHERE COALESCE(m.modality, s.study_modality) IS NOT NULL"),
-            "storing_ae":          distinct("SELECT DISTINCT storing_ae FROM etl_didb_studies WHERE storing_ae IS NOT NULL"),
+            # Only AE titles the Super Report can count: it keeps a study only when its
+            # device is mapped to the default site (RH), so any other AE was offered and
+            # always gave 0 (meeting of 2026-11-13). Spelled as stored, since the filter
+            # compares the raw storing_ae.
+            "storing_ae":          distinct("""
+                SELECT x.ae FROM (SELECT DISTINCT storing_ae AS ae FROM etl_didb_studies
+                                  WHERE storing_ae IS NOT NULL) x
+                WHERE NOT EXISTS (SELECT 1 FROM sites WHERE is_default)
+                   OR EXISTS (SELECT 1 FROM aetitle_modality_map m
+                              WHERE UPPER(TRIM(m.aetitle)) = UPPER(TRIM(x.ae))
+                                AND m.site_id = (SELECT id FROM sites WHERE is_default LIMIT 1))"""),
             "study_status":        distinct("SELECT DISTINCT study_status FROM etl_didb_studies WHERE study_status IS NOT NULL"),
             "report_status":       distinct("SELECT DISTINCT report_status FROM etl_didb_studies WHERE report_status IS NOT NULL"),
             "order_status":        distinct("SELECT DISTINCT order_status FROM etl_didb_studies WHERE order_status IS NOT NULL"),

@@ -81,11 +81,11 @@ def get_report_config(form_data):
     extra = []
 
     if form_data.get("f_mod_active") == "on" and form_data.get("f_mod"):
-        extra.append("UPPER(modality) = UPPER(:mod)")
+        extra.append("UPPER(TRIM(modality)) = UPPER(TRIM(:mod))")
         params["mod"] = form_data.get("f_mod")
 
     if form_data.get("f_class_active") == "on" and form_data.get("f_class"):
-        extra.append("UPPER(patient_class) = UPPER(:p_class)")
+        extra.append("UPPER(TRIM(patient_class)) = UPPER(TRIM(:p_class))")
         params["p_class"] = form_data.get("f_class")
 
     extra_where = (" AND " + " AND ".join(extra)) if extra else ""
@@ -107,9 +107,9 @@ def get_report_config(form_data):
     # below, which don't run against the base_data CTE.
     sec_filters = ""
     if "mod" in params:
-        sec_filters += " AND UPPER(TRIM(m.modality)) = UPPER(:mod)"
+        sec_filters += " AND UPPER(TRIM(m.modality)) = UPPER(TRIM(:mod))"
     if "p_class" in params:
-        sec_filters += " AND UPPER(s.patient_class) = UPPER(:p_class)"
+        sec_filters += " AND UPPER(TRIM(s.patient_class)) = UPPER(TRIM(:p_class))"
     if rh_site_id is not None:
         sec_filters += " AND m.site_id = :rh_site_id"
     sec_needs_mod_join = ("mod" in params) or (rh_site_id is not None)

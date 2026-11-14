@@ -93,21 +93,16 @@ def sidebar_filters(form_data):
     params = {"start": start, "end": end}
     clause = ""
 
-    if form_data.get("class_enabled") == "on" and form_data.getlist("patient_class"):
-        params["classes"] = tuple(form_data.getlist("patient_class"))
-        clause += " AND s.patient_class IN :classes"
-
-    if form_data.get("mod_enabled") == "on" and form_data.getlist("modality"):
-        params["modalities"] = tuple(form_data.getlist("modality"))
-        clause += " AND UPPER(TRIM(m.modality)) IN :modalities"
-
-    if form_data.get("ae_enabled") == "on" and picked(form_data, "aetitle"):
-        params["aetitles"] = picked(form_data, "aetitle")
-        clause += f" AND UPPER(TRIM(s.storing_ae)) IN {picked_sql('aetitles')}"
-
-    if form_data.get("loc_enabled") == "on" and form_data.getlist("patient_location"):
-        params["locations"] = tuple(form_data.getlist("patient_location"))
-        clause += " AND s.patient_location IN :locations"
+    # Every pick is normalised in SQL the way its column is (picked_sql).
+    for field, enabled, bind, column in (
+        ("patient_class",    "class_enabled", "classes",    "s.patient_class"),
+        ("modality",         "mod_enabled",   "modalities", "m.modality"),
+        ("aetitle",          "ae_enabled",    "aetitles",   "s.storing_ae"),
+        ("patient_location", "loc_enabled",   "locations",  "s.patient_location"),
+    ):
+        if form_data.get(enabled) == "on" and picked(form_data, field):
+            params[bind] = picked(form_data, field)
+            clause += f" AND UPPER(TRIM({column})) IN {picked_sql(bind)}"
 
     rh_site_id = default_site()
     if rh_site_id is not None:
