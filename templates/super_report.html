@@ -110,6 +110,7 @@
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
         body.light aside, body.light header { background:#ffffff !important; border-color:#e2e8f0 !important; }
     </style>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
 
@@ -221,7 +222,7 @@
                 <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
                     <div style="display:flex;align-items:center;gap:8px;">
                         <i class="bi bi-lightning-charge-fill" style="color:#60a5fa;"></i>
-                        <span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#60a5fa;">Daily Briefing</span>
+                        <span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#60a5fa;">Daily Briefing<i class="bi bi-info-circle chart-info-icon" data-explain="sr-briefing" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         <span id="briefing-updated" style="font-size:9px;font-weight:700;color:#475569;margin-left:4px;"></span>
                     </div>
                     <div style="display:flex;gap:4px;" id="briefing-tabs">
@@ -246,7 +247,7 @@
                 <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
                     <div style="display:flex;align-items:center;gap:8px;">
                         <i class="bi bi-person-exclamation" style="color:#f59e0b;"></i>
-                        <span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#f59e0b;">Conflict Patients</span>
+                        <span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#f59e0b;">Conflict Patients<i class="bi bi-info-circle chart-info-icon" data-explain="r23-conflicts" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         <span id="sr-conflict-badge"
                               style="font-size:9px;font-weight:900;padding:2px 10px;border-radius:999px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">
                             Loading…
@@ -285,7 +286,7 @@
                 <div>
                     <div class="flex items-center gap-2 mb-2">
                         <i class="bi bi-file-earmark-text text-yellow-400"></i>
-                        <span class="text-[10px] font-black text-yellow-400 uppercase tracking-widest">Executive Summary</span>
+                        <span class="text-[10px] font-black text-yellow-400 uppercase tracking-widest">Executive Summary<i class="bi bi-info-circle chart-info-icon" data-explain="sr-summary" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         <span class="text-[9px] text-slate-600 ml-auto" id="period-label"></span>
                     </div>
                     <div class="narrative-box" id="super-narrative"></div>
@@ -297,19 +298,19 @@
                 <!-- Sections -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="card p-5">
-                        <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-graph-up-arrow"></i> Volume & Trends</h4>
+                        <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-graph-up-arrow"></i> Volume & Trends<i class="bi bi-info-circle chart-info-icon" data-explain="sr-volume" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-volume"></div>
                     </div>
                     <div class="card p-5">
-                        <h4 class="text-emerald-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-hdd-stack"></i> Storage & Images</h4>
+                        <h4 class="text-emerald-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-hdd-stack"></i> Storage & Images<i class="bi bi-info-circle chart-info-icon" data-explain="sr-storage" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-storage"></div>
                     </div>
                     <div class="card p-5">
-                        <h4 class="text-violet-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-person-badge"></i> Top Referring Physicians</h4>
+                        <h4 class="text-violet-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-person-badge"></i> Top Referring Physicians<i class="bi bi-info-circle chart-info-icon" data-explain="sr-physicians" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-physicians"></div>
                     </div>
                     <div class="card p-5">
-                        <h4 class="text-orange-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clipboard2-pulse"></i> Orders & Fulfillment</h4>
+                        <h4 class="text-orange-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clipboard2-pulse"></i> Orders & Fulfillment<i class="bi bi-info-circle chart-info-icon" data-explain="sr-orders" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-orders"></div>
                     </div>
                 </div>
@@ -317,22 +318,22 @@
                 <!-- Operational Health -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div class="card p-5">
-                        <h4 class="text-amber-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clock-history"></i> Turnaround Time</h4>
+                        <h4 class="text-amber-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clock-history"></i> Turnaround Time<i class="bi bi-info-circle chart-info-icon" data-explain="sr-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-tat"></div>
                     </div>
                     <div class="card p-5">
-                        <h4 class="text-red-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-exclamation-octagon"></i> Critical Findings (CRN)</h4>
+                        <h4 class="text-red-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-exclamation-octagon"></i> Critical Findings (CRN)<i class="bi bi-info-circle chart-info-icon" data-explain="sr-crn" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-crn"></div>
                     </div>
                     <div class="card p-5">
-                        <h4 class="text-cyan-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-speedometer2"></i> Device Utilization</h4>
+                        <h4 class="text-cyan-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-speedometer2"></i> Device Utilization<i class="bi bi-info-circle chart-info-icon" data-explain="sr-util" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-utilization"></div>
                     </div>
                 </div>
 
                 <!-- Demographics -->
                 <div class="card p-5">
-                    <h4 class="text-pink-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-people"></i> Patient Demographics</h4>
+                    <h4 class="text-pink-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-people"></i> Patient Demographics<i class="bi bi-info-circle chart-info-icon" data-explain="sr-demo" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                     <div id="super-demographics" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"></div>
                     <p class="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-2">All Patient Classes</p>
                     <div id="super-pc-breakdown" class="flex flex-col gap-1.5"></div>
@@ -342,7 +343,7 @@
                 <!-- Clinical Insights -->
                 <div class="card p-5" id="super-insights-card" style="display:none">
                     <h4 class="text-yellow-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2">
-                        <i class="bi bi-lightbulb-fill"></i> Clinical Insights
+                        <i class="bi bi-lightbulb-fill"></i> Clinical Insights<i class="bi bi-info-circle chart-info-icon" data-explain="sr-insights" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
                     </h4>
                     <div id="super-insights" class="space-y-2"></div>
                 </div>
@@ -351,7 +352,7 @@
                 <div class="card p-5" id="super-rad-matrix-card" style="display:none">
                     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
                         <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                            <i class="bi bi-person-check"></i> Reports per Radiologist
+                            <i class="bi bi-person-check"></i> Reports per Radiologist<i class="bi bi-info-circle chart-info-icon" data-explain="sr-rad-matrix" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
                         </h4>
                         <!-- Modality / AE Title toggle + export -->
                         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">

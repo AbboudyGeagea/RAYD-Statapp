@@ -200,6 +200,9 @@ read; radiologists approve or finalise (check both).
    were started (RIS status Started; exams, not reports). Each hour shows the average per day
    over the range. Busiest day counted on started, ranked Monday to Friday; Saturday (half
    day) and Sunday (ER only) shown separately.
+   **Built 2026-11-14** (`tests/test_report_27_hourly.py`), not deployed. Check on the server
+   that `worklist_status_history` holds `in_progress` rows, or the red line stays at 0. The
+   "Busiest Day & Time" grid still counts scheduled orders.
 7. **Report 27 Order Status Mix:** double-check session on both ends (Oracle and RAYD) on
    Tuesday 2026-11-17, mainly the scheduled status. Compare at the same cut-off time (RAYD
    copies nightly, Oracle is live). Last tied out 2026-09-18, see
@@ -236,8 +239,20 @@ read; radiologists approve or finalise (check both).
     LAUMC's own queries. Newest copy: Bekaa `static/js/chart-explanations.js` (2026-10-14).
     **Started 2026-11-14:** `static/js/chart-explanations.js` (the browser's own dialog, no
     CDN) and Report 22, all 15 charts. `tests/test_chart_explanations.py` fails when a page
-    names a note with no text or does not load the script. Left: Reports 23, 25, 27, 29, 31–36,
-    the Super Report, the daily briefing, the ER dashboard and the ORU tab, page by page.
+    names a note with no text or does not load the script.
+    **Done 2026-11-14:** every page now has its notes (about 150): Reports 22, 23, 25, 27, 29,
+    31–36, the Super Report, the home page (Daily Briefing, Yesterday tab), the ER dashboard
+    and the ORU tab. Report 31 and Report 34's shared panels reuse Report 25's notes (same
+    query). Not deployed. Writing them turned up two things to fix, not fixed yet:
+    - **Super Report → Daily Briefing card** (`ETL_JOBS/daily_analytics.py`, nightly) reads the
+      real tables, not the `rh` views, so its counts include the other site; it also keeps
+      structured reports and times TAT on the sparse PACS final signature. Fix: run its
+      queries through the `rh` views (`summary_storage_daily` has none yet), exclude SR, use
+      `rep_study_last_composed_ts`.
+    - **Home → Yesterday → Orders ↔ PACS Reconciliation** groups on `etl_orders.proc_id`
+      (the procedure code, not the accession) and counts groups as "Orders Placed", so Orders
+      Placed always equals Expected Studies; orders are not site-scoped. Fix: reuse Report 27's
+      agreement method (RIS linked group, `o.site_id`). Left without an info icon until then.
 13. **Separate database for SJH, same web app** (confirmed; RBAC rejected, full database
     separation is safer). Replaces the RH-only rule (CLAUDE.md rule 0) once built.
     a. A dropdown on every report switches between the two databases (selected users only).

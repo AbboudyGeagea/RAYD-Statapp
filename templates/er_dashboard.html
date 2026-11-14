@@ -49,6 +49,7 @@
         body.light .text-white { color:#1a202c!important; }
         body.light input, body.light select { background:#f8fafc!important; border-color:#e2e8f0!important; color:#1a202c!important; }
     </style>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
 
@@ -103,7 +104,7 @@
 
             <!-- Unread Today Alert -->
             <div id="unread-section" class="hidden">
-                <p class="section-title"><i class="bi bi-exclamation-triangle-fill mr-1"></i> Currently Unread ER Studies — Today</p>
+                <p class="section-title"><i class="bi bi-exclamation-triangle-fill mr-1"></i> Currently Unread ER Studies — Today<i class="bi bi-info-circle chart-info-icon" data-explain="er-unread" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                 <div class="card overflow-hidden">
                     <div class="overflow-x-auto">
                         <table class="w-full text-left">
@@ -123,7 +124,7 @@
 
             <!-- Trend chart -->
             <div class="card p-5">
-                <p class="section-title"><i class="bi bi-graph-up mr-1"></i> Daily Average TAT (hours)</p>
+                <p class="section-title"><i class="bi bi-graph-up mr-1"></i> Daily Average TAT (hours)<i class="bi bi-info-circle chart-info-icon" data-explain="er-trend" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                 <div id="chart-trend" style="height:260px;"></div>
             </div>
 
@@ -131,7 +132,7 @@
             <div class="card p-5">
                 <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
                     <p class="section-title mb-0">
-                        <i class="bi bi-bar-chart mr-1"></i> TAT Distribution
+                        <i class="bi bi-bar-chart mr-1"></i> TAT Distribution<i class="bi bi-info-circle chart-info-icon" data-explain="er-histogram" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
                         <span id="tat-cluster-note" style="font-size:10px;font-weight:400;color:#64748b;"></span>
                     </p>
                     <div class="flex items-center gap-4" style="font-size:10px;color:#94a3b8;">
@@ -146,18 +147,18 @@
             <!-- Charts row 2: Modality + Hour -->
             <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <div class="card p-5">
-                    <p class="section-title"><i class="bi bi-bar-chart-horizontal mr-1"></i> Average TAT by Modality</p>
+                    <p class="section-title"><i class="bi bi-bar-chart-horizontal mr-1"></i> Average TAT by Modality<i class="bi bi-info-circle chart-info-icon" data-explain="er-modality" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                     <div id="chart-modality" style="height:260px;"></div>
                 </div>
                 <div class="card p-5">
-                    <p class="section-title"><i class="bi bi-clock-history mr-1"></i> ER Volume by Hour of Day</p>
+                    <p class="section-title"><i class="bi bi-clock-history mr-1"></i> ER Volume by Hour of Day<i class="bi bi-info-circle chart-info-icon" data-explain="er-hour" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                     <div id="chart-hour" style="height:260px;"></div>
                 </div>
             </div>
 
             <!-- Radiologist TAT -->
             <div class="card p-5">
-                <p class="section-title"><i class="bi bi-person-badge mr-1"></i> Average TAT by Radiologist</p>
+                <p class="section-title"><i class="bi bi-person-badge mr-1"></i> Average TAT by Radiologist<i class="bi bi-info-circle chart-info-icon" data-explain="er-radiologist" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                 <div id="chart-radiologist" style="height:280px;"></div>
             </div>
 

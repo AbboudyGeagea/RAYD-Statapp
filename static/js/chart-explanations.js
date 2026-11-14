@@ -511,6 +511,241 @@ const ChartExplanations = {
       purpose: 'For each signer of final reports, when they sign: a weekday × hour heatmap and a day-by-day log.',
       valueMeaning: 'Each PACS final signature time is one event. First and last of a day = start and end of signing. A gap of 20 minutes or more is a break: up to 35 min coffee, up to 70 min long break, longer = away. Readers who only sign preliminary reports do not appear.',
       interpretation: 'It sees signatures only, so reading, procedures and meetings look like breaks. Use it for workload patterns, not as an attendance record.'
+    },
+
+    // ── Super Report ────────────────────────────────────────────────────────────
+    // Rows: Rizk Hospital studies in the dates and filters chosen, compared with the
+    // previous period of the same length (or the comparison dates chosen).
+    'sr-briefing': {
+      title: 'Daily Briefing',
+      purpose: 'A short written summary computed every night for three fixed periods: the last 30 days, the last 90 days and the year to date, each ending yesterday.',
+      valueMeaning: 'Each period is compared with the one before it of the same length (the year to date with the same dates last year). It covers volume and studies per day, median TAT (PACS arrival to PACS final signature), orders linked to a study, storage, the share of studies with a report, top referring physicians and the modality mix. Alerts: median TAT over 8 h, reports on under 90% of studies, fewer than 85% of orders linked to a study, storage up more than 30%, volume down more than 20%.',
+      interpretation: 'It does not follow the dates or filters on this page; it is the same text for everyone that day. “Updated” beside the title is when it was computed; an older date means the nightly job did not run.'
+    },
+    'sr-summary': {
+      title: 'Executive Summary',
+      purpose: 'A written summary of the figures below for the dates and filters chosen.',
+      valueMeaning: 'Each sentence compares the period with the comparison period (by default the same number of days just before). Arrows and percentages are the change between the two. The sentences come from fixed rules, not from AI.',
+      interpretation: 'Compare periods of the same length and kind: a month with holidays against one without will show a drop that is not a trend.'
+    },
+    'sr-volume': {
+      title: 'Volume & Trends',
+      purpose: 'How many Rizk Hospital studies were done in the period and how they spread over the days.',
+      valueMeaning: 'Studies = distinct PACS studies. Avg/day = studies ÷ days that had at least one study. Peak day = the date with the most studies. Top modalities = the 5 busiest, modality from the device on the Mapping page.',
+      interpretation: 'Days with no study at all (holidays) do not lower the average, so it is the average of working days.'
+    },
+    'sr-storage': {
+      title: 'Storage & Images',
+      purpose: 'Storage used by the images of the period, from the nightly storage summary.',
+      valueMeaning: 'Total GB = image size added up over the study dates in the period. Avg GB/day = total ÷ days with data. The row named Total images is the number of studies in the storage summary. By Modality = the 5 largest. Only the dates and the modality filter apply.',
+      interpretation: 'Storage grows with CT and MR volume; a jump without a volume change usually means a new protocol with more images.'
+    },
+    'sr-physicians': {
+      title: 'Top Referring Physicians',
+      purpose: 'The 10 referring physicians with the most studies in the period, as named on the PACS study.',
+      valueMeaning: 'Count = studies, not patients. Studies without a referring last name are left out.',
+      interpretation: 'Report 22 has the full referral analysis, including physicians whose referrals are falling.'
+    },
+    'sr-orders': {
+      title: 'Orders & Fulfillment',
+      purpose: 'RIS orders scheduled in the period and how many became a PACS study.',
+      valueMeaning: 'Total = orders (one per scheduled procedure step) by scheduled date. Fulfilled = orders linked to a PACS study. Fulfillment % turns red under 85%. The modality filter for orders is separate from the study filters.',
+      interpretation: 'Orders scheduled in the last days of the period, or cancelled, are not linked yet, so the rate is always lower for recent dates. Report 27 shows the order statuses.'
+    },
+    'sr-tat': {
+      title: 'Turnaround Time',
+      purpose: 'Median time from the PACS arrival of a study to its report, for the period.',
+      valueMeaning: 'Report time = last composed, else PACS final. Reported = studies with a report time. ER and non-ER are split by the patient class codes in the setting pc_emergency, not by the ER location Report 25 uses, so the two can differ. Slowest modalities = the 5 with the highest median.',
+      interpretation: 'The median is the middle study, so a few very late reports do not move it. If ER median shows —, no study in the period carries one of the ER class codes.'
+    },
+    'sr-crn': {
+      title: 'Critical Findings (CRN)',
+      purpose: 'Critical results found in the period and the critical result notifications sent for them.',
+      valueMeaning: 'Critical findings = HL7 reports the language engine marked critical, by result date. CRNs, acknowledged, went overdue, still open and median time to acknowledge are the figures of Administration → CRN → Report. Only the dates apply, not the other filters. A banner shows when CRN is off or in dry-run.',
+      interpretation: 'While CRN is off, only the first row has meaning. Once live, anything still open or overdue needs a call.'
+    },
+    'sr-util': {
+      title: 'Device Utilization',
+      purpose: 'A summary of Report 34’s device utilization for the dates chosen.',
+      valueMeaning: 'Avg utilization = the average of the devices’ weekly averages, devices with an opening schedule only. Over 85% and under 30% count devices; No schedule data = devices without opening hours. Busiest = the 3 highest. Only the dates apply.',
+      interpretation: 'Open Report 34 for the day-by-day matrix. Devices without a schedule cannot be judged until opening hours are entered.'
+    },
+    'sr-demo': {
+      title: 'Patient Demographics',
+      purpose: 'The period’s studies by patient sex and by patient class.',
+      valueMeaning: 'Counts studies, not patients. Male and female come from the PACS patient record. Inpatient and outpatient group the class codes listed in the settings pc_inpatient and pc_outpatient. All Patient Classes lists every raw class code with its share.',
+      interpretation: 'A class code in the list that is in neither setting is counted in neither tile; add it to the right setting.'
+    },
+    'sr-insights': {
+      title: 'Clinical Insights',
+      purpose: 'Automatic warnings when a figure on this page crosses a fixed threshold.',
+      valueMeaning: 'Rules: volume down 25% or more against the comparison period (critical) or up 30% (info); median TAT over 24 h (critical) or 8 h (warning); a modality with median TAT over 24 h; reports on under 60% (critical) or 80% (warning) of studies; storage up 40% or more.',
+      interpretation: 'A recent period always has fewer reports written, so coverage warnings for the last few days are expected.'
+    },
+    'sr-rad-matrix': {
+      title: 'Reports per Radiologist',
+      purpose: 'Reported Rizk Hospital studies per reader, by modality, room or month, with a procedure breakdown.',
+      valueMeaning: 'Reader = the PACS signing physician’s name, else who last composed the report, else the PACS final signer, merged through the physician aliases. Cell = distinct studies with a report time. The procedure table covers the 60 most frequent procedures.',
+      interpretation: 'Readers with no name are left out, so totals can be below the study count.'
+    },
+
+    // ── Home page (daily briefing and Yesterday tab) ────────────────────────────
+    'home-briefing': {
+      title: 'Daily Briefing',
+      purpose: 'A summary of the last complete day in RAYD (the latest study date before today), Rizk Hospital only.',
+      valueMeaning: 'Orders = RIS orders scheduled that day, not cancelled, against the average per day of the 30 days before and the same weekday last week. Signed = that day’s studies with a report time; the reporting rate divides them by the orders. Unread = studies whose PACS status is still unread. Avg TAT and ER TAT = minutes from midnight of the study date to the report time (under 48 h only); ER = location ER or a class naming emergency. Active rads = people who composed reports.',
+      interpretation: 'TAT here starts at midnight, so it is longer than Report 25’s, which starts when the study reached the PACS; use it to compare days, not against targets.'
+    },
+    'home-referrers': {
+      title: 'Top Referring Physicians (yesterday)',
+      purpose: 'The 5 referring physicians with the most Rizk Hospital studies yesterday.',
+      valueMeaning: 'Count = studies, named as on the PACS study. Studies without a referring first name are left out.',
+      interpretation: 'One day is a small sample; Report 22 has the trend.'
+    },
+    'home-ae': {
+      title: 'AE Performance (yesterday)',
+      purpose: 'Yesterday’s work per room.',
+      valueMeaning: 'Procedures = studies stored by the room, named by its RIS room name, else the AE title. Utilization = the catalogue duration of those studies (15 min when a procedure has none) ÷ the room’s daily capacity on the Mapping page, else its weekly schedule, else 8 h.',
+      interpretation: 'Utilization here uses catalogue durations, not real scan times, so it is a rough guide; Report 34 uses the RIS start and end times where they exist.'
+    },
+
+    // ── ER Analytics Dashboard ──────────────────────────────────────────────────
+    // Rows: Rizk Hospital studies with patient location ER in the dates chosen.
+    // TAT = report time (last composed, else PACS final, else the HL7 result) minus the
+    // PACS arrival.
+    'er-unread': {
+      title: 'Currently Unread ER Studies — Today',
+      purpose: 'ER studies dated today that have no report yet.',
+      valueMeaning: 'Waiting = minutes since the study reached the PACS. Up to 50, longest first; marked SLA BREACH once past the target chosen on the page, else Pending.',
+      interpretation: 'RAYD sees today’s studies only after they are copied from the PACS, so this list can lag behind the PACS worklist.'
+    },
+    'er-trend': {
+      title: 'Daily Average TAT',
+      purpose: 'Average ER turnaround per study date, in hours.',
+      valueMeaning: 'TAT = from the PACS arrival to the report time (last composed, else PACS final, else the HL7 report). Studies with no report yet are left out.',
+      interpretation: 'One very late report lifts a day’s average a lot when the ER volume is small; check the distribution below before acting on a single spike.'
+    },
+    'er-histogram': {
+      title: 'TAT Distribution',
+      purpose: 'How the period’s reported ER studies spread by turnaround time.',
+      valueMeaning: 'Studies are grouped into up to 10 natural groups of similar TAT (k-means), so the bars have unequal widths; each label is the group’s range. Green = within the target chosen on the page (60 min by default), amber = up to 1.5× the target, red = beyond.',
+      interpretation: 'Most of the volume should sit in the green groups; a separate red group far to the right is reports written the next day.'
+    },
+    'er-modality': {
+      title: 'Average TAT by Modality',
+      purpose: 'Average ER turnaround per modality, for modalities with at least 3 ER studies in the period.',
+      valueMeaning: 'Bar = average minutes from the PACS arrival to the report time, fastest first.',
+      interpretation: 'CT and X-ray carry most ER work; a slow modality with few studies may be a handful of complex cases.'
+    },
+    'er-hour': {
+      title: 'ER Volume by Hour of Day',
+      purpose: 'ER studies by the hour they reached the PACS, added up over the range.',
+      valueMeaning: 'Bar = number of ER studies arriving in that hour.',
+      interpretation: 'Use it to match reading cover to the hours ER imaging peaks.'
+    },
+    'er-radiologist': {
+      title: 'Average TAT by Radiologist',
+      purpose: 'Average ER turnaround per reader, for readers with at least 3 ER studies; the 15 fastest.',
+      valueMeaning: 'Reader = who last composed the report, else the PACS final signer, merged through the physician aliases. Hover for the study count and how many were within the target.',
+      interpretation: 'Readers covering nights get fewer, often harder, ER cases; compare them with care.'
+    },
+
+    // ── ORU Analytics (HL7 radiology reports) ───────────────────────────────────
+    // Rows: report messages received over HL7 (and RIS reports copied by the ETL), by
+    // the report's own date, for the days and procedure chosen.
+    'oru-normal': {
+      title: 'Normal vs Abnormal Rate',
+      purpose: 'The share of reports whose conclusion reads as normal.',
+      valueMeaning: 'Normal = the conclusion (else the whole report) contains a normal phrase such as “unremarkable”, “no acute”, “within normal limits”. Everything else counts as abnormal, which includes reports simply worded differently.',
+      interpretation: 'It is a word match, not a clinical judgement; use it to follow trends, and the critical findings log for cases that matter.'
+    },
+    'oru-modality': {
+      title: 'Reports by Modality',
+      purpose: 'Reports per modality.',
+      valueMeaning: 'Modality as carried by the report message. UNK = the message has none.',
+      interpretation: 'A large UNK bar means the report feed is not filling the modality; the critical findings log fills it from the PACS study instead.'
+    },
+    'oru-procedures': {
+      title: 'Top Procedures by Volume',
+      purpose: 'The 10 procedures with the most reports.',
+      valueMeaning: 'Count = reports per procedure code, named as in the report message.',
+      interpretation: 'Compare with Report 22’s procedure breakdown: a big difference means reports for some procedures are not reaching RAYD.'
+    },
+    'oru-physicians': {
+      title: 'Reporting Physician Activity',
+      purpose: 'The 10 physicians who signed the most reports.',
+      valueMeaning: 'The signer’s ID in the message is matched to the RIS staff list to show a name; an unmatched ID is shown as it is.',
+      interpretation: 'An ID shown instead of a name means that person is missing from the RIS staff list RAYD copies.'
+    },
+    'oru-gaps': {
+      title: 'Section Gap Alerts',
+      purpose: 'Reports in which a section is empty: technique, results (Résultats) or conclusion.',
+      valueMeaning: 'Each report is split by its section headings; a section present but empty, or missing, counts as a gap. A report with no headings at all counts as results only.',
+      interpretation: 'Empty conclusions matter most: the referring physician reads that part first.'
+    },
+    'oru-treemap': {
+      title: 'Report Term Treemap',
+      purpose: 'The diagnoses found most often in the period’s reports.',
+      valueMeaning: 'Box size = number of reports with that diagnosis affirmed. Negated or historical mentions (“no fracture”, “previous fracture”) are not counted, and benign findings are left out. Reports not yet analysed by the language worker are matched with the same rules on the fly.',
+      interpretation: 'Use the filter box to find a term. A diagnosis growing from one period to the next may reflect case mix or a new referral stream.'
+    },
+    'oru-sections': {
+      title: 'Section Content Analysis',
+      purpose: 'The most common terms in each report section: technique, results and conclusion.',
+      valueMeaning: 'Box size = how often the term appears in that section across the period’s reports; common words are removed.',
+      interpretation: 'Technique terms show protocol habits; results and conclusion terms show what is being found and how it is worded.'
+    },
+    'oru-critical': {
+      title: 'Critical Findings Log',
+      purpose: 'The 20 most recent reports in the period with a critical finding.',
+      valueMeaning: 'A report is listed when the language rules find an affirmed critical diagnosis, or, failing that, a critical keyword from the dictionary that is not negated. Modality comes from the report, else its PACS study; a modality guessed from the procedure name is marked as inferred.',
+      interpretation: 'This is a screening list for review, not the CRN notification record; CRN has its own log under Administration.'
+    },
+    'oru-nlp-class': {
+      title: 'NLP Classification',
+      purpose: 'Reports classified by RAYD’s secondary text model as normal, borderline or critical.',
+      valueMeaning: 'Critical = enough weighted critical terms affirmed (negated mentions removed). Normal = two or more normal phrases, or nothing affirmed. Everything else is borderline. Only reports scored by the current model count.',
+      interpretation: 'Borderline is a large catch-all; read it as “not clearly normal”, not as a clinical category.'
+    },
+    'oru-severity': {
+      title: 'Severity Distribution (1–5 scale)',
+      purpose: 'Reports by the severity score of the secondary text model.',
+      valueMeaning: '1 = normal, around 2–3 = borderline, rising to 5 with the weight of affirmed critical terms. Bars group scores by whole number.',
+      interpretation: 'A shift of the bars to the right over time means more reports with serious findings, or wording that uses more critical terms.'
+    },
+    'oru-clusters': {
+      title: 'Diagnostic Clusters',
+      purpose: 'Groups of reports with similar wording, found automatically (k-means on term weights).',
+      valueMeaning: 'Each cluster shows its label (its most typical terms), the number of reports and their average severity. Only reports scored by the current cluster model count.',
+      interpretation: 'Clusters are statistical groupings, not diagnoses; use them to spot themes, such as a cluster of chest CT follow-ups.'
+    },
+    'oru-terms': {
+      title: 'Extracted Medical Terms',
+      purpose: 'The terms that best characterise the period’s reports, from the secondary text model.',
+      valueMeaning: 'Each report contributes its most distinctive terms (weighted against all reports); the list counts how many reports carry each term.',
+      interpretation: 'Generic words rank low by design; terms at the top are what sets these reports apart.'
+    },
+
+    // ── Report 29 — Infrastructure & Storage Audit ──────────────────────────────
+    // Rows: the nightly storage summary (image sizes copied from the PACS) for the
+    // study dates chosen, per procedure, modality and device.
+    'r29-modality': {
+      title: 'Storage by Modality (GB)',
+      purpose: 'Gigabytes of images stored per modality for the studies of the period.',
+      valueMeaning: 'Bar = image size added up per modality, from the nightly storage summary built from the PACS image sizes.',
+      interpretation: 'CT and MR usually dominate. Use it to forecast archive growth; the Storage Forecast on the home page projects it forward.'
+    },
+    'r29-ae-density': {
+      title: 'AE Storage Density (Avg MB/Study)',
+      purpose: 'Average image size per study for each room, the 15 largest.',
+      valueMeaning: 'Bar = the room’s total MB ÷ its studies. Rooms carry their RIS room name, else the AE title. Rooms far above the rest are removed first (above Q3 + 1.5 × the interquartile range); the badge says how many. Red above 500 MB.',
+      interpretation: 'A room much heavier than others of the same modality may store extra series, thin slices or uncompressed images; worth a look with the modality vendor.'
+    },
+    'r29-protocols': {
+      title: 'Protocol Density Inventory',
+      purpose: 'Storage per procedure, modality and room, largest first.',
+      valueMeaning: 'Studies, total GB and average MB per study for each combination. Critical above 500 MB per study, warning 250–500 MB, OK below 250 MB. The Storage Alert above lists up to 5 procedures averaging over 500 MB (after removing extreme values).',
+      interpretation: 'Start with the rows that combine a high study count and a high average: changing one protocol there saves the most space.'
     }
   },
 

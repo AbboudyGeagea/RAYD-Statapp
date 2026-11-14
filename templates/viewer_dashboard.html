@@ -34,6 +34,7 @@
         .rec-val { font-size:1.4em; font-weight:900; color:#e2e8f0; font-family:monospace; line-height:1.1; }
         .rec-lbl { font-size:9px; color:#4b7a63; text-transform:uppercase; letter-spacing:.06em; margin-top:3px; }
     </style>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
@@ -50,7 +51,7 @@
                     <div class="flex items-center justify-between mb-3">
                         <div class="flex items-center gap-2">
                             <i class="bi bi-stars" style="font-size:1rem;color:#60a5fa;"></i>
-                            <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#60a5fa;">Daily Briefing</span>
+                            <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#60a5fa;">Daily Briefing<i class="bi bi-info-circle chart-info-icon" data-explain="home-briefing" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         </div>
                         <span id="briefing-time" style="font-size:10px;color:#475569;"></span>
                     </div>
@@ -105,14 +106,14 @@
 
                             <!-- Top Referring Physicians -->
                             <div class="card-custom p-5">
-                                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest mb-4">Top Referring Physicians</p>
+                                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest mb-4">Top Referring Physicians<i class="bi bi-info-circle chart-info-icon" data-explain="home-referrers" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                                 <div id="yest-physicians" class="space-y-2"></div>
                             </div>
 
                             <!-- AE Performance (2 sub-tabs) -->
                             <div class="card-custom p-5">
                                 <div class="flex items-center justify-between mb-4">
-                                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest">AE Performance</p>
+                                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest">AE Performance<i class="bi bi-info-circle chart-info-icon" data-explain="home-ae" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                                     <div class="flex gap-1">
                                         <button onclick="switchAeTab('count')" id="ae-tab-count"
                                             class="px-3 py-1 text-[10px] font-black uppercase rounded-lg bg-[#60a5fa] text-white transition-all">Procedures</button>

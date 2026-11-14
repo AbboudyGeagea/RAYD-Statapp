@@ -83,6 +83,13 @@ def ctx(app):
         yield
 
 
+def test_super_report_shows_the_icons(client, ctx):
+    html = client.get('/viewer/super-report-page', headers={'X-Test-Role': 'admin'}).get_data(as_text=True)
+    assert 'js/chart-explanations.js' in html
+    for key in ('sr-briefing', 'sr-tat', 'sr-orders', 'sr-rad-matrix', 'r23-conflicts'):
+        assert f'data-explain="{key}"' in html
+
+
 def test_report_22_shows_the_icons(client, ctx):
     html = client.get('/report/22', headers={'X-Test-Role': 'admin'},
                       query_string={'start_date': '2026-10-01', 'end_date': '2026-10-31'}

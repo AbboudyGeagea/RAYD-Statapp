@@ -187,6 +187,7 @@
   body:not(.light) .flatpickr-months .flatpickr-prev-month svg,
   body:not(.light) .flatpickr-months .flatpickr-next-month svg { fill:var(--text-dim); }
 </style>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
 </head>
 <body>
 <div class="page-wrap">
@@ -293,7 +294,7 @@
           <!-- Left column -->
           <div style="display:flex;flex-direction:column;gap:16px;">
             <div class="card">
-              <div class="section-label"><i class="bi bi-pie-chart-fill" style="color:var(--success);" aria-hidden="true"></i>Normal vs Abnormal Rate</div>
+              <div class="section-label"><i class="bi bi-pie-chart-fill" style="color:var(--success);" aria-hidden="true"></i>Normal vs Abnormal Rate<i class="bi bi-info-circle chart-info-icon" data-explain="oru-normal" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
               <div id="donut-wrap">
                 <canvas id="donutChart" role="img" aria-label="Normal versus abnormal report rate"></canvas>
                 <div class="donut-legend">
@@ -303,11 +304,11 @@
               </div>
             </div>
             <div class="card">
-              <div class="section-label"><i class="bi bi-bar-chart-fill" style="color:var(--primary);" aria-hidden="true"></i>Reports by Modality</div>
+              <div class="section-label"><i class="bi bi-bar-chart-fill" style="color:var(--primary);" aria-hidden="true"></i>Reports by Modality<i class="bi bi-info-circle chart-info-icon" data-explain="oru-modality" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
               <div id="mod-list"></div>
             </div>
             <div class="card">
-              <div class="section-label"><i class="bi bi-list-ol" style="color:var(--warning);" aria-hidden="true"></i>Top Procedures by Volume</div>
+              <div class="section-label"><i class="bi bi-list-ol" style="color:var(--warning);" aria-hidden="true"></i>Top Procedures by Volume<i class="bi bi-info-circle chart-info-icon" data-explain="oru-procedures" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
               <div id="proc-list"></div>
             </div>
           </div>
@@ -315,12 +316,12 @@
           <!-- Right column -->
           <div style="display:flex;flex-direction:column;gap:16px;">
             <div class="card">
-              <div class="section-label"><i class="bi bi-person-badge-fill" style="color:#a78bfa;" aria-hidden="true"></i>Reporting Physician Activity</div>
+              <div class="section-label"><i class="bi bi-person-badge-fill" style="color:#a78bfa;" aria-hidden="true"></i>Reporting Physician Activity<i class="bi bi-info-circle chart-info-icon" data-explain="oru-physicians" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
               <div id="phys-list"></div>
             </div>
 
             <div class="card" id="gap-section" style="display:none;">
-              <div class="section-label"><i class="bi bi-clipboard2-x-fill" style="color:var(--warning);" aria-hidden="true"></i>Section Gap Alerts</div>
+              <div class="section-label"><i class="bi bi-clipboard2-x-fill" style="color:var(--warning);" aria-hidden="true"></i>Section Gap Alerts<i class="bi bi-info-circle chart-info-icon" data-explain="oru-gaps" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
 
               <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
                 <button type="button" class="gap-card" onclick="toggleGapList('gap-tech-wrap',this)" aria-expanded="false" aria-controls="gap-tech-wrap">
@@ -375,7 +376,7 @@
         <div class="card" style="margin-top:20px;">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
             <div class="section-label" style="margin-bottom:0;"><i class="bi bi-grid-fill" style="color:#a78bfa;" aria-hidden="true"></i>Report Term Treemap
-              <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">sized by frequency · top 60 terms</span>
+              <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">sized by frequency · top 60 terms</span><i class="bi bi-info-circle chart-info-icon" data-explain="oru-treemap" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
             </div>
             <div class="flex items-center gap-2">
               <i class="bi bi-search" style="color:var(--muted);font-size:12px;" aria-hidden="true"></i>
@@ -391,7 +392,7 @@
 
         <!-- ══ Section content analysis ═════════════════════════════════ -->
         <div class="section-label" style="margin-top:20px;"><i class="bi bi-layout-three-columns" aria-hidden="true"></i> Section Content Analysis
-          <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">most common terms per report section</span>
+          <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">most common terms per report section</span><i class="bi bi-info-circle chart-info-icon" data-explain="oru-sections" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
         </div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
           <div class="card" style="padding:18px;">
@@ -422,7 +423,7 @@
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
             <div class="section-label" style="margin-bottom:0;">
               <i class="bi bi-exclamation-triangle-fill" style="color:var(--critical);" aria-hidden="true"></i>Critical Findings Log
-              <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">(most recent 20)</span>
+              <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">(most recent 20)</span><i class="bi bi-info-circle chart-info-icon" data-explain="oru-critical" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <button onclick="exportCriticalPNG()" id="critical-png-btn" class="export-btn" type="button" style="display:none;">
@@ -551,7 +552,7 @@
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
 
               <div class="card">
-                <div class="section-label"><i class="bi bi-pie-chart-fill" style="color:var(--success);" aria-hidden="true"></i>NLP Classification</div>
+                <div class="section-label"><i class="bi bi-pie-chart-fill" style="color:var(--success);" aria-hidden="true"></i>NLP Classification<i class="bi bi-info-circle chart-info-icon" data-explain="oru-nlp-class" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
                 <div style="display:flex;align-items:center;justify-content:center;gap:24px;height:200px;">
                   <canvas id="nlpDonutChart" role="img" aria-label="NLP classification breakdown"></canvas>
                   <div class="donut-legend">
@@ -563,21 +564,21 @@
               </div>
 
               <div class="card">
-                <div class="section-label"><i class="bi bi-bar-chart-steps" style="color:var(--warning);" aria-hidden="true"></i>Severity Distribution (1–5 scale)</div>
+                <div class="section-label"><i class="bi bi-bar-chart-steps" style="color:var(--warning);" aria-hidden="true"></i>Severity Distribution (1–5 scale)<i class="bi bi-info-circle chart-info-icon" data-explain="oru-severity" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
                 <canvas id="sevChart" style="max-height:180px;" role="img" aria-label="Severity score histogram"></canvas>
                 <p style="font-size:10px;color:var(--muted);margin-top:8px;font-weight:600;">1 = Normal &nbsp;·&nbsp; 3 = Borderline &nbsp;·&nbsp; 5 = Critical</p>
               </div>
 
               <div class="card" style="grid-column:1/-1;">
                 <div class="section-label"><i class="bi bi-diagram-3-fill" style="color:var(--primary);" aria-hidden="true"></i>Diagnostic Clusters
-                  <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">auto-labeled by TF-IDF · K-means</span>
+                  <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">auto-labeled by TF-IDF · K-means</span><i class="bi bi-info-circle chart-info-icon" data-explain="oru-clusters" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
                 </div>
                 <div id="cluster-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;"></div>
               </div>
 
               <div class="card" style="grid-column:1/-1;">
                 <div class="section-label"><i class="bi bi-tags-fill" style="color:#a78bfa;" aria-hidden="true"></i>Extracted Medical Terms
-                  <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">from NLP keyword extraction · not raw word count</span>
+                  <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">from NLP keyword extraction · not raw word count</span><i class="bi bi-info-circle chart-info-icon" data-explain="oru-terms" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
                 </div>
                 <div id="nlp-kw-bars"></div>
               </div>

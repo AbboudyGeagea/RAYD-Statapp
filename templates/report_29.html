@@ -91,6 +91,7 @@
         body.light .png-btn { background:#f8fafc; border-color:#e2e8f0; color:#64748b; }
         body.light .btn-csv { background:rgba(96,165,250,.08) !important; border-color:rgba(96,165,250,.3) !important; }
     </style>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
@@ -192,7 +193,7 @@
                     <!-- Modality chart -->
                     <div class="chart-card">
                         <div class="chart-card-head">
-                            <span class="chart-card-label">Storage by Modality (GB)</span>
+                            <span class="chart-card-label">Storage by Modality (GB)<i class="bi bi-info-circle chart-info-icon" data-explain="r29-modality" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                             <button class="png-btn" onclick="exportChart('modalityChart','storage_by_modality')">
                                 <i class="bi bi-download"></i> PNG
                             </button>
@@ -207,7 +208,7 @@
                     <div class="chart-card">
                         <div class="chart-card-head">
                             <div class="flex items-center gap-2">
-                                <span class="chart-card-label">AE Storage Density (Avg MB/Study)</span>
+                                <span class="chart-card-label">AE Storage Density (Avg MB/Study)<i class="bi bi-info-circle chart-info-icon" data-explain="r29-ae-density" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                                 {% if tech_bar_json and tech_bar_json.outliers_removed %}
                                 <span class="outlier-badge">⚠ {{ tech_bar_json.outliers_removed }} outliers removed
                                     <span class="tip">IQR filter applied — extreme avg MB/study values excluded.</span>
@@ -231,7 +232,7 @@
                     <div class="px-5 pt-5 pb-4 border-b border-[#28332e]">
                         <div class="flex items-start justify-between mb-3">
                             <div>
-                                <h3 class="text-xs font-black uppercase tracking-widest text-slate-400">Protocol Density Inventory</h3>
+                                <h3 class="text-xs font-black uppercase tracking-widest text-slate-400">Protocol Density Inventory<i class="bi bi-info-circle chart-info-icon" data-explain="r29-protocols" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h3>
                                 <p class="text-[11px] text-slate-600 mt-0.5">Top storage consumers by procedure × AE title. <span class="text-red-400 font-bold not-italic">Critical</span> = &gt;500 MB/study, <span class="text-amber-400 font-bold not-italic">Warning</span> = 250–500 MB, <span class="text-emerald-400 font-bold not-italic">OK</span> = under 250 MB.</p>
                             </div>
                             <span id="proto-count" class="text-[10px] font-black text-slate-500 uppercase tracking-widest shrink-0 mt-1"></span>
