@@ -24,6 +24,28 @@ from utils.site_resolver import default_site
 REPORTS_WITHOUT_IMAGES_AES = ('LAUMCWFM1AR',)
 
 
+def picked(form_data, field):
+    """
+    The values picked in a multi-select sidebar filter, blanks dropped, otherwise as sent.
+
+    Normalise them in SQL with picked_sql(), never here: str.strip() also removes tabs,
+    line breaks and non-breaking spaces while SQL TRIM removes spaces only, so a value
+    cleaned in Python can stop matching the very row the dropdown took it from.
+    """
+    return sorted({v for v in form_data.getlist(field) if v and v.strip(' ')})
+
+
+def picked_sql(bind):
+    """
+    The values bound to :bind (a list from picked()), trimmed and upper-cased exactly as
+    UPPER(TRIM(column)) is, for `UPPER(TRIM(column)) IN <this>`. Comparing a raw column
+    with the raw pick, or an UPPER'd column with it, gave 0 for an AE title stored in
+    lower case or with a trailing space (meeting of 2026-11-13). unnest() of non-empty
+    strings holds no NULL, so NOT IN over it is safe too.
+    """
+    return f"(SELECT UPPER(TRIM(v)) FROM unnest(CAST(:{bind} AS text[])) AS v)"
+
+
 def study_site_sql(param):
     """
     SQL condition: this study belongs to the site bound to :param. For queries that
@@ -79,9 +101,9 @@ def sidebar_filters(form_data):
         params["modalities"] = tuple(form_data.getlist("modality"))
         clause += " AND UPPER(TRIM(m.modality)) IN :modalities"
 
-    if form_data.get("ae_enabled") == "on" and form_data.getlist("aetitle"):
-        params["aetitles"] = tuple(form_data.getlist("aetitle"))
-        clause += " AND s.storing_ae IN :aetitles"
+    if form_data.get("ae_enabled") == "on" and picked(form_data, "aetitle"):
+        params["aetitles"] = picked(form_data, "aetitle")
+        clause += f" AND UPPER(TRIM(s.storing_ae)) IN {picked_sql('aetitles')}"
 
     if form_data.get("loc_enabled") == "on" and form_data.getlist("patient_location"):
         params["locations"] = tuple(form_data.getlist("patient_location"))

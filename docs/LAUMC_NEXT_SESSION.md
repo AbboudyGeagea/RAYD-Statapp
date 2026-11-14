@@ -78,6 +78,21 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | CRN go-live (low) | 3.5–4.5 | provider, signed-off wording |
 | Patient schedule lead time (very low) | 2.5–3 | which moment counts as "booked" |
 
+## Server access (2026-11-14)
+
+Whether an item needs LAUMC's RAYD server (its Postgres) to be built and finished. "Local" means
+built and tested here on a local Postgres. Oracle queries and decisions from other people
+are listed under "Waits on" above. Those waits hold whatever the class is.
+
+| Class | Items | Can start now |
+|---|---|---|
+| **Local, no server** | 3 Report 22 AE filter + stress test; 6 hourly load; 11 report start date; 12 chart explanations; shared filter panel; placeholders via BRAYN | yes |
+| **Local, no server** (blocked) | 1 HIS vs RIS (Mirth ORMs, RIS column for ORC-2); 2 first open (audit table, Monday); 5 ORU severity (chief radiologist); 8 wet read (PACS Oracle check first); ORU final-only (`FAP`); urgent emergent in HL7 (a question, no code); patient schedule lead time | no |
+| **Local build, server to validate** | 4 RIS room names (Monday queries, one on RAYD Postgres); 14 radiologist TAT (compared with Oracle on production) | build yes |
+| **Needs the server** | 7 status mix check (RAYD vs Oracle at one cut-off); 9 staff who left (export of names, PACS user columns); 10 modality "PACS" samples; 13 SJH database (the build is local, the move, counts and delete run on production); R2I and BRAYN switch-on checks; CRN go-live | no |
+
+Order for work without the server: 3, then 4 (build), 6, 11, 12, shared filter panel.
+
 ## Priorities from the meeting of 2026-11-13 (highest first)
 
 Operator's answers of 2026-11-13 and 2026-11-14 are folded in below.
@@ -119,6 +134,28 @@ read; radiologists approve or finalise (check both).
    number, study UID, login and open time.
 3. **Report 22: filtering on one or more AE titles shows 0.** Then stress-test every filter on
    every report so this bug does not come back.
+   **AE part fixed 2026-11-14 (code + tests, no server needed).** Could not be reproduced
+   with a mapped RH device; the code had three ways to show 0. (a) The shared AE dropdown
+   (Reports 22, 25, 34, 36) listed every storing AE, but those reports keep only devices
+   mapped to RH, so an unmapped or other-site AE was offered and always gave 0. It now offers
+   only those devices, once each, in the mapping's spelling. (b) Reports 25 and 34 compared
+   `UPPER(TRIM(storing_ae))` with the raw pick, and their other sections and Report 36 compared
+   the raw `storing_ae`, so lower case or a trailing space gave 0. (c) Report 22 cleaned the
+   pick with Python `strip()`, which disagrees with SQL `TRIM` on tabs. All now go through
+   `utils/report_filters.picked_sql`. Tests: `tests/test_report_22_filters.py` (sums over
+   every value offered) and `tests/test_ae_filter_reports.py`. Left: the same stress test for
+   the other filters (class, modality, location, status) on Reports 25, 34, 35, 36, 37 and
+   the Super Report. Optional, on production: which AE titles were offered before and gave
+   0 (read-only):
+   ```sql
+   SELECT TRIM(s.storing_ae) AS ae, COUNT(*) AS studies, m.aetitle AS mapped_as, m.modality, m.site_id
+   FROM rh.etl_didb_studies s
+   LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+   WHERE TRIM(COALESCE(s.storing_ae, '')) <> ''
+     AND (m.site_id IS DISTINCT FROM (SELECT id FROM sites WHERE is_default)
+          OR TRIM(s.storing_ae) <> UPPER(TRIM(s.storing_ae)) OR s.storing_ae ~ '[\t\r\n]')
+   GROUP BY 1, 3, 4, 5 ORDER BY 2 DESC;
+   ```
 4. **Room name from the RIS instead of AE title everywhere**, sidebar filters included. Mostly
    done in the reports, not everywhere; RIS descriptions may be empty. Every AE title should
    have a RIS room, and no room has several AE titles; any exception is a data error to fix on

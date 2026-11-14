@@ -287,6 +287,9 @@ def app(database_url):
     flask_app.register_blueprint(report_37_bp)
     from routes.email_server import email_server_bp
     flask_app.register_blueprint(email_server_bp)
+    # /api/filter-options: the values the report sidebars offer
+    from routes.api_controller import api_bp
+    flask_app.register_blueprint(api_bp)
 
     from db import db
     from sqlalchemy import text
@@ -321,6 +324,10 @@ def _reset_caches():
     brayn_shadow.reset_switch()
     hl7_listener._fm_cache = None
     hl7_listener._fm_loaded_at = 0.0
+    # report results and the sidebar dropdown values, cached for 5 minutes
+    from routes import report_cache
+    with report_cache._lock:
+        report_cache._store.clear()
 
 
 @pytest.fixture(autouse=True)

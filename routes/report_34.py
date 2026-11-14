@@ -36,6 +36,7 @@ from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
 from utils.site_resolver import default_site
+from utils.report_filters import picked, picked_sql
 
 logger = logging.getLogger("report_34")
 
@@ -74,9 +75,11 @@ def get_device_utilization_data(form_data):
         where_clauses.append("modality IN :modalities")
         params["modalities"] = tuple(form_data.getlist("modality"))
 
-    if form_data.get("ae_enabled") == "on" and form_data.getlist("aetitle"):
-        where_clauses.append("aetitle IN :aetitles")
-        params["aetitles"] = tuple(form_data.getlist("aetitle"))
+    # As Report 25: the template's aetitle is UPPER(TRIM(storing_ae)), so the pick is
+    # normalised the same way in SQL.
+    if form_data.get("ae_enabled") == "on" and picked(form_data, "aetitle"):
+        where_clauses.append(f"aetitle IN {picked_sql('aetitles')}")
+        params["aetitles"] = picked(form_data, "aetitle")
 
     if form_data.get("loc_enabled") == "on" and form_data.getlist("patient_location"):
         where_clauses.append("patient_location IN :locations")
@@ -107,7 +110,7 @@ def get_device_utilization_data(form_data):
     if "modalities" in params:
         _sec_filters += " AND UPPER(TRIM(m.modality)) IN :modalities"
     if "aetitles" in params:
-        _sec_filters += " AND s.storing_ae IN :aetitles"
+        _sec_filters += f" AND UPPER(TRIM(s.storing_ae)) IN {picked_sql('aetitles')}"
     if "locations" in params:
         _sec_filters += " AND s.patient_location IN :locations"
     if rh_site_id is not None:

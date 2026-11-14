@@ -164,7 +164,27 @@ def get_filter_options(db) -> dict:
         "classes":    "SELECT ARRAY_AGG(DISTINCT TRIM(patient_class)   ORDER BY TRIM(patient_class))   FROM etl_didb_studies WHERE patient_class   IS NOT NULL AND TRIM(patient_class)   != ''",
         "locations":  "SELECT ARRAY_AGG(DISTINCT TRIM(patient_location) ORDER BY TRIM(patient_location)) FROM etl_didb_studies WHERE patient_location IS NOT NULL AND TRIM(patient_location) != ''",
         "statuses":   "SELECT ARRAY_AGG(DISTINCT TRIM(study_status)    ORDER BY TRIM(study_status))    FROM etl_didb_studies WHERE study_status    IS NOT NULL AND TRIM(study_status)    != ''",
-        "aetitles":   "SELECT ARRAY_AGG(DISTINCT TRIM(storing_ae)      ORDER BY TRIM(storing_ae))      FROM etl_didb_studies WHERE storing_ae      IS NOT NULL AND TRIM(storing_ae)      != ''",
+        # Only AE titles a report using this list can count, once each. Reports 22, 25,
+        # 34 and 36 keep a study only when its device is mapped to the default site (RH),
+        # so an AE with no mapping, or mapped to another site or to none (LAUMCWFM1AR,
+        # migration 0141), used to be offered here and always gave 0 (meeting of
+        # 2026-11-13). One entry per device, in the mapping's spelling: the reports
+        # compare UPPER(TRIM()) on both sides (utils.report_filters.picked_sql), so
+        # 'mr750w ' and 'MR750W' are one device, which used to be offered twice. With no
+        # default site (a single-site install) every AE seen on a study stays.
+        "aetitles":   """SELECT ARRAY_AGG(ae ORDER BY ae) FROM (
+                             SELECT MIN(TRIM(m.aetitle)) AS ae
+                             FROM aetitle_modality_map m
+                             JOIN (SELECT DISTINCT UPPER(TRIM(storing_ae)) AS k FROM etl_didb_studies
+                                   WHERE storing_ae IS NOT NULL AND TRIM(storing_ae) != '') s
+                               ON s.k = UPPER(TRIM(m.aetitle))
+                             WHERE m.site_id = (SELECT id FROM sites WHERE is_default LIMIT 1)
+                             GROUP BY UPPER(TRIM(m.aetitle))
+                             UNION ALL
+                             SELECT DISTINCT TRIM(storing_ae) FROM etl_didb_studies
+                             WHERE storing_ae IS NOT NULL AND TRIM(storing_ae) != ''
+                               AND NOT EXISTS (SELECT 1 FROM sites WHERE is_default)
+                         ) x""",
         "modalities": "SELECT ARRAY_AGG(DISTINCT TRIM(modality)        ORDER BY TRIM(modality))        FROM aetitle_modality_map WHERE modality IS NOT NULL AND modality NOT IN ('SR', 'BMD')",
         "sex_values": "SELECT ARRAY_AGG(DISTINCT TRIM(sex)             ORDER BY TRIM(sex))             FROM etl_patient_view WHERE sex IS NOT NULL AND TRIM(sex) != ''",
     }
@@ -191,7 +211,8 @@ def get_filter_options(db) -> dict:
     try:
         from utils.ae_display import ae_display_sql
         rows = db.session.execute(text(
-            f"SELECT aetitle, {ae_display_sql('m', 'NULL')} AS label "
+            # keyed as the "aetitles" values are spelled: TRIM(m.aetitle)
+            f"SELECT TRIM(aetitle), {ae_display_sql('m', 'NULL')} AS label "
             "FROM aetitle_modality_map m WHERE aetitle IS NOT NULL"
         )).fetchall()
         data["aetitle_labels"] = {r[0]: r[1] for r in rows if r[1]}

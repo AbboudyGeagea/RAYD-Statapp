@@ -6,7 +6,7 @@ from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_go_live_date
-from utils.report_filters import REPORTS_WITHOUT_IMAGES_AES
+from utils.report_filters import REPORTS_WITHOUT_IMAGES_AES, picked, picked_sql
 from utils.site_resolver import default_site
 
 report_22_bp = Blueprint("report_22", __name__)
@@ -41,13 +41,12 @@ def get_where_params(form):
     # (e.g. Oracle CHAR-padding on study_status, or mixed-case storing_ae).
     # Multi-select (operator request 2026-09-18): each sidebar filter is a
     # <select multiple>, so the user ctrl-clicks several values and they are OR'd
-    # together. Same convention report_25 already uses -- getlist() + IN :tuple --
-    # rather than a second, different way of doing it.
+    # together, the same way Reports 25, 34 and 36 do (utils.report_filters.picked).
     #
-    # The values are upper/trimmed HERE instead of in SQL because `UPPER(TRIM(col))
-    # IN :param` can only normalise the column side; the tuple has to arrive already
-    # normalised or a lowercase pick silently matches nothing. That preserves the
-    # case-insensitive round-trip the single-value version had.
+    # The picked values are normalised IN SQL (utils.report_filters.picked_sql), with
+    # the very expression the column side uses, so the two can never disagree. They
+    # used to be normalised in Python with str.strip(), which also removes tabs and
+    # non-breaking spaces while SQL TRIM removes spaces only.
     #
     # getlist() on a plain string value returns a 1-element list, so a bookmarked URL
     # from before this change (?f_ae=CT99) keeps working untouched.
@@ -57,11 +56,6 @@ def get_where_params(form):
     # bookmarks are unaffected. Exclude COALESCEs the column to '' so rows with a
     # NULL value stay in -- a bare NOT IN would drop them, since NULL NOT IN (...)
     # is NULL, not TRUE.
-    def _multi(field):
-        return tuple(sorted({
-            (v or "").strip().upper() for v in form.getlist(field) if (v or "").strip()
-        }))
-
     for field, active, col, bind in (
         ("f_class",  "f_class_active",  "patient_class", "p_classes"),
         ("f_sex",    "f_sex_active",    "sex",           "sexes"),
@@ -71,13 +65,13 @@ def get_where_params(form):
     ):
         if form.get(active) != "on":
             continue
-        chosen = _multi(field)
+        chosen = picked(form, field)
         if not chosen:
             continue
         if form.get(f"{field}_mode") == "exclude":
-            where += f" AND COALESCE(UPPER(TRIM({col})), '') NOT IN :{bind}"
+            where += f" AND COALESCE(UPPER(TRIM({col})), '') NOT IN {picked_sql(bind)}"
         else:
-            where += f" AND UPPER(TRIM({col})) IN :{bind}"
+            where += f" AND UPPER(TRIM({col})) IN {picked_sql(bind)}"
         params[bind] = chosen
 
     # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main
