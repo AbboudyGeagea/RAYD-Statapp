@@ -6,7 +6,7 @@ from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_report_start_date
-from utils.report_filters import REPORTS_WITHOUT_IMAGES_AES, picked, picked_sql
+from utils.report_filters import REPORTS_WITHOUT_IMAGES_AES, panel_filters, picked, picked_sql
 from utils.site_resolver import default_site
 from utils.ae_display import ae_display_sql
 
@@ -193,6 +193,15 @@ def _build_volume(cte, where, params):
         "total_exams": sum(sum(r["exams"]) for r in out_rows),
         "reports_without_images": _count_reports_without_images(params["start"], params["end"]),
     }
+
+
+# Report 22's dropdowns on the shared left panel: its own parameter names, which
+# get_where_params reads (f_mod, f_mod_active, f_mod_mode, ...).
+_PANEL = {
+    "f_status": ("f_status_active", "Study Status", "statuses"),
+    "f_mod":    ("f_mod_active",    "Modality",     "modalities"),
+    "f_ae":     ("f_ae_active",     "AE Title",     "aetitles"),
+}
 
 
 @report_22_bp.route("/report/22", methods=["GET", "POST"])
@@ -601,7 +610,10 @@ def report_22():
             },
         }
 
-    return render_template("report_22.html", data=data, filters=filters, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list)
+    # The shared left panel, with Report 22's own parameter names (get_where_params reads
+    # them) and its Include / Exclude choice per filter.
+    panel = panel_filters(request.values, specs=_PANEL, modes=True)
+    return render_template("report_22.html", data=data, filters=filters, panel=panel, run_report=run_report, display_start=start_date, display_end=end_date, status_list=status_list, mod_list=mod_list, ae_list=ae_list)
 
 
 

@@ -1,3 +1,4 @@
+{% from '_report_filter_panel.html' import filter_panel_head, filter_panel %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -21,27 +22,6 @@
         .input-dark { background: #181f1c; border: 1px solid #28332e; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 12px; width: 100%; outline: none; transition: border 0.15s; }
         .input-dark:focus { border-color: #60a5fa; }
         .input-dark:disabled { opacity: 0.3; cursor: not-allowed; }
-        /* Multi-select filters. height:auto lets size="5" govern instead of the
-           single-line padding above. The explicit option:checked background is not
-           cosmetic -- most browsers grey out the selection once a multi-select loses
-           focus, so without it the user cannot see what they picked after clicking
-           elsewhere. */
-        select.input-dark[multiple] { padding: 4px; height: auto; }
-        select.input-dark[multiple] option { padding: 3px 6px; border-radius: 4px; }
-        select.input-dark[multiple] option:checked {
-            background: #60a5fa linear-gradient(0deg, #60a5fa, #60a5fa);
-            color: #0a1628; font-weight: 700;
-        }
-        /* Include/Exclude switch per filter. In exclude mode the picked values turn
-           red and struck through, so it reads as "everything except these". */
-        .mode-select { background: #181f1c; border: 1px solid #28332e; color: #94a3b8; border-radius: 6px; font-size: 9px; font-weight: 800; text-transform: uppercase; padding: 2px 4px; outline: none; cursor: pointer; }
-        .mode-select:disabled { opacity: 0.3; cursor: not-allowed; }
-        body.light .mode-select { background: #ffffff; border-color: #e2e8f0; color: #4a5568; }
-        select.input-dark.is-exclude { border-color: rgba(248,113,113,0.5); }
-        select.input-dark[multiple].is-exclude option:checked {
-            background: #f87171 linear-gradient(0deg, #f87171, #f87171);
-            color: #1a0a0a; text-decoration: line-through;
-        }
         .vol-table { width: 100%; border-collapse: collapse; font-size: 11px; }
         .vol-table th { padding: 7px 14px; color: #475569; font-size: 9px; text-transform: uppercase; letter-spacing: .09em; font-weight: 800; text-align: right; border-bottom: 1px solid #28332e; white-space: nowrap; }
         .vol-table th:first-child, .vol-table td:first-child { text-align: left; }
@@ -75,77 +55,28 @@
         .tab-btn.active { color:#60a5fa; border-bottom-color:#60a5fa; }
         .ai-cursor { display:inline-block; animation:blink 1s step-start infinite; color:#60a5fa; }
     </style>
+    {{ filter_panel_head() }}
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
     <div class="flex flex-1 overflow-hidden">
-    <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] flex flex-col p-5 overflow-y-auto flex-shrink-0">
-        <h1 class="font-black text-[#60a5fa] text-xl tracking-tighter uppercase italic">Operations</h1>
-        <form method="GET" class="space-y-5">
-            <div>
-                <label>Timeframe</label>
-                <input type="date" name="start_date" class="input-dark mb-2" value="{{ display_start }}">
-                <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
-            </div>
-
-            <hr class="border-slate-800">
-
-            <p class="text-[9px] text-slate-500 italic leading-snug -mb-1">
-                Hold <kbd style="background:#28332e;border-radius:3px;padding:0 3px;font-style:normal;">Ctrl</kbd>
-                (<kbd style="background:#28332e;border-radius:3px;padding:0 3px;font-style:normal;">⌘</kbd> on Mac)
-                to pick several values in a filter.
-            </p>
-
-            <div class="space-y-4">
-                {% for f in [
-                    {'id': 'f_status', 'label': 'Study Status', 'key': 'statuses',   'active': filters.f_status_active, 'picked': filters.status, 'mode': filters.status_mode},
-                    {'id': 'f_mod',    'label': 'Modality',     'key': 'modalities', 'active': filters.f_mod_active,    'picked': filters.mod,    'mode': filters.mod_mode},
-                    {'id': 'f_ae',     'label': 'Storing AE',   'key': 'aetitles',   'active': filters.f_ae_active,     'picked': filters.ae,     'mode': filters.ae_mode},
-                ] %}
-                <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center gap-2"><label class="mb-0">{{ f.label }}</label>
-                        <div class="flex items-center gap-2">
-                            <select name="{{ f.id }}_mode" id="{{ f.id }}_mode" class="mode-select" data-target="{{ f.id }}"
-                                    title="Include: keep only the picked values. Exclude: keep everything except them."
-                                    {% if not f.active %}disabled{% endif %}>
-                                <option value="include" {% if f.mode != 'exclude' %}selected{% endif %}>Include</option>
-                                <option value="exclude" {% if f.mode == 'exclude' %}selected{% endif %}>Exclude</option>
-                            </select>
-                            <input type="checkbox" name="{{ f.id }}_active" onchange="toggleFilter(this, '{{ f.id }}')" {% if f.active %}checked{% endif %}>
-                        </div>
-                    </div>
-                    <select name="{{ f.id }}" id="{{ f.id }}" multiple size="5"
-                            class="input-dark{% if f.mode == 'exclude' %} is-exclude{% endif %}" {% if not f.active %}disabled{% endif %}
-                            data-filter-key="{{ f.key }}"
-                            data-selected="{{ f.picked | join('||') }}">
-                    </select>
-                </div>
-                {% endfor %}
-            </div>
-
-            <button type="submit" style="background:#60a5fa; color:#0a1628; font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; border-radius:10px; padding:12px; width:100%; border:none; cursor:pointer; transition:filter 0.15s;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter=''">Update Dashboard</button>
-
-            {% if run_report and data.proc_per_modality %}
-            <hr class="border-slate-800 mt-2">
-            <div>
-                <label>Export Modality Filter</label>
-                <select id="export-mod-select" class="input-dark mb-2">
-                    <option value="">All Modalities</option>
-                    {% for mod in data.proc_per_modality.modalities %}
-                    <option value="{{ mod }}">{{ mod }}</option>
-                    {% endfor %}
-                </select>
-                <button type="button" onclick="doExport()"
-                        style="background:#1e293b; color:#94a3b8; font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; border-radius:10px; padding:10px; width:100%; border:1px solid #334155; cursor:pointer; transition:all 0.15s; display:flex; align-items:center; justify-content:center; gap:6px;"
-                        onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
-                        onmouseout="this.style.borderColor='#334155';this.style.color='#94a3b8';">
-                    <i class="bi bi-download"></i> Export CSV
-                </button>
-                <p style="font-size:9px;color:#475569;margin-top:6px;line-height:1.4;">Raw study-level rows for the selected period. Choose a modality above to filter the export.</p>
-            </div>
-            {% endif %}
-        </form>
-    </aside>
+    {% call filter_panel(display_start, display_end, panel) %}
+    {% if run_report and data.proc_per_modality %}
+    <div class="rfp-block">
+        <label class="rfp-label" for="export-mod-select">Export modality</label>
+        <select id="export-mod-select" class="rfp-input mb-2">
+            <option value="">All modalities</option>
+            {% for mod in data.proc_per_modality.modalities %}
+            <option value="{{ mod }}">{{ mod }}</option>
+            {% endfor %}
+        </select>
+        <button type="button" class="rfp-export" onclick="doExport()">
+            <i class="bi bi-download" aria-hidden="true"></i> Export CSV
+        </button>
+        <p class="text-[10px] text-zinc-500 mt-2 leading-snug">Study-level rows for the dates and filters chosen. Pick a modality to export only that one.</p>
+    </div>
+    {% endif %}
+    {% endcall %}
 
     <main class="flex-1 p-10 overflow-y-auto bg-[#181f1c] space-y-8">
         {% if run_report %}
@@ -897,17 +828,6 @@
             renderVolume();
         }
 
-        // ── Sidebar filters: on/off + Include/Exclude ─────────────────
-        function toggleFilter(cb, id) {
-            document.getElementById(id).disabled = !cb.checked;
-            document.getElementById(id + '_mode').disabled = !cb.checked;
-        }
-        document.querySelectorAll('select.mode-select').forEach(sel => {
-            sel.addEventListener('change', () => {
-                document.getElementById(sel.dataset.target)
-                    .classList.toggle('is-exclude', sel.value === 'exclude');
-            });
-        });
 
         // ── Exam Volume: Modality x Month ─────────────────────────────
         function _volKey() {
@@ -1114,28 +1034,12 @@
         }
 
         // Main export with optional modality filter
+        // The CSV download: the panel's filters, sent as a POST with the CSRF token by
+        // rfpExport (_report_filter_panel.html); the modality picked here narrows it.
         function doExport() {
-            const start = document.querySelector('input[name="start_date"]').value;
-            const end   = document.querySelector('input[name="end_date"]').value;
             const modSel = document.getElementById('export-mod-select');
-            const mod   = modSel ? modSel.value : '';
-            const form  = document.createElement('form');
-            form.method = 'POST';
-            form.action = '/report/22/export' + (mod ? '?modality=' + encodeURIComponent(mod) : '');
-            // Carry all current sidebar filter values
-            const sidebarForm = document.querySelector('aside form');
-            if (sidebarForm) {
-                new FormData(sidebarForm).forEach((v, k) => {
-                    const i = document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; form.appendChild(i);
-                });
-            } else {
-                [['start_date', start], ['end_date', end]].forEach(([k, v]) => {
-                    const i = document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; form.appendChild(i);
-                });
-            }
-            document.body.appendChild(form);
-            form.submit();
-            document.body.removeChild(form);
+            const mod = modSel ? modSel.value : '';
+            rfpExport('/report/22/export' + (mod ? '?modality=' + encodeURIComponent(mod) : ''));
         }
 
         // Toggle procedure breakdown collapsible

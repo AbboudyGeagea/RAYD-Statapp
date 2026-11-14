@@ -1,3 +1,4 @@
+{% from '_report_filter_panel.html' import filter_panel_head, filter_panel %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -47,80 +48,14 @@
         }
     </style>
     <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
+    {{ filter_panel_head() }}
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
     <div class="flex flex-1 overflow-hidden">
-    <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] flex flex-col p-5 overflow-y-auto flex-shrink-0">
-        <h1 class="font-black text-[#60a5fa] text-xl tracking-tighter uppercase italic">Device Utilization</h1>
-        <form method="GET" class="space-y-5">
-            <div>
-                <label>Timeframe</label>
-                <input type="date" name="start_date" class="input-dark mb-2" value="{{ display_start }}">
-                <input type="date" name="end_date" class="input-dark" value="{{ display_end }}">
-            </div>
-
-            <hr class="border-slate-800">
-
-            <div class="space-y-4">
-                <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center"><label class="mb-0">Modality</label>
-                        <input type="checkbox" name="mod_enabled" onchange="document.getElementById('f_mod').disabled = !this.checked" {% if filters.mod_enabled %}checked{% endif %}>
-                    </div>
-                    <select name="modality" id="f_mod" class="input-dark" {% if not filters.mod_enabled %}disabled{% endif %}
-                            data-filter-key="modalities"
-                            data-selected="{{ filters.mod or '' }}">
-                        <option value="">— select —</option>
-                    </select>
-                </div>
-
-                <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center"><label class="mb-0">AE Title</label>
-                        <input type="checkbox" name="ae_enabled" onchange="document.getElementById('f_ae').disabled = !this.checked" {% if filters.ae_enabled %}checked{% endif %}>
-                    </div>
-                    <select name="aetitle" id="f_ae" class="input-dark" {% if not filters.ae_enabled %}disabled{% endif %}
-                            data-filter-key="aetitles"
-                            data-selected="{{ filters.ae or '' }}">
-                        <option value="">— select —</option>
-                    </select>
-                </div>
-
-                <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center"><label class="mb-0">Patient Class</label>
-                        <input type="checkbox" name="class_enabled" onchange="document.getElementById('f_class').disabled = !this.checked" {% if filters.class_enabled %}checked{% endif %}>
-                    </div>
-                    <select name="patient_class" id="f_class" class="input-dark" {% if not filters.class_enabled %}disabled{% endif %}
-                            data-filter-key="classes"
-                            data-selected="{{ filters.p_class or '' }}">
-                        <option value="">— select —</option>
-                    </select>
-                </div>
-
-                <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center"><label class="mb-0">Patient Location</label>
-                        <input type="checkbox" name="loc_enabled" onchange="document.getElementById('f_loc').disabled = !this.checked" {% if filters.loc_enabled %}checked{% endif %}>
-                    </div>
-                    <select name="patient_location" id="f_loc" class="input-dark" {% if not filters.loc_enabled %}disabled{% endif %}
-                            data-filter-key="locations"
-                            data-selected="{{ filters.loc or '' }}">
-                        <option value="">— select —</option>
-                    </select>
-                </div>
-            </div>
-
-            <button type="submit" style="background:#60a5fa; color:#0a1628; font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; border-radius:10px; padding:12px; width:100%; border:none; cursor:pointer; transition:filter 0.15s;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter=''">Update Dashboard</button>
-
-            {% if run_report and data %}
-            <hr class="border-slate-800 mt-2">
-            <button type="button" onclick="doExport()"
-                    style="background:#1e293b; color:#94a3b8; font-weight:900; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; border-radius:10px; padding:10px; width:100%; border:1px solid #334155; cursor:pointer; transition:all 0.15s; display:flex; align-items:center; justify-content:center; gap:6px;"
-                    onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
-                    onmouseout="this.style.borderColor='#334155';this.style.color='#94a3b8';">
-                <i class="bi bi-download"></i> Export Raw Data (XLSX)
-            </button>
-            {% endif %}
-        </form>
-    </aside>
+    {{ filter_panel(display_start, display_end, filters,
+                    export_url=url_for('report_34.export_report_34') if (run_report and data) else None,
+                    export_label='Export raw data (XLSX)') }}
 
     <main class="flex-1 p-10 overflow-y-auto bg-[#181f1c] space-y-8">
         {% if run_report and data %}
@@ -349,21 +284,6 @@
         fetch('/user/theme', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({theme: next}) });
     }
 
-    // Export raw data, carrying the current sidebar filters
-    function doExport() {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = '/report/34/export';
-        const sidebarForm = document.querySelector('aside form');
-        if (sidebarForm) {
-            new FormData(sidebarForm).forEach((v, k) => {
-                const i = document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; form.appendChild(i);
-            });
-        }
-        document.body.appendChild(form);
-        form.submit();
-        document.body.removeChild(form);
-    }
 </script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script>

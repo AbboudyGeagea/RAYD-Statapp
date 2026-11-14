@@ -36,7 +36,7 @@ from sqlalchemy import text
 from db import db, get_report_start_date
 from routes.report_cache import cache_get, cache_put
 from utils.site_resolver import default_site
-from utils.report_filters import picked, picked_sql
+from utils.report_filters import panel_filters, picked, picked_sql
 from utils.ae_display import ae_label_map, ae_label
 
 logger = logging.getLogger("report_34")
@@ -315,16 +315,8 @@ def report_34():
     display_start = request.values.get("start_date", display_start)
     display_end = request.values.get("end_date", display_end)
 
-    filters = {
-        "class_enabled": request.values.get("class_enabled") == "on",
-        "mod_enabled":   request.values.get("mod_enabled") == "on",
-        "ae_enabled":    request.values.get("ae_enabled") == "on",
-        "loc_enabled":   request.values.get("loc_enabled") == "on",
-        "p_class": request.values.get("patient_class"),
-        "mod":     request.values.get("modality"),
-        "ae":      request.values.get("aetitle"),
-        "loc":     request.values.get("patient_location"),
-    }
+    # the shared left panel (templates/_report_filter_panel.html), several values each
+    filters = panel_filters(request.values, ("modality", "aetitle", "patient_class", "patient_location"))
 
     data = None
     if run_report:

@@ -143,13 +143,19 @@ document.addEventListener('DOMContentLoaded', function () {
                 const selected = (sel.dataset.selected || '').split('||').filter(Boolean);
                 const current  = [...sel.options].map(o => o.value);
 
+                // AE title dropdowns: show the RIS station/room name when known,
+                // falling back to the raw code (filter value is always the code).
+                const text = v => (key === 'aetitles' && aetitleLabels[v]) ? `${aetitleLabels[v]} (${v})` : v;
                 values.forEach(v => {
-                    if (current.includes(v)) return;
+                    if (current.includes(v)) {
+                        // drawn by the page as already chosen, with the bare code
+                        const o = [...sel.options].find(o => o.value === v);
+                        if (o) o.textContent = text(v);
+                        return;
+                    }
                     const o = document.createElement('option');
                     o.value = v;
-                    // AE title dropdowns: show the RIS station/room name when known,
-                    // falling back to the raw code (filter value is always the code).
-                    o.textContent = (key === 'aetitles' && aetitleLabels[v]) ? `${aetitleLabels[v]} (${v})` : v;
+                    o.textContent = text(v);
                     sel.appendChild(o);
                 });
 

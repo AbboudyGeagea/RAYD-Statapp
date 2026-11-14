@@ -42,7 +42,7 @@ from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_report_start_date
 from utils.site_resolver import default_site
-from utils.report_filters import sidebar_filters as _sidebar_filters
+from utils.report_filters import panel_filters, sidebar_filters as _sidebar_filters
 from utils.pacs_roles import role_lookup_cte, role_precedence
 from routes.report_25 import get_gold_standard_data
 
@@ -585,6 +585,7 @@ def report_36():
 
     return render_template(
         "report_36.html",
+        filters=panel_filters(request.values),
         res_rad_tat=res_rad_tat,
         modality_tat=modality_tat,
         wait_time_data=wait_time_data,

@@ -74,6 +74,44 @@ def rh_device_sql(alias='m'):
     return f"COALESCE({alias}.site_id = (SELECT id FROM sites WHERE is_default), TRUE)"
 
 
+# The standard dropdowns of the shared left panel (templates/_report_filter_panel.html):
+# query parameter -> (its "Apply filter" tick, label, /api/filter-options key). The names
+# are the ones sidebar_filters() below reads, so a report drawn with panel_filters() and
+# filtered with sidebar_filters() can never disagree about a parameter's name.
+PANEL_FILTERS = {
+    "patient_class":    ("class_enabled", "Patient Class",    "classes"),
+    "modality":         ("mod_enabled",   "Modality",         "modalities"),
+    "aetitle":          ("ae_enabled",    "AE Title",         "aetitles"),
+    "patient_location": ("loc_enabled",   "Patient Location", "locations"),
+}
+
+
+def panel_filters(form_data, names=None, specs=PANEL_FILTERS, modes=False):
+    """
+    The dropdowns for filter_panel(), in the order given (default: every one in specs).
+    Options come from /api/filter-options (_header.html); what is chosen now is listed
+    already, so it shows as chosen straight away. Before the first Generate every tick is
+    on, as the old per-page panels had it; after it, a tick is on only if it was sent on.
+
+    specs is {parameter: (tick, label, filter-options key)}, PANEL_FILTERS unless a report
+    reads other names (Report 22's f_mod / f_mod_active). modes=True adds the Include /
+    Exclude choice, sent as <parameter>_mode.
+    """
+    fresh = "start_date" not in form_data
+    out = []
+    for name in (names or tuple(specs)):
+        toggle, label, key = specs[name]
+        selected = [v for v in form_data.getlist(name) if v]
+        f = {"name": name, "toggle": toggle, "label": label, "key": key,
+             "values": [(v, v) for v in selected], "selected": selected,
+             "enabled": fresh or form_data.get(toggle) == "on"}
+        if modes:
+            f["mode_name"] = f"{name}_mode"
+            f["mode"] = "exclude" if form_data.get(f"{name}_mode") == "exclude" else "include"
+        out.append(f)
+    return out
+
+
 def sidebar_filters(form_data):
     """
     Left-sidebar filter set (date range, patient class, modality, AE title,

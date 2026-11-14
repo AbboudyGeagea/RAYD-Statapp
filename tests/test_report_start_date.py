@@ -50,7 +50,7 @@ def test_without_a_setting_it_falls_back_to_the_go_live_date():
 def test_a_report_opens_on_it(client):
     set_go_live('2019-01-01')
     html = client.get('/report/22', headers=ADMIN).get_data(as_text=True)
-    assert 'name="start_date" class="input-dark mb-2" value="2026-01-01"' in html
+    assert 'name="start_date" value="2026-01-01"' in html      # the shared left panel
 
 
 def test_an_earlier_date_can_still_be_picked(client):

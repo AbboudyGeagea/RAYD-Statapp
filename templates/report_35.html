@@ -1,3 +1,4 @@
+{% from '_report_filter_panel.html' import filter_panel_head, filter_panel %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,9 +7,6 @@
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
@@ -36,51 +34,21 @@
         }
     </style>
     <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
+    {{ filter_panel_head() }}
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
     <div class="flex flex-1 overflow-hidden">
 
-    <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] p-5 flex flex-col overflow-y-auto flex-shrink-0">
-        <form id="mainForm" method="GET" class="space-y-6 flex-1 overflow-y-auto pr-2">
-
-            <div>
-                <label class="sidebar-label">Date Range</label>
-                <input type="date" name="start_date" value="{{ display_start }}" class="input-dark mb-2">
-                <input type="date" name="end_date" value="{{ display_end }}" class="input-dark">
-            </div>
-
-            <div>
-                <label class="sidebar-label">Modality</label>
-                <select name="modality" multiple class="select2-js w-full"
-                        data-filter-key="modalities"
-                        data-selected="{{ filters.modality | join('||') }}">
-                </select>
-                <label class="inline-flex items-center mt-2 cursor-pointer">
-                    <input type="checkbox" name="mod_enabled" {% if filters.mod_enabled %}checked{% endif %} class="w-4 h-4 bg-black border-zinc-800 rounded text-blue-600">
-                    <span class="ml-2 text-[10px] font-black text-zinc-500 uppercase">Apply Filter</span>
-                </label>
-            </div>
-
-            <div class="flex flex-col gap-3 pt-4">
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transition-all text-white">
-                    Run Report
-                </button>
-                {% if run_report %}
-                <button type="submit" formaction="{{ url_for('report_35.export_report_35') }}" formmethod="POST"
-                        class="w-full bg-zinc-900 border border-white/10 py-3 rounded-2xl font-black text-xs uppercase text-zinc-400 hover:text-white transition-all flex items-center justify-center gap-2">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                    </svg>
-                    Download CSV
-                </button>
-                <p class="text-[11px] text-zinc-700 italic leading-relaxed">
-                    CSV export contains the summary, by-technician, by-modality, flagged-exam and never-done sections for the selected date range and filters.
-                </p>
-                {% endif %}
-            </div>
-        </form>
-    </aside>
+    {% call filter_panel(display_start, display_end, filters,
+                         export_url=url_for('report_35.export_report_35') if run_report else None,
+                         export_label='Download CSV') %}
+    {% if run_report %}
+    <p class="text-[11px] text-zinc-600 italic leading-relaxed mt-3">
+        The CSV holds the summary, by-technician, by-modality, flagged-exam and never-done sections for the dates and filters chosen.
+    </p>
+    {% endif %}
+    {% endcall %}
 
     <main class="flex-1 overflow-y-auto p-10">
 

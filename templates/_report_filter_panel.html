@@ -17,7 +17,16 @@
       key       optional: filled from /api/filter-options like every report (_header.html)
       selected  the values chosen now
       enabled   whether the tick is on
+      mode_name optional: the parameter of an Include / Exclude choice (Report 22's f_mod_mode)
+      mode      'include' or 'exclude', the choice now
   A dropdown left empty can be filled by the page itself; data-selected keeps the choice.
+  utils/report_filters.panel_filters() builds the standard four (class, modality, AE title,
+  patient location).
+
+  hidden      {name: value} sent with every Generate (Report 25's open tab, for one)
+  export_url  draws a second button that sends the same filters to that address as a POST,
+              with the CSRF token, for the report's Excel download
+  extra       HTML placed in the form after the dropdowns, for a report's own controls
 #}
 
 {% macro filter_panel_head() %}
@@ -32,6 +41,15 @@
     .rfp-tick { width: 1rem; height: 1rem; accent-color: #2563eb; }
     .rfp-generate { width: 100%; background: #2563eb; color: #fff; padding: 1rem 0; border-radius: 1rem; font-weight: 900; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; box-shadow: 0 10px 20px rgba(0,0,0,0.25); transition: background 0.15s; }
     .rfp-generate:hover { background: #3b82f6; }
+    .rfp-mode { background: #181f1c; border: 1px solid #28332e; color: #94a3b8; border-radius: 6px; font-size: 9px; font-weight: 800; text-transform: uppercase; padding: 2px 4px; margin-bottom: 6px; outline: none; cursor: pointer; }
+    .rfp-mode.is-exclude { color: #f87171; border-color: rgba(248,113,113,0.5); }
+    body.light .rfp-mode { background: #ffffff; border-color: #e2e8f0; color: #4a5568; }
+    /* Exclude: the picked values read as "everything except these" */
+    .rfp .rfp-excl .select2-container--default .select2-selection--multiple { border-color: rgba(248,113,113,0.5) !important; }
+    .rfp .rfp-excl .select2-container--default .select2-selection--multiple .select2-selection__choice { background: rgba(248,113,113,0.15); border-color: rgba(248,113,113,0.5); color: #fca5a5; text-decoration: line-through; }
+    .rfp-export { width: 100%; margin-top: 0.75rem; background: #181f1c; border: 1px solid #28332e; color: #94a3b8; padding: 0.75rem 0; border-radius: 1rem; font-weight: 900; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; transition: color 0.15s, border-color 0.15s; }
+    .rfp-export:hover { color: #e2e8f0; border-color: #60a5fa; }
+    body.light .rfp-export { background: #ffffff; border-color: #e2e8f0; color: #475569; }
     .rfp-block { border-top: 1px solid #28332e; padding-top: 1.25rem; margin-top: 1.5rem; }
     .rfp .select2-container--default .select2-selection--multiple { background: #181f1c !important; border: 1px solid #28332e !important; min-height: 45px !important; border-radius: 12px !important; }
     .rfp .select2-container--default .select2-selection--multiple .select2-selection__choice { background: #232b28; border-color: #334155; color: #e2e8f0; }
@@ -43,17 +61,34 @@
 </style>
 {% endmacro %}
 
-{% macro filter_panel(start, end, filters, button='Generate') %}
+{% macro filter_panel(start, end, filters, button='Generate', hidden=None, export_url=None,
+                      export_label='Download Excel', extra='') %}
 <aside class="rfp w-64 p-5 flex flex-col overflow-y-auto flex-shrink-0" aria-label="Report filters">
     <form id="mainForm" method="GET" class="space-y-6">
+        {% for name, value in (hidden or {}).items() %}
+        <input type="hidden" name="{{ name }}" id="rfp-hidden-{{ name }}" value="{{ value }}">
+        {% endfor %}
         <div>
             <label class="rfp-label" for="rfp-start">Date range</label>
             <input type="date" id="rfp-start" name="start_date" value="{{ start }}" class="rfp-input mb-2" aria-label="From">
             <input type="date" id="rfp-end" name="end_date" value="{{ end }}" class="rfp-input" aria-label="To">
         </div>
         {% for f in filters %}
-        <div>
+        <div class="rfp-f{% if f.mode == 'exclude' %} rfp-excl{% endif %}">
+            {% if f.mode_name %}
+            <div class="flex items-center justify-between gap-2">
+                <label class="rfp-label" for="rfp-{{ f.name }}">{{ f.label }}</label>
+                <select name="{{ f.mode_name }}" class="rfp-mode{% if f.mode == 'exclude' %} is-exclude{% endif %}"
+                        aria-label="{{ f.label }}: include or exclude the picked values"
+                        title="Include: keep only the picked values. Exclude: keep everything except them."
+                        onchange="this.classList.toggle('is-exclude', this.value === 'exclude'); this.closest('.rfp-f').classList.toggle('rfp-excl', this.value === 'exclude')">
+                    <option value="include" {% if f.mode != 'exclude' %}selected{% endif %}>Include</option>
+                    <option value="exclude" {% if f.mode == 'exclude' %}selected{% endif %}>Exclude</option>
+                </select>
+            </div>
+            {% else %}
             <label class="rfp-label" for="rfp-{{ f.name }}">{{ f.label }}</label>
+            {% endif %}
             <select id="rfp-{{ f.name }}" name="{{ f.name }}" multiple class="select2-js w-full"
                     {% if f.key %}data-filter-key="{{ f.key }}"{% endif %}
                     data-selected="{{ f.selected | join('||') }}">
@@ -67,11 +102,32 @@
             </label>
         </div>
         {% endfor %}
+        {{ extra }}
         <button type="submit" class="rfp-generate">{{ button }}</button>
+        {% if export_url %}
+        <button type="button" class="rfp-export" onclick="rfpExport('{{ export_url }}')">
+            <i class="bi bi-download" aria-hidden="true"></i> {{ export_label }}
+        </button>
+        {% endif %}
     </form>
     {% if caller %}{{ caller() }}{% endif %}
 </aside>
 <script>
     $(function () { $('.rfp .select2-js').select2({ width: '100%' }); });
+    // The Excel download: the same filters as Generate, as a POST with the CSRF token
+    // (the form itself is a GET, which the page's CSRF helper leaves alone).
+    function rfpExport(url) {
+        const form = document.getElementById('mainForm');
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        const token = document.createElement('input');
+        token.type = 'hidden'; token.name = 'csrf_token'; token.value = meta ? meta.content : '';
+        form.appendChild(token);
+        const action = form.getAttribute('action'), method = form.getAttribute('method');
+        form.setAttribute('action', url); form.setAttribute('method', 'POST');
+        form.submit();
+        form.removeChild(token);
+        if (action === null) form.removeAttribute('action'); else form.setAttribute('action', action);
+        form.setAttribute('method', method);
+    }
 </script>
 {% endmacro %}

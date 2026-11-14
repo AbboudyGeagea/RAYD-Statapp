@@ -63,7 +63,7 @@ from sqlalchemy import text
 from db import db, get_report_start_date
 from routes.report_cache import cache_get, cache_put, cache_invalidate
 from utils.site_resolver import default_site
-from utils.report_filters import picked, picked_sql
+from utils.report_filters import panel_filters, picked, picked_sql
 from utils import tat_sla
 
 logger = logging.getLogger("report_35")
@@ -705,10 +705,8 @@ def report_35():
     display_start = go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01"
     display_end   = date.today().strftime("%Y-%m-%d")
 
-    filters = {
-        "mod_enabled": request.values.get("mod_enabled") == "on",
-        "modality":    request.values.getlist("modality"),
-    }
+    # the shared left panel (templates/_report_filter_panel.html): modality only
+    filters = panel_filters(request.values, ("modality",))
 
     data = None
     if run_report:

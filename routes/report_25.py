@@ -30,7 +30,7 @@ from sqlalchemy import text
 from db import db, get_report_start_date
 from routes.report_cache import cache_get, cache_put
 from utils.site_resolver import default_site
-from utils.report_filters import (rh_device_sql, sidebar_filters as _sidebar_filters,
+from utils.report_filters import (panel_filters, rh_device_sql, sidebar_filters as _sidebar_filters,
                                   picked, picked_sql)
 from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql
 from utils.pacs_roles import role_lookup_cte as _role_lookup_cte, role_precedence as _role_precedence
@@ -1450,7 +1450,7 @@ def report_25():
 
         template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
 
-    return render_template("report_25.html", data=template_data, tat_pacs_data=tat_pacs_data, tat_ris_data=tat_ris_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config, stale_feeds=stale_feeds_list)
+    return render_template("report_25.html", filters=panel_filters(request.values), data=template_data, tat_pacs_data=tat_pacs_data, tat_ris_data=tat_ris_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config, stale_feeds=stale_feeds_list)
 
 @report_25_bp.route("/report/25/export", methods=["POST"])
 @login_required
