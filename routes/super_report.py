@@ -39,7 +39,30 @@ def super_report_page():
     from db import get_report_start_date
     start = get_report_start_date()
     return render_template("super_report.html",
-                           report_start_date=start.isoformat() if start else "")
+                           report_start_date=start.isoformat() if start else "",
+                           start=start.isoformat() if start else "",
+                           end=datetime.now().date().isoformat(),
+                           panel=_panel())
+
+
+# The Super Report's dropdowns on the shared left panel (_report_filter_panel.html), named
+# as super_report() reads them. Their options come from /viewer/super-report/filters, which
+# the page loads; each has an "Apply filter" tick (<name>_on) that the page honours when it
+# builds the query. Protocol Name and Body Part (Series) are not offered: the query never
+# applied them, so picking one changed nothing.
+_PANEL_FILTERS = (
+    ("modality", "Modality"), ("storing_ae", "AE Title"), ("study_status", "Study Status"),
+    ("procedure_code", "Procedure"), ("body_part", "Body Part"),
+    ("patient_class", "Patient Class"), ("patient_location", "Patient Location"), ("sex", "Sex"),
+    ("report_status", "Report Status"), ("order_status", "Order Status"),
+    ("order_modality", "Order Modality"), ("signing_physician", "Signing Physician"),
+    ("referring_physician", "Referring Physician"),
+)
+
+
+def _panel():
+    return [{"name": name, "toggle": f"{name}_on", "label": label, "values": [],
+             "selected": [], "enabled": True} for name, label in _PANEL_FILTERS]
 
 
 # ─────────────────────────────────────────────

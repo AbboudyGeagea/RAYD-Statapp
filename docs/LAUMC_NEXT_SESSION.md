@@ -304,9 +304,15 @@ read; radiologists approve or finalise (check both).
 
 - **Urgent emergent in HL7.** Check with the end user and HIS whether urgent emergent can be
   sent in the HL7 messages.
-- **Shared filter panel.** Move Reports 22, 25, 34, 35, 36 and the Super Report onto
-  `templates/_report_filter_panel.html`, one at a time, each tested (CLAUDE.md rule 8). Only
-  Report 37 uses it so far.
+- **Shared filter panel (item 16).** Move Reports 22, 25, 34, 35, 36 and the Super Report onto
+  `templates/_report_filter_panel.html`, one at a time, each tested (CLAUDE.md rule 8).
+  **Done 2026-11-14**, not deployed (`tests/test_report_filter_panel.py`). Fixed on the way:
+  unticked filters came back ticked; the Excel/CSV downloads of Reports 22, 25, 34 and 35
+  could not work in production (a GET to a POST-only route, or a POST without the CSRF
+  token); Report 34 took one value per filter. The Super Report's dropdowns now take several
+  values each and have a tick; its Protocol Name and Body Part (Series) filters were dropped,
+  because the query never applied them. Check on the server after deploy: each download, and
+  a saved Super Report preset loading.
 - **R2I real-time feed and BRAYN — both switched on the week of 2026-11-16.** When live: the
   Department board gets "waiting" and "in progress", BRAYN's RIS-dependent checks
   (ORPHAN_EVENT, SKIPPED_RUNG, ORPHAN_ORDER, STALLED_*, seeded off) can be turned on, and HL7

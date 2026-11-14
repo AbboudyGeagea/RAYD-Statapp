@@ -86,6 +86,34 @@ def test_report_22_keeps_include_or_exclude(client, ctx):
     assert 'name="f_ae_mode" class="rfp-mode"' in side             # the others stay Include
 
 
+def test_the_super_report_draws_the_shared_panel(client, ctx):
+    """The Super Report runs in the page (Generate fetches /viewer/super-report), so its
+    panel is drawn empty and filled from /viewer/super-report/filters; each dropdown is
+    named as the query reads it, with its own tick."""
+    from routes.super_report import _PANEL_FILTERS
+    html, side = panel(client, '/viewer/super-report-page')
+    for name, _label in _PANEL_FILTERS:
+        assert f'name="{name}" multiple' in side and f'name="{name}_on" class="rfp-tick" checked' in side
+    for control in ('id="cmp-start"', 'id="age-min"', 'id="f-has_report"', 'id="presets-list"'):
+        assert control in side
+    assert 'class="rfp-generate">Generate</button>' in side
+    # the query never applied these two, so they are no longer offered
+    assert 'protocol_name' not in side and 'body_part_series' not in side
+    # the page builds its query from the panel and honours the ticks
+    assert "addEventListener('submit'" in html and '_on"]' in html
+
+
+def test_the_super_report_query_reads_every_panel_name():
+    """Every dropdown the Super Report panel offers is a parameter its query applies."""
+    import inspect
+    from routes import super_report
+    read = inspect.getsource(super_report.super_report)
+    where = inspect.getsource(super_report._build_where) + inspect.getsource(super_report._collect_data)
+    for name, _label in super_report._PANEL_FILTERS:
+        assert f'"{name}"' in read, name
+        assert f'"{name}"' in where or f"'{name}'" in where, name
+
+
 def test_the_export_button_posts_with_the_csrf_token():
     """The panel's Excel button sends a POST (the export routes accept nothing else) and
     adds the CSRF token, which the page's own helper only adds to POST forms."""

@@ -69,7 +69,7 @@ def test_the_shared_sidebar_filter_starts_on_it():
 
 def test_the_super_report_opens_on_it(client):
     html = client.get('/viewer/super-report-page', headers=ADMIN).get_data(as_text=True)
-    assert 'const reportStart = "2026-01-01";' in html
+    assert 'name="start_date" value="2026-01-01"' in html      # the shared left panel
 
 
 def test_report_composer_gets_it_for_fixed_dates(client):

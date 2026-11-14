@@ -268,8 +268,11 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    row and licence entry added by migration (see 0147), per-user report access, opened at
    `/viewer/NN`. Its left filter panel is `templates/_report_filter_panel.html` (dates,
    multi-select dropdowns each with an "Apply filter" tick named like `sidebar_filters` reads
-   them, one **Generate** button). Report 37 uses it; Reports 22, 25, 34, 35, 36 and the Super
-   Report still carry their own copies and move onto it one at a time, each tested.
+   them, one **Generate** button; optional hidden fields, Excel button posting with the CSRF
+   token, Include/Exclude per filter). `utils/report_filters.panel_filters()` builds the
+   dropdowns. Reports 22, 25, 34, 35, 36, 37 and the Super Report use it (2026-11-14,
+   `tests/test_report_filter_panel.py`); the ER dashboard and the ORU tab follow with to-do
+   item 25.
 
 ## Dev Workflow
 

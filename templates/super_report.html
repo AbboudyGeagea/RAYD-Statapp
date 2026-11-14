@@ -1,3 +1,4 @@
+{% from '_report_filter_panel.html' import filter_panel_head, filter_panel %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -111,6 +112,7 @@
         body.light aside, body.light header { background:#ffffff !important; border-color:#e2e8f0 !important; }
     </style>
     <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
+    {{ filter_panel_head() }}
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
 
@@ -120,99 +122,48 @@
     <div class="flex flex-1 overflow-hidden">
 
         <!-- Filter Sidebar -->
-        <aside id="filter-sidebar" class="shrink-0 flex-shrink-0 bg-[#1a2420] border-r border-[#28332e] flex flex-col transition-all duration-300 z-10" style="width:240px;">
-
-            <!-- Header -->
-            <div class="flex items-center justify-between px-4 py-3 border-b border-[#28332e] shrink-0">
-                <span class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest flex items-center gap-2">
-                    <i class="bi bi-funnel-fill"></i> <span id="filter-header-text">Filters</span>
-                </span>
-                <button onclick="toggleFilters()" class="text-slate-500 hover:text-white transition-colors">
-                    <i class="bi bi-layout-sidebar-reverse text-sm" id="filter-toggle-icon"></i>
+        {% set sr_extra %}
+        <div>
+            <label class="rfp-label" for="cmp-start" style="display:flex;justify-content:space-between;">
+                Comparison period <span class="text-[9px] text-slate-600 normal-case font-normal" id="cmp-auto-label">auto</span>
+            </label>
+            <input type="date" id="cmp-start" class="rfp-input mb-2" aria-label="Comparison from">
+            <input type="date" id="cmp-end" class="rfp-input" aria-label="Comparison to">
+        </div>
+        <div>
+            <label class="rfp-label" for="age-min">Age range</label>
+            <div class="flex gap-2">
+                <input type="number" id="age-min" placeholder="Min" min="0" max="120" class="rfp-input" aria-label="Minimum age">
+                <input type="number" id="age-max" placeholder="Max" min="0" max="120" class="rfp-input" aria-label="Maximum age">
+            </div>
+        </div>
+        <div>
+            <label class="rfp-label" for="f-has_report">Has report</label>
+            <select id="f-has_report" class="rfp-input">
+                <option value="">All</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+            </select>
+        </div>
+        {% endset %}
+        {% call filter_panel(start, end, panel, extra=sr_extra) %}
+        <div class="rfp-block" id="presets-section">
+            <div class="flex items-center justify-between mb-1">
+                <span class="rfp-label mb-0">Saved presets</span>
+                <button type="button" onclick="saveCurrentPreset()"
+                        class="text-[9px] font-black text-[#60a5fa] hover:text-white uppercase tracking-widest flex items-center gap-1 transition-colors">
+                    <i class="bi bi-floppy" aria-hidden="true"></i> Save
                 </button>
             </div>
-
-            <!-- Saved presets -->
-            <div class="px-3 py-2 border-b border-[#28332e] shrink-0" id="presets-section">
-                <div class="flex items-center justify-between mb-1">
-                    <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Saved Presets</span>
-                    <button onclick="saveCurrentPreset()"
-                            class="text-[9px] font-black text-[#60a5fa] hover:text-white uppercase tracking-widest flex items-center gap-1 transition-colors">
-                        <i class="bi bi-floppy"></i> Save
-                    </button>
-                </div>
-                <div id="presets-list" class="space-y-1">
-                    <p class="text-[10px] text-slate-600 italic">Loading...</p>
-                </div>
+            <div id="presets-list" class="space-y-1">
+                <p class="text-[10px] text-slate-600 italic">Loading...</p>
             </div>
-
-            <!-- Scrollable body -->
-            <div class="flex-1 overflow-y-auto p-3 space-y-3" id="filter-body">
-
-                <!-- Main period -->
-                <div>
-                    <span class="f-label">Main Period</span>
-                    <input type="date" id="super-start" class="f-input mb-1">
-                    <input type="date" id="super-end"   class="f-input">
-                </div>
-
-                <!-- Comparison period -->
-                <div>
-                    <span class="f-label" style="display:flex;justify-content:space-between;">
-                        Comparison Period <span class="text-[8px] text-slate-600 normal-case font-normal" id="cmp-auto-label">auto</span>
-                    </span>
-                    <input type="date" id="cmp-start" class="f-input mb-1">
-                    <input type="date" id="cmp-end"   class="f-input">
-                </div>
-
-                <!-- Study Attributes -->
-                <details class="filter-group" open>
-                    <summary class="filter-group-summary">Study Attributes</summary>
-                    <div class="filter-group-body" id="group-study"></div>
-                </details>
-
-                <!-- Patient -->
-                <details class="filter-group">
-                    <summary class="filter-group-summary">Patient</summary>
-                    <div class="filter-group-body" id="group-patient">
-                        <div>
-                            <span class="f-label">Age Range</span>
-                            <div class="flex gap-1">
-                                <input type="number" id="age-min" placeholder="Min" min="0" max="120" class="f-input">
-                                <input type="number" id="age-max" placeholder="Max" min="0" max="120" class="f-input">
-                            </div>
-                        </div>
-                        <div>
-                            <span class="f-label">Has Report</span>
-                            <select id="f-has_report" class="f-input">
-                                <option value="">All</option>
-                                <option value="Yes">Yes</option>
-                                <option value="No">No</option>
-                            </select>
-                        </div>
-                    </div>
-                </details>
-
-                <!-- Clinical & Physicians -->
-                <details class="filter-group">
-                    <summary class="filter-group-summary">Clinical & Physicians</summary>
-                    <div class="filter-group-body" id="group-clinical"></div>
-                </details>
-
-            </div>
-
-            <!-- Actions -->
-            <div class="p-3 border-t border-[#28332e] shrink-0 space-y-2" id="filter-actions">
-                <button onclick="runSuperReport()" id="run-btn"
-                        class="w-full flex items-center justify-center gap-2 py-2.5 bg-[#60a5fa] text-[#0a1020] text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 transition-all">
-                    <i class="bi bi-lightning-charge-fill"></i> Run Report
-                </button>
-                <button onclick="clearFilters()"
-                        class="w-full text-slate-600 hover:text-slate-400 text-[9px] font-bold uppercase tracking-widest transition-colors py-1">
-                    <i class="bi bi-x-circle mr-1"></i> Clear All
-                </button>
-            </div>
-        </aside>
+            <button type="button" onclick="clearFilters()"
+                    class="w-full mt-3 text-slate-500 hover:text-slate-300 text-[9px] font-bold uppercase tracking-widest transition-colors py-1">
+                <i class="bi bi-x-circle mr-1" aria-hidden="true"></i> Clear all
+            </button>
+        </div>
+        {% endcall %}
 
         <!-- Main content -->
         <main class="flex-1 overflow-y-auto p-6 bg-[#181f1c] space-y-5">
@@ -434,59 +385,45 @@
     </div>
 
     <script>
-    // ── Filter definitions ────────────────────────────────────────────
-    // Each filter's `group` (study / patient / clinical) picks which accordion
-    // section in the sidebar it renders into -- see the group-* containers and
-    // renderMultiFilters/renderSingleFilters/renderSearchFilters below.
-
-    // Multi-select listbox (hold Ctrl to pick multiple)
-    const MULTI_FILTERS = [
-        { key:'modality',         label:'Modality',         group:'study' },
-        { key:'storing_ae',       label:'AE Title',         group:'study' },
-        { key:'study_status',     label:'Study Status',     group:'study' },
-        { key:'procedure_code',   label:'Procedure',        group:'study' },
-        { key:'patient_class',    label:'Patient Class',    group:'patient' },
-        { key:'patient_location', label:'Patient Location', group:'patient' },
-    ];
-
-    // Single-value dropdown (<select> with All option)
-    const SINGLE_FILTERS = [
-        { key:'sex',               label:'Sex',               group:'patient' },
-        { key:'report_status',     label:'Report Status',     group:'clinical' },
-        { key:'order_status',      label:'Order Status',      group:'clinical' },
-        { key:'order_modality',    label:'Order Modality',    group:'clinical' },
-        { key:'signing_physician', label:'Signing Physician', group:'clinical' },
-    ];
-
-    // Searchable type-to-filter dropdowns (select as chips)
-    const SEARCH_FILTERS = [
-        { key:'body_part',           label:'Body Part',           group:'study' },
-        { key:'protocol_name',       label:'Protocol Name',       group:'study' },
-        { key:'body_part_series',    label:'Body Part (Series)',  group:'study' },
-        { key:'referring_physician', label:'Referring Physician', group:'clinical', note:'type to search · comma-separated' },
-    ];
-
-    // Stores all loaded filter data
+    // ── The shared left panel (_report_filter_panel.html) ────────────────
+    // One multi-select dropdown per filter, named as /viewer/super-report reads them,
+    // each with its "Apply filter" tick (<name>_on). Their options come from
+    // /viewer/super-report/filters. Generate runs the report here instead of reloading.
     window._fd = {};
-    // Stores selected values for search filters
-    window._searchSelected = {};
+    const $start = () => document.getElementById('rfp-start');
+    const $end   = () => document.getElementById('rfp-end');
+    function panelSelects() { return [...document.querySelectorAll('#mainForm select[multiple]')]; }
+    function tickOf(sel)    { return document.querySelector(`#mainForm input[name="${sel.name}_on"]`); }
+    function labelOf(sel)   { const l = document.querySelector(`label[for="${sel.id}"]`); return l ? l.textContent.trim() : sel.name; }
+    function picked(sel)    { return [...sel.selectedOptions].map(o => o.value); }
+    function applied(sel)   { const t = tickOf(sel); return (!t || t.checked) ? picked(sel) : []; }
+    function setPicked(sel, vals) {
+        // values a saved preset holds that the list does not offer (yet) still show
+        vals.forEach(v => {
+            if (![...sel.options].some(o => o.value === v)) sel.add(new Option(v, v));
+        });
+        $(sel).val(vals).trigger('change');
+    }
+
+    document.getElementById('mainForm').addEventListener('submit', e => {
+        e.preventDefault();
+        runSuperReport();
+    });
 
     // ── Dates ─────────────────────────────────────────────────────────
-    // Starts on the report start date set on the ETL Control Room; the last 30 days
+    // Opens on the report start date set on the ETL Control Room; the last 30 days
     // only when none is set.
-    const today = new Date();
-    const prior = new Date(); prior.setDate(today.getDate() - 30);
-    const reportStart = {{ report_start_date | default('', true) | tojson }};
-    document.getElementById('super-end').value   = today.toISOString().split('T')[0];
-    document.getElementById('super-start').value = reportStart || prior.toISOString().split('T')[0];
+    if (!$start().value) {
+        const prior = new Date(); prior.setDate(prior.getDate() - 30);
+        $start().value = prior.toISOString().split('T')[0];
+    }
+    if (!$end().value) $end().value = new Date().toISOString().split('T')[0];
     updateCmpDates();
-    ['super-start','super-end'].forEach(id =>
-        document.getElementById(id).addEventListener('change', updateCmpDates)
-    );
+    [$start(), $end()].forEach(el => el.addEventListener('change', updateCmpDates));
 
     function updateCmpDates() {
-        const s = document.getElementById('super-start').value;
-        const e = document.getElementById('super-end').value;
+        const s = $start().value;
+        const e = $end().value;
         if (!s || !e) return;
         const ds = new Date(s), de = new Date(e);
         const delta = Math.round((de - ds) / 86400000) + 1;
@@ -497,195 +434,34 @@
         document.getElementById('cmp-auto-label').textContent = `auto · ${delta}d prior`;
     }
 
-    // ── Filter sidebar toggle ─────────────────────────────────────────
-    let _filterOpen = true;
-    function toggleFilters() {
-        _filterOpen = !_filterOpen;
-        const sb = document.getElementById('filter-sidebar');
-        sb.style.width = _filterOpen ? '240px' : '42px';
-        document.getElementById('filter-body').classList.toggle('hidden', !_filterOpen);
-        document.getElementById('filter-actions').classList.toggle('hidden', !_filterOpen);
-        document.getElementById('filter-header-text').classList.toggle('hidden', !_filterOpen);
-        document.getElementById('filter-toggle-icon').className =
-            _filterOpen ? 'bi bi-layout-sidebar-reverse text-sm' : 'bi bi-layout-sidebar text-sm';
-    }
-
-    // ── Load filters from API ─────────────────────────────────────────
+    // ── Load the dropdowns' options ───────────────────────────────────
     async function loadFilters() {
         try {
             const res  = await fetch('/viewer/super-report/filters');
             const data = await res.json();
             window._fd = data;
-            renderMultiFilters(data);
-            renderSingleFilters(data);
-            renderSearchFilters(data);
+            const aeMap      = data.ae_modality_map    || {};
+            const stationMap = data.ae_station_map     || {};
+            const procMap    = data.procedure_name_map || {};
+            panelSelects().forEach(sel => {
+                const chosen = new Set(picked(sel));
+                sel.innerHTML = (data[sel.name] || []).map(v => {
+                    let label = v;
+                    if (sel.name === 'storing_ae') {
+                        label = stationMap[v] ? `${stationMap[v]} (${v})` : aeMap[v] ? `${v} (${aeMap[v]})` : v;
+                    } else if (sel.name === 'procedure_code' && procMap[v]) {
+                        label = `${procMap[v]} (${v})`;
+                    }
+                    return `<option value="${escHtml(v)}"${chosen.has(v) ? ' selected' : ''}>${escHtml(label)}</option>`;
+                }).join('');
+                if ($(sel).data('select2')) $(sel).select2('destroy');
+                $(sel).select2({ width: '100%' });
+            });
         } catch(e) { console.error('Filter load failed', e); }
     }
 
-    function renderMultiFilters(data) {
-        const aeMap      = data.ae_modality_map    || {};
-        const stationMap = data.ae_station_map     || {};
-        const procMap    = data.procedure_name_map || {};
-        MULTI_FILTERS.forEach(fc => {
-            const container = document.getElementById(`group-${fc.group}`);
-            const vals = data[fc.key] || [];
-            if (!container || !vals.length) return;
-            const isAE   = fc.key === 'storing_ae';
-            const isProc = fc.key === 'procedure_code';
-            const div = document.createElement('div');
-            div.innerHTML = `
-                <span class="f-label">${fc.label}</span>
-                <select multiple id="f-${fc.key}" class="f-multi">
-                    ${vals.map(v => {
-                        let label = escHtml(v);
-                        if (isAE) {
-                            label = stationMap[v] ? `${escHtml(stationMap[v])} (${escHtml(v)})`
-                                  : aeMap[v]        ? `${escHtml(v)} (${escHtml(aeMap[v])})`
-                                  : label;
-                        } else if (isProc && procMap[v]) {
-                            label = `${escHtml(procMap[v])} (${escHtml(v)})`;
-                        }
-                        return `<option value="${escHtml(v)}">${label}</option>`;
-                    }).join('')}
-                </select>
-                <p class="text-[8px] text-slate-600 mt-0.5">Hold <kbd style="font-size:8px;padding:0 3px;border:1px solid #334155;border-radius:3px;background:#1e293b;">Ctrl</kbd> to select multiple</p>
-                <div class="mt-1" id="chips-${fc.key}"></div>
-            `;
-            container.appendChild(div);
-            document.getElementById(`f-${fc.key}`).addEventListener('change', function() {
-                const sel = Array.from(this.selectedOptions).map(o => o.value);
-                document.getElementById(`chips-${fc.key}`).innerHTML =
-                    sel.map(v => `<span class="chip" onclick="removeChip('${fc.key}','${escHtml(v)}')">${escHtml(v)} ×</span>`).join('');
-            });
-        });
-    }
-
-    function renderSingleFilters(data) {
-        SINGLE_FILTERS.forEach(fc => {
-            const container = document.getElementById(`group-${fc.group}`);
-            const vals = data[fc.key] || [];
-            if (!container || !vals.length) return;
-            const div = document.createElement('div');
-            div.innerHTML = `
-                <span class="f-label">${fc.label}</span>
-                <select id="f-${fc.key}" class="f-input">
-                    <option value="">All</option>
-                    ${vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('')}
-                </select>
-            `;
-            container.appendChild(div);
-        });
-    }
-
-    function renderSearchFilters(data) {
-        SEARCH_FILTERS.forEach(fc => {
-            const container = document.getElementById(`group-${fc.group}`);
-            const vals = data[fc.key] || [];
-            if (!container || !vals.length) return;
-            window._searchSelected[fc.key] = [];
-            const noteHtml = fc.note
-                ? `<span class="text-[8px] text-slate-600 normal-case font-normal">(${fc.note})</span>`
-                : `<span class="text-[8px] text-slate-600 normal-case font-normal">(${vals.length} values)</span>`;
-            const div = document.createElement('div');
-            div.innerHTML = `
-                <span class="f-label">${fc.label} ${noteHtml}</span>
-                <div class="search-dropdown" id="sd-wrap-${fc.key}">
-                    <input type="text" class="f-input" id="sd-input-${fc.key}"
-                           placeholder="Search ${fc.label.toLowerCase()}..."
-                           autocomplete="off"
-                           oninput="filterDropdown('${fc.key}')"
-                           onfocus="openDropdown('${fc.key}')"
-                    >
-                    <div class="dropdown-list" id="sd-list-${fc.key}"></div>
-                </div>
-                <div class="mt-1" id="sd-chips-${fc.key}"></div>
-            `;
-            container.appendChild(div);
-            renderDropdownItems(fc.key, vals, '');
-        });
-
-        // Close dropdowns on outside click
-        document.addEventListener('click', e => {
-            SEARCH_FILTERS.forEach(fc => {
-                const wrap = document.getElementById(`sd-wrap-${fc.key}`);
-                if (wrap && !wrap.contains(e.target)) closeDropdown(fc.key);
-            });
-        });
-    }
-
-    function renderDropdownItems(key, vals, query) {
-        const list = document.getElementById(`sd-list-${key}`);
-        if (!list) return;
-        const sel  = window._searchSelected[key] || [];
-        const filtered = query
-            ? vals.filter(v => v.toLowerCase().includes(query.toLowerCase()))
-            : vals;
-        list.innerHTML = filtered.slice(0, 100).map(v => `
-            <div class="dropdown-item ${sel.includes(v)?'selected':''}"
-                 onclick="toggleSearchItem('${key}','${escJs(v)}')">
-                <input type="checkbox" ${sel.includes(v)?'checked':''} onclick="event.stopPropagation()">
-                ${escHtml(v)}
-            </div>`).join('');
-        if (filtered.length > 100) {
-            list.innerHTML += `<div class="dropdown-item" style="color:#64748b;cursor:default;">... ${filtered.length-100} more — type to narrow</div>`;
-        }
-    }
-
-    function filterDropdown(key) {
-        const q    = document.getElementById(`sd-input-${key}`).value;
-        const vals = window._fd[key] || [];
-        openDropdown(key);
-        renderDropdownItems(key, vals, q);
-    }
-
-    function openDropdown(key) {
-        document.getElementById(`sd-list-${key}`).classList.add('open');
-    }
-
-    function closeDropdown(key) {
-        document.getElementById(`sd-list-${key}`).classList.remove('open');
-    }
-
-    function toggleSearchItem(key, val) {
-        const sel = window._searchSelected[key] || [];
-        const idx = sel.indexOf(val);
-        if (idx >= 0) sel.splice(idx, 1); else sel.push(val);
-        window._searchSelected[key] = sel;
-        // Re-render dropdown
-        const q    = document.getElementById(`sd-input-${key}`).value;
-        const vals = window._fd[key] || [];
-        renderDropdownItems(key, vals, q);
-        // Update chips
-        document.getElementById(`sd-chips-${key}`).innerHTML =
-            sel.map(v => `<span class="chip" onclick="removeSearchItem('${key}','${escJs(v)}')">${escHtml(v)} ×</span>`).join('');
-    }
-
-    function removeSearchItem(key, val) { toggleSearchItem(key, val); }
-
-    function removeChip(key, val) {
-        const el = document.getElementById(`f-${key}`);
-        if (!el) return;
-        Array.from(el.options).forEach(o => { if (o.value === val) o.selected = false; });
-        el.dispatchEvent(new Event('change'));
-    }
-
     function clearFilters() {
-        MULTI_FILTERS.forEach(fc => {
-            const el = document.getElementById(`f-${fc.key}`);
-            if (el) { Array.from(el.options).forEach(o => o.selected = false); el.dispatchEvent(new Event('change')); }
-        });
-        SINGLE_FILTERS.forEach(fc => {
-            const el = document.getElementById(`f-${fc.key}`);
-            if (el) el.value = '';
-        });
-        SEARCH_FILTERS.forEach(fc => {
-            window._searchSelected[fc.key] = [];
-            const chips = document.getElementById(`sd-chips-${fc.key}`);
-            const input = document.getElementById(`sd-input-${fc.key}`);
-            if (chips) chips.innerHTML = '';
-            if (input) input.value = '';
-            renderDropdownItems(fc.key, window._fd[fc.key]||[], '');
-        });
+        panelSelects().forEach(sel => $(sel).val(null).trigger('change'));
         document.getElementById('f-has_report').value = '';
         document.getElementById('age-min').value = '';
         document.getElementById('age-max').value = '';
@@ -694,22 +470,13 @@
     // ── Build query string ────────────────────────────────────────────
     function buildQS() {
         const p = new URLSearchParams();
-        p.set('start',     document.getElementById('super-start').value);
-        p.set('end',       document.getElementById('super-end').value);
+        p.set('start',     $start().value);
+        p.set('end',       $end().value);
         p.set('cmp_start', document.getElementById('cmp-start').value);
         p.set('cmp_end',   document.getElementById('cmp-end').value);
 
-        MULTI_FILTERS.forEach(fc => {
-            const el = document.getElementById(`f-${fc.key}`);
-            if (el) Array.from(el.selectedOptions).forEach(o => p.append(fc.key, o.value));
-        });
-        SINGLE_FILTERS.forEach(fc => {
-            const el = document.getElementById(`f-${fc.key}`);
-            if (el && el.value) p.append(fc.key, el.value);
-        });
-        SEARCH_FILTERS.forEach(fc => {
-            (window._searchSelected[fc.key]||[]).forEach(v => p.append(fc.key, v));
-        });
+        // a dropdown counts only while its "Apply filter" tick is on
+        panelSelects().forEach(sel => applied(sel).forEach(v => p.append(sel.name, v)));
 
         const hr   = document.getElementById('f-has_report').value;
         const amin = document.getElementById('age-min').value;
@@ -725,8 +492,8 @@
         const el = document.getElementById('filter-banner');
         if (!el) return;
 
-        const start   = document.getElementById('super-start').value;
-        const end     = document.getElementById('super-end').value;
+        const start   = $start().value;
+        const end     = $end().value;
         const cmpS    = document.getElementById('cmp-start').value;
         const cmpE    = document.getElementById('cmp-end').value;
         const ageMin  = document.getElementById('age-min').value;
@@ -736,23 +503,11 @@
         // Collect active filter chips
         const chips = [];
 
-        MULTI_FILTERS.forEach(fc => {
-            const listEl = document.getElementById(`f-${fc.key}`);
-            if (!listEl) return;
-            const sel = Array.from(listEl.selectedOptions).map(o => o.value);
-            sel.forEach(v => chips.push({ label: fc.label, value: v }));
+        panelSelects().forEach(sel => {
+            applied(sel).forEach(v => chips.push({ label: labelOf(sel), value: v }));
         });
 
-        SINGLE_FILTERS.forEach(fc => {
-            const selEl = document.getElementById(`f-${fc.key}`);
-            if (selEl && selEl.value) chips.push({ label: fc.label, value: selEl.value });
-        });
-
-        SEARCH_FILTERS.forEach(fc => {
-            (window._searchSelected[fc.key] || []).forEach(v => chips.push({ label: fc.label, value: v }));
-        });
-
-        if (hasRep)   chips.push({ label: 'Report Status', value: hasRep === '1' ? 'Has Report' : 'No Report' });
+        if (hasRep)   chips.push({ label: 'Report Status', value: hasRep === 'Yes' ? 'Has Report' : 'No Report' });
         if (ageMin)   chips.push({ label: 'Age ≥', value: ageMin });
         if (ageMax)   chips.push({ label: 'Age ≤', value: ageMax });
 
@@ -790,14 +545,14 @@
 
     // ── Run ───────────────────────────────────────────────────────────
     async function runSuperReport() {
-        const start = document.getElementById('super-start').value;
-        const end   = document.getElementById('super-end').value;
+        const start = $start().value;
+        const end   = $end().value;
         if (!start || !end) { alert('Select a date range'); return; }
 
         document.getElementById('super-empty').classList.add('hidden');
         document.getElementById('super-results').classList.add('hidden');
         document.getElementById('super-loading').classList.remove('hidden');
-        document.getElementById('run-btn').disabled = true;
+        document.querySelector('#mainForm .rfp-generate').disabled = true;
 
         const steps = ['Querying database','Joining tables','Aggregating metrics','Writing summary'];
         let si = 0;
@@ -824,7 +579,7 @@
             document.getElementById('super-empty').classList.remove('hidden');
             alert('Network error: ' + e.message);
         }
-        document.getElementById('run-btn').disabled = false;
+        document.querySelector('#mainForm .rfp-generate').disabled = false;
     }
 
     // ── Render ────────────────────────────────────────────────────────
@@ -1470,64 +1225,44 @@
     // Collect all current filter values into a plain object for saving
     function collectFilters() {
         const f = {
-            start:      document.getElementById('super-start').value,
-            end:        document.getElementById('super-end').value,
+            start:      $start().value,
+            end:        $end().value,
             cmp_start:  document.getElementById('cmp-start').value,
             cmp_end:    document.getElementById('cmp-end').value,
             age_min:    document.getElementById('age-min').value,
             age_max:    document.getElementById('age-max').value,
             has_report: document.getElementById('f-has_report').value,
         };
-        MULTI_FILTERS.forEach(fc => {
-            const el = document.getElementById(`f-${fc.key}`);
-            if (el) f[fc.key] = Array.from(el.selectedOptions).map(o => o.value);
-        });
-        SINGLE_FILTERS.forEach(fc => {
-            const el = document.getElementById(`f-${fc.key}`);
-            if (el) f[fc.key] = el.value || '';
-        });
-        SEARCH_FILTERS.forEach(fc => {
-            f[fc.key] = window._searchSelected[fc.key] || [];
+        panelSelects().forEach(sel => {
+            f[sel.name] = picked(sel);
+            const t = tickOf(sel);
+            if (t) f[`${sel.name}_on`] = t.checked;
         });
         return f;
     }
 
-    // Apply a saved filter object back to the UI
+    // Apply a saved filter object back to the panel. Presets saved before the shared
+    // panel hold a single value as a string for some filters ('' = all).
     function applyFilters(f) {
-        if (f.start)      document.getElementById('super-start').value = f.start;
-        if (f.end)        document.getElementById('super-end').value   = f.end;
-        if (f.cmp_start)  document.getElementById('cmp-start').value   = f.cmp_start;
-        if (f.cmp_end)    document.getElementById('cmp-end').value     = f.cmp_end;
-        if (f.age_min)    document.getElementById('age-min').value     = f.age_min;
-        if (f.age_max)    document.getElementById('age-max').value     = f.age_max;
+        if (f.start)      $start().value = f.start;
+        if (f.end)        $end().value   = f.end;
+        if (f.age_min)    document.getElementById('age-min').value = f.age_min;
+        if (f.age_max)    document.getElementById('age-max').value = f.age_max;
         if (f.has_report !== undefined)
             document.getElementById('f-has_report').value = f.has_report;
 
-        MULTI_FILTERS.forEach(fc => {
-            const el = document.getElementById(`f-${fc.key}`);
-            if (!el || !f[fc.key]) return;
-            Array.from(el.options).forEach(o => {
-                o.selected = f[fc.key].includes(o.value);
-            });
-            el.dispatchEvent(new Event('change'));
-        });
-
-        SINGLE_FILTERS.forEach(fc => {
-            const el = document.getElementById(`f-${fc.key}`);
-            if (el && f[fc.key] !== undefined) el.value = f[fc.key] || '';
-        });
-
-        SEARCH_FILTERS.forEach(fc => {
-            if (!f[fc.key]) return;
-            window._searchSelected[fc.key] = f[fc.key];
-            const chips = document.getElementById(`sd-chips-${fc.key}`);
-            if (chips) chips.innerHTML = f[fc.key].map(v =>
-                `<span class="chip" onclick="removeSearchItem('${fc.key}','${escJs(v)}')">${escHtml(v)} ×</span>`
-            ).join('');
-            renderDropdownItems(fc.key, window._fd[fc.key]||[], '');
+        panelSelects().forEach(sel => {
+            if (f[sel.name] === undefined) return;
+            const v = f[sel.name];
+            setPicked(sel, Array.isArray(v) ? v : (v ? [v] : []));
+            const t = tickOf(sel);
+            if (t && f[`${sel.name}_on`] !== undefined) t.checked = !!f[`${sel.name}_on`];
         });
 
         updateCmpDates();
+        // the comparison dates the preset was saved with, when it has them
+        if (f.cmp_start) document.getElementById('cmp-start').value = f.cmp_start;
+        if (f.cmp_end)   document.getElementById('cmp-end').value   = f.cmp_end;
     }
 
     // Simple toast
