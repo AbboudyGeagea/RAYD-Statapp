@@ -19,6 +19,7 @@ from flask import Blueprint, render_template, request, jsonify, current_app, abo
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db
+from utils.ae_display import ae_display_sql
 
 logger = logging.getLogger("FLOOR_PLAN_ADMIN")
 floor_plan_bp = Blueprint('floor_plan_admin', __name__, url_prefix='/admin/floor-plan')
@@ -57,15 +58,11 @@ def api_state():
         plan = db.session.execute(text(
             "SELECT image_path, image_width, image_height FROM floor_plans WHERE site_id = :sid"
         ), {"sid": site_id}).mappings().fetchone()
-        devices = db.session.execute(text("""
-            -- display label: manual override wins, then the RIS room name (MODALITY.STATION_NAME,
-            -- populated by etl_ris_modality.py and otherwise only visible on the mapping
-            -- page), then the raw AE title as a last resort. Both name columns are
-            -- checked because etl_ris_modality.py writes both while a manual
-            -- mapping-tab edit writes room_name only.
-            SELECT aetitle, modality, COALESCE(display_aetitle, room_name, station_name, aetitle) AS label,
+        devices = db.session.execute(text(f"""
+            -- display label: the RIS room name, else the AE title (utils.ae_display)
+            SELECT aetitle, modality, {ae_display_sql('m', 'm.aetitle')} AS label,
                    floor_x, floor_y
-            FROM aetitle_modality_map
+            FROM aetitle_modality_map m
             WHERE site_id = :sid
             ORDER BY modality, aetitle
         """), {"sid": site_id}).mappings().fetchall()

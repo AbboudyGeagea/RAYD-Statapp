@@ -290,6 +290,9 @@ def app(database_url):
     # /api/filter-options: the values the report sidebars offer
     from routes.api_controller import api_bp
     flask_app.register_blueprint(api_bp)
+    # the Mapping page's device edits
+    from routes.mapping_controller import mapping_bp
+    flask_app.register_blueprint(mapping_bp)
 
     from db import db
     from sqlalchemy import text

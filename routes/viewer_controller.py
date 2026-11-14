@@ -5,6 +5,7 @@ from sqlalchemy import text
 from db import ReportAccessControl, db
 from utils.permissions import permission_required
 from utils.site_resolver import default_site
+from utils.ae_display import ae_display_sql
 
 from routes.report_registry import get_report
 
@@ -461,15 +462,12 @@ def yesterday_overview():
         physicians = [{"name": r[0], "count": r[1]} for r in phys_rows]
 
         # ── Query 2b: AE by study count ────────────────────────────────
-        # Labelled, unlike before: this tab showed the bare storing_ae while every
-        # other surface at least tried COALESCE(display_aetitle, aetitle). room_name
-        # is the RIS MODALITY.STATION_NAME that etl_ris_modality.py already loads and
-        # that was, until now, only ever visible on the mapping page.
+        # Labelled with the RIS room name, else the AE (utils.ae_display).
         # Grouped by the AE (the identity) and labelled separately, so two spellings
         # of one device can never split into two bars.
         ae_rows = rows(f"""
             SELECT s.storing_ae AS ae,
-                   COALESCE(MAX(m.display_aetitle), MAX(m.room_name), MAX(m.station_name), s.storing_ae) AS label,
+                   MAX({ae_display_sql('m', 's.storing_ae')}) AS label,
                    COUNT(*)::int AS count
             FROM etl_didb_studies s
             LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))

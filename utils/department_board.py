@@ -53,6 +53,7 @@ from sqlalchemy import text
 
 from db import db
 from utils.brayn_shadow import clock
+from utils.ae_display import ae_display_sql
 
 DEFAULT_MINUTES = 20          # expected duration when neither procedure nor modality has one
 ACTIVE_HOURS = 12             # how far back an arrival / a start still counts as open
@@ -153,8 +154,8 @@ SELECT s.accession_number, s.placer_order_number, s.patient_id,
 
 _DEVICES_SQL = """
 SELECT m.aetitle, upper(btrim(m.aetitle)) AS ae_key, m.modality,
-       NULLIF(btrim(m.display_aetitle), '') AS display_name,
-       NULLIF(btrim(m.room_name), '') AS room, si.code AS site_code, si.name AS site_name,
+       -- the RIS room name (utils.ae_display); the board shows it first, the AE under it
+       """ + ae_display_sql('m', 'NULL') + """ AS room, si.code AS site_code, si.name AS site_name,
        m.floor_x, m.floor_y,
        COALESCE(ex.actual_opening_minutes, dwa.available_minutes, m.daily_capacity_minutes,
                 ws.std_opening_minutes) AS opening_minutes,
@@ -239,7 +240,7 @@ def build_board(site=None, now=None):
             continue                       # another site's device; one with no site shows everywhere
         placed = d['floor_x'] is not None and d['floor_y'] is not None
         devices[d['ae_key']] = {
-            'aetitle': d['aetitle'], 'name': d['display_name'] or d['aetitle'],
+            'aetitle': d['aetitle'], 'name': d['aetitle'],
             'room': d['room'], 'modality': (d['modality'] or 'OT').upper(),
             'site': d['site_name'], 'site_code': d['site_code'], 'mapped': True,
             'x': float(d['floor_x']) if placed else None,

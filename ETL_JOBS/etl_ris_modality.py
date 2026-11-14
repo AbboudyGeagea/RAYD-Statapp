@@ -21,9 +21,17 @@ Column map (vendor-confirmed):
     ACTIVE             -> active
     MODALITY_KEY       -> ris_modality_key (source back-reference)
 
-IMPORT POLICY (vendor-confirmed): FILL-ONLY. INSERT ... ON CONFLICT (aetitle) DO NOTHING —
-never overwrites a manually-edited row (daily_capacity_minutes, display_aetitle, or any
-other RAYD-owned field), and never deletes.
+IMPORT POLICY (operator, meeting of 2026-11-13): THE RIS IS THE MASTER of room name
+(station_name and room_name), room code, description, site and active flag, written over
+every night. It was fill-only (ON CONFLICT DO NOTHING) until then, so a room name corrected
+on the RIS never reached RAYD. Left alone:
+    - modality, capacity, opening hours, floor-plan position: RAYD's own (migration 0117
+      corrected modalities by hand)
+    - gateway and router rows (modality 'PACS'): no RIS room, checked by hand between the
+      systems; migration 0141 cleared LAUMCWFM1AR's site on purpose
+    - a value the RIS leaves empty (or a RIS org key with no site in site_org_map) never
+      blanks what RAYD holds; every such device is logged as a RIS data error to fix
+Never deletes.
 
 DEMO/EXTERNAL ROWS (USDemoPhilips, RH-PACS "External Upload", SJH-CARM 2, etc.): the docs
 flag these but are NOT certain the ACTIVE flag reliably marks them ("may mark
@@ -46,9 +54,34 @@ _UPSERT_SQL = text("""
          active, site_id, ris_modality_key)
     VALUES
         (:aetitle, :modality, :description, :station_name, :room_code, :room_name,
-         :active, :site_id, :ris_modality_key)
-    ON CONFLICT (aetitle) DO NOTHING
+         COALESCE(CAST(:active AS boolean), TRUE), :site_id, :ris_modality_key)
+    ON CONFLICT (aetitle) DO UPDATE SET
+        station_name     = COALESCE(EXCLUDED.station_name, aetitle_modality_map.station_name),
+        room_name        = COALESCE(EXCLUDED.room_name,    aetitle_modality_map.room_name),
+        room_code        = COALESCE(EXCLUDED.room_code,    aetitle_modality_map.room_code),
+        description      = COALESCE(EXCLUDED.description,  aetitle_modality_map.description),
+        site_id          = COALESCE(EXCLUDED.site_id,      aetitle_modality_map.site_id),
+        active           = COALESCE(CAST(:active AS boolean), aetitle_modality_map.active),
+        ris_modality_key = EXCLUDED.ris_modality_key
+    WHERE aetitle_modality_map.modality IS DISTINCT FROM 'PACS'
 """)
+
+
+def _pick_one_per_ae(params):
+    """One RIS row per AE title. Two rows for one AE is a RIS data error (each AE title is
+    one room), and the one loaded last would silently win. Keeps the active row, then the
+    newest MODALITY_KEY, and returns the AE titles that had more than one row."""
+    best, dupes = {}, set()
+    for p in params:
+        ae = p["aetitle"]
+        if ae in best:
+            dupes.add(ae)
+            cur = best[ae]
+            rank = lambda r: (r["active"] is not False, r["ris_modality_key"] or 0)
+            if rank(p) <= rank(cur):
+                continue
+        best[ae] = p
+    return list(best.values()), sorted(dupes)
 
 
 def _load_site_org_map(pg_engine):
@@ -105,6 +138,7 @@ def run_ris_modality_etl(pg_engine, oracle_source):
         rows = cursor.fetchall()
 
         params = []
+        no_room, no_site = [], []
         for (modality_key, ae_title, code, description, station_name,
              org_key, active_flag, modality_type_code) in rows:
 
@@ -126,7 +160,9 @@ def run_ris_modality_etl(pg_engine, oracle_source):
             if not modality:
                 modality = 'OT'
 
-            active = True
+            # None = the RIS does not say: a new device starts active, a known one keeps
+            # its flag (the upsert COALESCEs).
+            active = None
             if active_flag is not None:
                 active = str(active_flag).strip().upper() in ('Y', 'YES', 'TRUE', '1')
 
@@ -134,18 +170,36 @@ def run_ris_modality_etl(pg_engine, oracle_source):
             site_id = site_map.get(org_key_str) if org_key_str else None
 
             station = str(station_name).strip() if station_name else None
+            station = station or None   # whitespace only is empty, never a blank label
+
+            if active is not False:
+                if not station:
+                    no_room.append(ae_title)
+                if site_id is None:
+                    no_site.append(ae_title)
 
             params.append({
                 "aetitle":          ae_title,
                 "modality":         modality,
-                "description":      str(description).strip() if description else None,
+                "description":      (str(description).strip() or None) if description else None,
                 "station_name":     station,
-                "room_code":        str(code).strip() if code else None,
+                "room_code":        (str(code).strip() or None) if code else None,
                 "room_name":        station,   # same source value, kept for the older column too
                 "active":           active,
                 "site_id":          site_id,
                 "ris_modality_key": modality_key,
             })
+
+        params, dupes = _pick_one_per_ae(params)
+
+        # RIS data errors (operator: every AE title has one RIS room; fix them on the RIS).
+        # RAYD keeps what it already holds for these, so they show as a warning only.
+        for label, aes in (("more than one RIS row", dupes),
+                           ("no room name (STATION_NAME) on the RIS", sorted(set(no_room))),
+                           ("no site for its ORG_STRUCTURE_KEY", sorted(set(no_site)))):
+            if aes:
+                logging.warning(f"RIS Modality ETL: {len(aes)} active device(s) with {label}: "
+                                f"{', '.join(aes)}")
 
         if params:
             with pg_engine.begin() as conn:
@@ -153,7 +207,9 @@ def run_ris_modality_etl(pg_engine, oracle_source):
             total = len(params)
 
         status = "SUCCESS"
-        print(f"[RIS Modality ETL] ✅ Done — {total:,} devices seen (fill-only upsert), {skipped} skipped (no AE_TITLE)")
+        print(f"[RIS Modality ETL] ✅ Done — {total:,} devices from the RIS (room names, codes, "
+              f"descriptions, sites and active flags refreshed; gateways untouched), "
+              f"{skipped} skipped (no AE_TITLE)")
         logging.info(f"RIS Modality ETL complete: {total:,} devices, {skipped} skipped")
 
     except Exception as e:

@@ -626,7 +626,14 @@ class aetitle_modality_map(db.Model):
     room_name = db.Column(String(100))
     description = db.Column(db.Text)
     daily_capacity_minutes = db.Column(Integer, default=480)
+    # no longer read or written (operator, 2026-11-13: the RIS room name wins); kept with
+    # its old values
     display_aetitle = db.Column(String(100))
+    # from the RIS (ETL_JOBS/etl_ris_modality.py, migration 0053); a device with a
+    # ris_modality_key has its room name, code, description, site and active flag
+    # written over from the RIS every night
+    station_name = db.Column(db.Text)
+    ris_modality_key = db.Column(db.BigInteger)
     weekly_schedules = relationship("device_weekly_schedule", back_populates="device")
     exceptions = relationship("device_exceptions", back_populates="device")
 

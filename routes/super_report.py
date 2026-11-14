@@ -20,6 +20,7 @@ from routes.insights_engine import run_dept_insights
 from routes.report_cache import cache_get, cache_put
 from utils.stats import _pct, _fmt
 from utils.site_resolver import default_site
+from utils.ae_display import ae_display_sql
 from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql, rad_ok_sql
 
 logger = logging.getLogger("SUPER_REPORT")
@@ -204,8 +205,10 @@ def super_report_filters():
             "ae_modality_map":     dict(db.session.execute(text(
                 "SELECT aetitle, modality FROM aetitle_modality_map WHERE aetitle IS NOT NULL AND modality IS NOT NULL"
             )).fetchall()),
+            # AE -> its RIS room name (utils.ae_display); AEs with no name are left out
             "ae_station_map":      dict(db.session.execute(text(
-                "SELECT aetitle, station_name FROM aetitle_modality_map WHERE aetitle IS NOT NULL AND station_name IS NOT NULL AND TRIM(station_name) != ''"
+                f"SELECT aetitle, {ae_display_sql('m', 'NULL')} FROM aetitle_modality_map m "
+                f"WHERE aetitle IS NOT NULL AND {ae_display_sql('m', 'NULL')} IS NOT NULL"
             )).fetchall()),
             "procedure_name_map":  dict(db.session.execute(text(
                 "SELECT procedure_code, procedure_name FROM procedure_duration_map WHERE procedure_code IS NOT NULL AND procedure_name IS NOT NULL AND TRIM(procedure_name) != ''"
@@ -407,8 +410,9 @@ def _collect_data(start, end, filters, rh_site_id=None):
     #
     # LIMIT 1 makes one study exactly one row whether or not duplicates exist, so this
     # holds even after the next RIS import. ORDER BY id keeps the choice deterministic.
+    # station_name here is the device's label: the RIS room name (utils.ae_display).
     mj = ("LEFT JOIN LATERAL ("
-          "SELECT m0.modality, m0.station_name, m0.site_id "
+          f"SELECT m0.modality, {ae_display_sql('m0', 'NULL')} AS station_name, m0.site_id "
           "FROM aetitle_modality_map m0 "
           "WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) "
           "ORDER BY m0.id LIMIT 1) m ON TRUE")
@@ -548,7 +552,7 @@ def _collect_data(start, end, filters, rh_site_id=None):
     if rh_site_id is not None:
         _idle_params["rh_site_id"] = rh_site_id
     ae_idle_row = db.session.execute(text(f"""
-        SELECT am.aetitle, am.station_name AS station_name, COALESCE(sub.cnt, 0) AS cnt
+        SELECT am.aetitle, {ae_display_sql('am', 'NULL')} AS station_name, COALESCE(sub.cnt, 0) AS cnt
         FROM aetitle_modality_map am
         LEFT JOIN (
             SELECT storing_ae, COUNT(*) AS cnt
@@ -662,7 +666,7 @@ def _collect_data(start, end, filters, rh_site_id=None):
 
     rad_ae_rows = db.session.execute(text(f"""
         SELECT {_RAD} AS radiologist,
-               COALESCE(NULLIF(TRIM(m.station_name),''), s.storing_ae, 'Unknown') AS dim,
+               COALESCE(m.station_name, s.storing_ae, 'Unknown') AS dim,
                COUNT(DISTINCT s.study_db_uid) AS cnt
         FROM etl_didb_studies s {mj} {pj} {_PAM_SR}
         WHERE {where} AND {_RAD_OK}

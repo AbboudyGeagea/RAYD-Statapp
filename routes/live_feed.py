@@ -64,6 +64,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, user_has_page, OracleConnector
 from utils.hl7_forward import forward_message as _hl7_forward
+from utils.ae_display import ae_display_sql
 
 logger       = logging.getLogger("LIVE_FEED")
 live_feed_bp = Blueprint("live_feed", __name__)
@@ -126,13 +127,9 @@ def live_status():
 
         # All known devices (not just ones with active orders — need the full
         # set to show free/closed tiles too), with floor-plan position if placed.
-        device_rows = db.session.execute(text("""
-            -- display label: manual override wins, then the RIS room name (MODALITY.STATION_NAME,
-            -- populated by etl_ris_modality.py and otherwise only visible on the mapping
-            -- page), then the raw AE title as a last resort. Both name columns are
-            -- checked because etl_ris_modality.py writes both while a manual
-            -- mapping-tab edit writes room_name only.
-            SELECT aetitle, modality, COALESCE(display_aetitle, room_name, station_name, aetitle) AS label,
+        device_rows = db.session.execute(text(f"""
+            -- display label: the RIS room name, else the AE title (utils.ae_display)
+            SELECT aetitle, modality, {ae_display_sql('m', 'm.aetitle')} AS label,
                    floor_x, floor_y
             FROM aetitle_modality_map m
             WHERE COALESCE(m.site_id = (SELECT id FROM sites WHERE is_default), TRUE)

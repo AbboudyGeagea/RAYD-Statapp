@@ -101,7 +101,9 @@ def test_opening_window():
 def test_busy_device_current_study_and_expected_finish(app, devices):
     study(devices, 'A1', scheduled=60, arrived=40, started=10)
     d = device(get_board(app), 'CT64_RH')
-    assert (d['status'], d['name'], d['room']) == ('busy', 'CT 64', 'CT Room 1')
+    # the RIS room name first, the AE under it; the typed alias 'CT 64' is dropped
+    # (operator, 2026-11-13)
+    assert (d['status'], d['name'], d['room']) == ('busy', 'CT64_RH', 'CT Room 1')
     c = d['current']
     assert (c['accession'], c['expected_minutes'], c['expected_source']) == ('A1', 30, 'procedure')
     started = datetime.fromisoformat(c['started_at'])

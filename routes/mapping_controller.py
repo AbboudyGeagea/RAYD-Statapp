@@ -35,11 +35,14 @@ def export_modality_csv():
     rows = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(['aetitle', 'modality', 'room_name', 'daily_capacity_minutes', 'display_aetitle'])
+    # display_aetitle is no longer exported or imported (operator, 2026-11-13: the RIS
+    # room name wins); room_name is the name every screen shows
+    w.writerow(['aetitle', 'modality', 'room_name', 'daily_capacity_minutes'])
     for r in rows:
         sched = next((s for s in r.weekly_schedules if s.day_of_week == 0), None)
         cap = sched.std_opening_minutes if sched else 720
-        w.writerow([r.aetitle, r.modality, r.room_name or '', cap, r.display_aetitle or ''])
+        room = (r.station_name or '').strip() or (r.room_name or '').strip()
+        w.writerow([r.aetitle, r.modality, room, cap])
     buf.seek(0)
     return Response(
         buf.getvalue(),
@@ -263,10 +266,9 @@ def upload_modality_map():
             # Description (optional column)
             desc = str(row.get('description', '')).strip() if 'description' in df.columns and pd.notna(row.get('description')) else None
 
-            # Display alias (optional column)
-            display_ae = str(row.get('display_aetitle', '')).strip().upper() if 'display_aetitle' in df.columns and pd.notna(row.get('display_aetitle')) else None
-            if display_ae == '':
-                display_ae = None
+            # A display_aetitle column in an older file is ignored (operator, 2026-11-13:
+            # the RIS room name wins). Room name and description of a device that comes
+            # from the RIS are written over by the RIS every night anyway.
 
             # 1. Sync Parent (AETitleModalityMap) — keep both tables in sync.
             # Case-insensitive lookup: aetitle_modality_map.aetitle has a case-SENSITIVE
@@ -277,7 +279,7 @@ def upload_modality_map():
             from sqlalchemy import func as _f
             parent = AETitleModalityMap.query.filter(_f.upper(AETitleModalityMap.aetitle) == ae).first()
             if not parent:
-                parent = AETitleModalityMap(aetitle=ae, modality=mod, room_name=room, daily_capacity_minutes=cap, description=desc, display_aetitle=display_ae)
+                parent = AETitleModalityMap(aetitle=ae, modality=mod, room_name=room, daily_capacity_minutes=cap, description=desc)
                 db.session.add(parent)
             else:
                 parent.modality = mod
@@ -286,8 +288,6 @@ def upload_modality_map():
                     parent.room_name = room
                 if desc is not None:
                     parent.description = desc or None
-                if display_ae is not None:
-                    parent.display_aetitle = display_ae
             
             # Flush tells the DB about the parent so the Foreign Key doesn't fail
             db.session.flush()
@@ -768,15 +768,19 @@ def update_ae_entry():
         entry = AETitleModalityMap.query.filter(_f.upper(AETitleModalityMap.aetitle) == ae).first()
         if not entry:
             return jsonify({"status": "error", "message": "AE title not found"}), 404
+        # The RIS is the master of a RIS device's room name and description and writes
+        # them over every night (ETL_JOBS/etl_ris_modality.py), so an edit here would
+        # not last. display_aetitle is no longer written (operator, 2026-11-13).
+        if entry.ris_modality_key is not None and ('room_name' in data or 'description' in data):
+            return jsonify({"status": "error",
+                            "message": "This device comes from the RIS: change its room name "
+                                       "and description on the RIS."}), 409
         if 'modality' in data:
             entry.modality = str(data['modality']).strip().upper() or entry.modality
         if 'room_name' in data:
             entry.room_name = str(data['room_name']).strip() or None
         if 'description' in data:
             entry.description = str(data['description']).strip() or None
-        if 'display_aetitle' in data:
-            val = str(data['display_aetitle']).strip().upper()
-            entry.display_aetitle = val or None
         db.session.commit()
         return jsonify({"status": "success"})
     except Exception as e:

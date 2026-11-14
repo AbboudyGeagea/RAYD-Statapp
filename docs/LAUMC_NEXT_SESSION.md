@@ -167,6 +167,20 @@ read; radiologists approve or finalise (check both).
    `display_aetitle`) is dropped, so the RIS name wins. Everywhere = every chart, table,
    sidebar filter and export, the Department board and Report Composer. Gateway AE titles
    (modality "PACS", no RIS room): validated by hand between the systems.
+   **Slice 1 built 2026-11-14 (code + tests, not deployed):** `etl_ris_modality.py` now writes
+   over room name, code, description, site, active flag from the RIS every night. Left
+   alone: modality (0117's hand fixes), capacity, gateways/routers (modality `PACS`, so 0141
+   holds). An empty RIS value or an org key with no site never blanks RAYD, and two RIS rows
+   for one AE keep the active one. All three are logged as RIS data errors.
+   `utils/ae_display` is the one label (RIS room name, else AE title, `display_aetitle`
+   ignored). Report 22, the floor plan, the Department board, the daily briefing, the
+   Super Report and the AE dropdown labels all use it. The Mapping page lost "Display As";
+   a RIS device's description shows read-only (the API answers 409). Tests:
+   `tests/test_ris_room_names.py`. Deploy after Monday's comparison, so RIS data errors are
+   fixed first. **Left (slice 2):** Report Composer's `rpt.exams`/`rpt.studies` still read
+   `display_aetitle` as `device_name` (needs a migration); and a sweep for screens that show
+   the raw AE title with no label (charts, tables, exports, sidebar filters of other
+   reports).
 5. **ORU tab severity — on hold until the chief radiologist answers.** It is RAYD's own
    rule-based score (`nlp_worker/clustering.py`, `classify_report`), averaged per modality in
    `routes/oru_analytics.py`, with no published medical reference. It must follow a recognised
