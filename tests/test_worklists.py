@@ -277,7 +277,8 @@ def full_exam(app):
 @pytest.mark.parametrize('column,want', [
     ('accession', 'R10'), ('patient_id', 'MRN7000'), ('sex', 'M'), ('age_band', '18-39'),
     ('patient_class', 'E'), ('patient_type', 'Emergency'), ('modality', 'CT'),
-    ('ris_modality', 'CT'), ('device', 'ct_ris'), ('device_name', 'CT 64'), ('room', 'CT Room 1'),
+    # device_name: the RIS room name, no longer the typed alias 'CT 64' (migration 0148)
+    ('ris_modality', 'CT'), ('device', 'ct_ris'), ('device_name', 'CT Room 1'), ('room', 'CT Room 1'),
     ('site', 'LAUMC - Rizk Hospital (Main)'), ('procedure', 'CT BRAIN'), ('procedure_code', 'CT01'),
     ('priority', 'Urgent'), ('exam_status', 'Approved'), ('ris_status', 'Approved'),
     ('cancelled', False), ('performed', True), ('technologist', 'Karim Aoun'),
@@ -419,7 +420,7 @@ def full_study(app):
 @pytest.mark.parametrize('column,want', [
     ('accession', 'ACC1'), ('patient_id', 'MRN500'), ('sex', 'F'), ('age', 45),
     ('age_band', '40-64'), ('patient_type', 'Outpatient'), ('patient_location', 'ER'),
-    ('modality', 'CT'), ('pacs_modality', 'CT'), ('device', 'CT_1'), ('device_name', 'Big CT'),
+    ('modality', 'CT'), ('pacs_modality', 'CT'), ('device', 'CT_1'), ('device_name', 'Room 2'),
     ('room', 'Room 2'), ('site', 'LAUMC - Rizk Hospital (Main)'), ('procedure', 'CT HEAD'),
     ('body_part', 'HEAD'), ('hour', 10), ('shift', 'Morning'), ('report_stage', 'Final'),
     ('has_report', True), ('technologist', 'DOE JANE'),

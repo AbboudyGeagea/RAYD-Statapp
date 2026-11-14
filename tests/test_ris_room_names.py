@@ -205,6 +205,20 @@ def test_the_ae_dropdown_labels_with_the_ris_room_name(client):
     assert labels['CTX1'] == 'CT Room 1'
 
 
+def test_report_composer_names_the_device_by_its_ris_room():
+    """Migration 0148: rpt.studies' device_name and room, the Room filter's column."""
+    from db import db
+    sql("""INSERT INTO aetitle_modality_map (aetitle, modality, station_name, room_name,
+                                             display_aetitle, site_id)
+           VALUES ('CTX1', 'CT', 'RIS Room', 'Typed room', 'ALIAS',
+                   (SELECT id FROM sites WHERE is_default))""")
+    sql("""INSERT INTO etl_didb_studies (study_db_uid, patient_db_uid, study_instance_uid,
+               storing_ae, study_date, study_modality, study_status)
+           VALUES (1, 1, '1.2.3.1', 'ctx1', '2026-10-15', 'CT', 'APPROVED')""")
+    row = db.session.execute(text("SELECT device_name, room FROM rpt.studies")).one()
+    assert tuple(row) == ('RIS Room', 'RIS Room')
+
+
 # ── the Mapping page ────────────────────────────────────────────────────────────
 
 def test_a_ris_device_cannot_be_renamed_in_rayd(client, monkeypatch):

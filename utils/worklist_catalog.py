@@ -557,6 +557,11 @@ _TAT = ('Report turnaround in hours: images stored in PACS (insert_time) to the 
 _MRN = ('Patient ID: the RIS MRN of the study\'s RIS order, else the PACS fallback ID (as '
         'Report 22), else the PACS ID.')
 _SITE = 'Site name (RH, SJH ...).'
+# Migration 0148: both are the RIS room name (as utils/ae_display resolves it), no longer
+# the "Display As" alias typed in RAYD; device_name is kept so saved reports keep working.
+_DEVICE_NAME = ('Name of the device: its RIS room name (written from the RIS every night), '
+                'blank for a device the AE map does not name.')
+_DEVICE_ROOM = 'The device\'s RIS room name, the same as device_name.'
 
 COLUMN_DOCS = {
     EX: {
@@ -575,8 +580,8 @@ COLUMN_DOCS = {
         'ris_modality':      'The RIS modality type (CT, MR, US ...).',
         'device':            'AE title of the device: the RIS performed step\'s, else the PACS '
                              'study\'s.',
-        'device_name':       'Display name of the device in the AE map.',
-        'room':              'The device\'s room in the AE map.',
+        'device_name':       _DEVICE_NAME,
+        'room':              _DEVICE_ROOM,
         'site':              _SITE + ' The order\'s site, else the site of its RIS issuer.',
         'procedure_code':    'RIS procedure code (SPS code).',
         'procedure':         'RIS procedure description, else the code.',
@@ -638,8 +643,8 @@ COLUMN_DOCS = {
         'modality':          _MODALITY,
         'pacs_modality':     'The modality PACS sent for the study, before the AE map.',
         'device':            'AE title of the device that stored the study.',
-        'device_name':       'Display name of the device in the AE map.',
-        'room':              'The device\'s room in the AE map.',
+        'device_name':       _DEVICE_NAME,
+        'room':              _DEVICE_ROOM,
         'site':              _SITE + ' The PACS study\'s site.',
         'procedure_code':    'Procedure code on the study.',
         'procedure':         'Procedure: study description, else the RIS order\'s procedure '
