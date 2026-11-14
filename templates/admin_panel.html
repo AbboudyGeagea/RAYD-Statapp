@@ -129,7 +129,7 @@
                 </div>
 
                 <!-- ── ACTIONS ROW ──────────────────────────────────────── -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
 
                     <!-- Quick Sync -->
                     <div class="card p-5">
@@ -139,6 +139,20 @@
                         <button onclick="syncMappings()" id="btn-sync-mappings2" class="btn-trigger btn-primary">
                             <i class="bi bi-arrow-repeat"></i> Sync AE Mappings &amp; Procedures
                         </button>
+                    </div>
+
+                    <!-- Report start date (meeting of 2026-11-13, item 11) -->
+                    <div class="card p-5">
+                        <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest mb-1">Report start date</p>
+                        <p class="text-slate-500 text-xs mb-4">Where every report's date filter starts. Users can still pick earlier dates. The ER dashboard and Report 37 keep their own.</p>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <input type="date" id="report-start-date" value="{{ report_start_date }}"
+                                class="bg-[#181f1c] border border-[#28332e] text-xs font-bold text-white px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#60a5fa]">
+                            <button onclick="saveReportStart(this)" class="btn-trigger btn-primary" style="padding:.4rem .9rem;font-size:9px;">
+                                Save
+                            </button>
+                        </div>
+                        <p id="report-start-status" class="text-xs mt-3 hidden"></p>
                     </div>
 
                     <!-- Demo Mode -->
@@ -357,6 +371,25 @@
                 end:           document.getElementById('demo-end').value,
                 demo_user:     document.getElementById('demo-user').value.trim(),
                 demo_password: document.getElementById('demo-password').value };
+        }
+        async function saveReportStart(btn) {
+            const status = document.getElementById('report-start-status');
+            btn.disabled = true;
+            try {
+                const res = await fetch('{{ url_for("admin.set_report_start_date") }}', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({date: document.getElementById('report-start-date').value})
+                });
+                const data = await res.json();
+                status.textContent = data.status === 'ok'
+                    ? 'Saved: reports now start on ' + data.date + '.'
+                    : (data.message || 'Could not save.');
+                status.className = 'text-xs mt-3 ' + (data.status === 'ok' ? 'text-green-400' : 'text-red-400');
+            } catch (e) {
+                status.textContent = 'Could not save.';
+                status.className = 'text-xs mt-3 text-red-400';
+            }
+            btn.disabled = false;
         }
         async function saveDemoUser() {
             const btn = document.querySelector('[data-enabled]');

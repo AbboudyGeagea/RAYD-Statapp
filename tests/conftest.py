@@ -77,7 +77,7 @@ TRUNCATE_TABLES = ['crn_events', 'crn_recipients', 'crn_notifications']
 
 # Seeded configuration, snapshotted after migrations and restored before every test.
 CONFIG_TABLES = [
-    'settings', 'aetitle_modality_map',
+    'settings', 'go_live_config', 'aetitle_modality_map',
     'brayn_rules', 'hl7_status_map', 'hl7_result_status_map', 'brayn_ladder_profile',
     'hl7_field_mappings', 'hl7_field_targets',
     # what the Live Department board reads for durations and opening minutes
@@ -298,6 +298,11 @@ def app(database_url):
     from routes.capacity_ladder import capacity_ladder_bp
     flask_app.register_blueprint(ai_alerts_bp)
     flask_app.register_blueprint(capacity_ladder_bp)
+    # the report start date: set on the ETL Control Room, read by the Super Report too
+    from routes.admin_controller import admin_bp
+    from routes.super_report import super_report_bp
+    flask_app.register_blueprint(admin_bp)
+    flask_app.register_blueprint(super_report_bp)
 
     from db import db
     from sqlalchemy import text

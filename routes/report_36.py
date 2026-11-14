@@ -40,7 +40,7 @@ from datetime import date, datetime
 from flask import Blueprint, render_template, request
 from flask_login import login_required
 from sqlalchemy import text
-from db import db, get_etl_cutoff_date
+from db import db, get_report_start_date
 from utils.site_resolver import default_site
 from utils.report_filters import sidebar_filters as _sidebar_filters
 from utils.pacs_roles import role_lookup_cte, role_precedence
@@ -561,7 +561,7 @@ def report_36():
     classes = locations = modalities = aetitles = []
     run_report = 'start_date' in request.values
 
-    go_live = get_etl_cutoff_date()
+    go_live = get_report_start_date()
     display_start = go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01"
     display_end   = date.today().strftime("%Y-%m-%d")
 

@@ -30,7 +30,7 @@ from datetime import date
 from flask import Blueprint, render_template, request
 from flask_login import login_required
 from sqlalchemy import text
-from db import db, get_etl_cutoff_date
+from db import db, get_report_start_date
 from utils.site_resolver import default_site
 from utils import tat_sla
 
@@ -141,7 +141,7 @@ def get_kpi_detailed_reading(form_data):
     (not a hardcoded modality list). The template renders this as a dynamic
     modality/class selector rather than dumping every block statically.
     """
-    go_live = get_etl_cutoff_date()
+    go_live = get_report_start_date()
     start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
     end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
     params = {"start": start, "end": end}
@@ -311,7 +311,7 @@ def get_kpi_detailed_reading(form_data):
 @report_33_bp.route("/report/33", methods=["GET", "POST"])
 @login_required
 def report_33():
-    go_live = get_etl_cutoff_date()
+    go_live = get_report_start_date()
     default_start = go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01"
     default_end = date.today().strftime("%Y-%m-%d")
 

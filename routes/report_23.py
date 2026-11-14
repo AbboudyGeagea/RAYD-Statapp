@@ -6,7 +6,7 @@ from datetime import date
 from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
-from db import db
+from db import db, get_report_start_date
 from utils.report_filters import REPORTS_WITHOUT_IMAGES_AES, study_site_sql
 from utils.site_resolver import default_site
 
@@ -174,8 +174,8 @@ def get_report_config(form):
     else:
         rh_site_id = default_site()
 
-    gl_query = text("SELECT go_live_date FROM go_live_config LIMIT 1")
-    db_gl = db.session.execute(gl_query).scalar()
+    # every report starts on the report start date (settings, migration 0149)
+    db_gl = get_report_start_date()
 
     default_start = db_gl.strftime('%Y-%m-%d') if db_gl else "2024-01-01"
     default_end = date.today().strftime('%Y-%m-%d')

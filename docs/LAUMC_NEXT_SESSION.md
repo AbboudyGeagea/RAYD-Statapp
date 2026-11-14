@@ -221,6 +221,12 @@ read; radiologists approve or finalise (check both).
     included). Users can still pick earlier dates; it only saves them changing the date each
     time. The ER dashboard (last 30 days) and Report 37 (previous month) keep their own
     defaults.
+    **Built 2026-11-14:** `settings.report_start_date` (migration 0149 seeds 2026-01-01),
+    a card on the ETL Control Room to change it, `db.get_report_start_date()` read by every
+    numbered report, the shared sidebar filter, the Super Report (it used to open on the last
+    30 days) and Report Composer's "Fixed dates". Tests: `tests/test_report_start_date.py`.
+    The ORU tab keeps its rolling last 30 days, as the ER dashboard does: say if it should
+    follow too.
 12. **Chart explanations (info icon on each chart) from the other branches**, written for
     LAUMC's own queries. Newest copy: Bekaa `static/js/chart-explanations.js` (2026-10-14).
 13. **Separate database for SJH, same web app** (confirmed; RBAC rejected, full database

@@ -23,7 +23,7 @@ from db import (
     ReportTemplate,
     ReportDimension,
     ReportAccessControl,
-    get_go_live_date,
+    get_report_start_date,
 )
 
 report_bp = Blueprint('report', __name__, url_prefix='/report')
@@ -133,7 +133,7 @@ def generate_report():
                 return jsonify(error="Access denied"), 403
 
         # Dates
-        start_date = parse_iso_date(payload.get("start_date")) or get_go_live_date()
+        start_date = parse_iso_date(payload.get("start_date")) or get_report_start_date()
         end_date = parse_iso_date(payload.get("end_date")) or date.today()
 
         if not start_date or start_date > end_date:

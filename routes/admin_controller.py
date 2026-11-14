@@ -93,6 +93,9 @@ def admin_dashboard():
 
     page_keys = ['live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping']
 
+    from db import get_report_start_date
+    report_start = get_report_start_date()
+
     return render_template(
         'admin_panel.html',
         users          = users,
@@ -112,6 +115,7 @@ def admin_dashboard():
         avg_duration   = avg_duration,
         records_today  = records_today,
         etl_running    = etl_running,
+        report_start_date = report_start.isoformat() if report_start else '',
     )
 
 
@@ -596,6 +600,31 @@ def sync_mappings():
         return jsonify({'status': 'ok'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@admin_bp.route('/report-start-date', methods=['POST'])
+@login_required
+def set_report_start_date():
+    """The date every report's date filter starts on (meeting of 2026-11-13, item 11;
+    db.get_report_start_date). Users can still pick earlier dates in each report."""
+    if current_user.role != 'admin':
+        return abort(403)
+    from db import REPORT_START_DATE_KEY
+    raw = str((request.get_json(silent=True) or {}).get('date') or '').strip()
+    try:
+        chosen = date_type.fromisoformat(raw)
+    except ValueError:
+        return jsonify(status='error', message='Pick a date, for example 2026-01-01.'), 400
+    if chosen > date_type.today():
+        return jsonify(status='error', message='The report start date cannot be in the future.'), 400
+    db.session.execute(text(
+        "INSERT INTO settings (key, value) VALUES (:k, :v) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"),
+        {'k': REPORT_START_DATE_KEY, 'v': chosen.isoformat()})
+    db.session.commit()
+    from utils.audit import log_event
+    log_event('report_start_date_set', category='admin', detail={'date': chosen.isoformat()})
+    return jsonify(status='ok', date=chosen.isoformat())
 
 
 @admin_bp.route('/demo-mode', methods=['POST'])

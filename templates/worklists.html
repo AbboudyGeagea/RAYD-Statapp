@@ -640,7 +640,8 @@ function startRun() {
   const onAsk = e => { const t = e.target, f = t.dataset.f, k = t.dataset.k; if (!f) return;
     const c = (temp.criteria[f] = temp.criteria[f] || {});
     if (k) { c[k] = k === 'n' ? Math.max(1, parseInt(t.value || '1', 10)) : t.value;
-      if (k === 'mode') { if (c.mode === 'quick') c.quick = c.quick || 'last_month'; if (c.mode === 'relative') { c.dir = c.dir || 'prev'; c.n = c.n || 7; c.unit = c.unit || 'days'; } }
+      if (k === 'mode') { if (c.mode === 'quick') c.quick = c.quick || 'last_month'; if (c.mode === 'relative') { c.dir = c.dir || 'prev'; c.n = c.n || 7; c.unit = c.unit || 'days'; }
+        if (c.mode === 'fixed') { const today = new Date().toISOString().slice(0, 10); c.from = c.from || CAT.report_start_date || today; c.to = c.to || today; } }
       if (e.type === 'change' && (k === 'mode')) rerender(); } };
   const rerender = () => { asked.forEach((id, i) => { body.children[i].innerHTML = `<span class="label">${esc(FIELD[id].label)}</span>${critBody(FIELD[id], temp.criteria[id] || {}, 'ask-')}`; }); };
   body.addEventListener('change', onAsk); body.addEventListener('input', onAsk);
@@ -955,7 +956,7 @@ function onCritInput(e) {
     c.mode = t.value;
     if (c.mode === 'quick' && !c.quick) c.quick = 'last_month';
     if (c.mode === 'relative') { c.dir = c.dir || 'prev'; c.n = c.n || 7; c.unit = c.unit || 'days'; }
-    if (c.mode === 'fixed') { const today = new Date().toISOString().slice(0, 10); c.from = c.from || today; c.to = c.to || today; }
+    if (c.mode === 'fixed') { const today = new Date().toISOString().slice(0, 10); c.from = c.from || CAT.report_start_date || today; c.to = c.to || today; }
     changed(); return;
   }
   c[k] = k === 'n' ? Math.max(1, parseInt(t.value || '1', 10)) : t.value;

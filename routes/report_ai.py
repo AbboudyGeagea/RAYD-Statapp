@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from flask import Blueprint, render_template, request, abort, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db, get_go_live_date, user_has_page
+from db import db, get_report_start_date, user_has_page
 from routes.report_cache import cache_get, cache_put
 
 logger = logging.getLogger("REPORT_AI")
@@ -631,7 +631,7 @@ def _fetch_section(tab_name, start, end):
 
 
 def _resolve_date_range(values):
-    go_live = get_go_live_date() or date(2025, 1, 1)
+    go_live = get_report_start_date() or date(2025, 1, 1)
     today   = date.today()
     start = values.get("start_date", go_live.strftime('%Y-%m-%d'))
     end   = values.get("end_date",   today.strftime('%Y-%m-%d'))

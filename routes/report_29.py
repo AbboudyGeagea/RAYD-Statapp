@@ -3,13 +3,13 @@ from datetime import date
 from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
-from db import db, get_etl_cutoff_date
+from db import db, get_report_start_date
 
 report_29_bp = Blueprint("report_29", __name__)
 
 
 def get_report_data(form_data):
-    go_live_result = get_etl_cutoff_date()
+    go_live_result = get_report_start_date()
     default_start  = str(go_live_result) if go_live_result else "2025-01-01"
     default_end    = date.today().strftime('%Y-%m-%d')
 

@@ -9,7 +9,7 @@ duplicating this per-file risked the same silent drift that caused the
 insert_time/site-scope bugs fixed earlier that session.
 """
 from datetime import date
-from db import get_etl_cutoff_date
+from db import get_report_start_date
 from utils.site_resolver import default_site
 
 # AE titles that carry reports with no images attached (operator, 2026-09-18).
@@ -87,7 +87,7 @@ def sidebar_filters(form_data):
     after a WHERE, referencing s.* and m.* (callers must LEFT JOIN
     aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))).
     """
-    go_live = get_etl_cutoff_date()
+    go_live = get_report_start_date()
     start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
     end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
     params = {"start": start, "end": end}

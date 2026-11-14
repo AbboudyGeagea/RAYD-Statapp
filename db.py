@@ -17,7 +17,7 @@ import os
 import sys
 import logging
 import oracledb
-from datetime import datetime
+from datetime import datetime, date
 
 # oracledb is the modern replacement for the deprecated cx_Oracle package.
 # This shim lets any code that still imports cx_Oracle resolve to oracledb.
@@ -193,6 +193,34 @@ def get_etl_cutoff_date():
         return None
 
 def get_go_live_date():
+    return get_etl_cutoff_date()
+
+
+REPORT_START_DATE_KEY = 'report_start_date'
+
+
+def get_report_start_date():
+    """
+    The date every report's date filter starts on (operator, meeting of 2026-11-13):
+    settings.report_start_date, editable on the ETL Control Room, seeded 2026-01-01 by
+    migration 0149. Users can still pick earlier dates; it only spares them changing the
+    start date each time. Not the ETL's go-live date, which decides what is loaded.
+
+    Not used by the ER dashboard (last 30 days) or Report 37 (previous month), which keep
+    their own defaults. Falls back to the go-live date when unset or unreadable.
+    """
+    try:
+        value = db.session.execute(
+            text("SELECT value FROM settings WHERE key = :k"), {"k": REPORT_START_DATE_KEY}
+        ).scalar()
+    except Exception:
+        logger.exception("Could not read settings.report_start_date")
+        value = None
+    if value:
+        try:
+            return date.fromisoformat(str(value).strip()[:10])
+        except ValueError:
+            logger.warning("settings.report_start_date is not a date: %r", value)
     return get_etl_cutoff_date()
 
 def etl_analytics_refresh():

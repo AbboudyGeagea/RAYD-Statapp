@@ -28,7 +28,7 @@ from flask import Blueprint, Response, render_template, request
 from flask_login import login_required
 from sqlalchemy import text
 
-from db import db, get_etl_cutoff_date
+from db import db, get_report_start_date
 from utils.site_resolver import default_site
 from utils import tat_sla
 
@@ -69,7 +69,7 @@ def get_report_config(form):
         text("SELECT report_sql_query FROM report_template WHERE report_id = 25")
     ).scalar()
 
-    go_live = get_etl_cutoff_date()
+    go_live = get_report_start_date()
     default_start = go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01"
     default_end = date.today().strftime("%Y-%m-%d")
 
@@ -279,7 +279,7 @@ def report_31():
         "p_class": request.values.get("f_class"),
     }
 
-    go_live = get_etl_cutoff_date()
+    go_live = get_report_start_date()
     display_start = go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01"
     display_end = date.today().strftime("%Y-%m-%d")
 

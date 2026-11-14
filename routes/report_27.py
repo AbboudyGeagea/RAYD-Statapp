@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
-from db import db, get_go_live_date
+from db import db, get_report_start_date
 from utils.report_filters import study_site_sql
 from utils.ae_display import ae_label_join_sql
 from utils.site_resolver import default_site
@@ -323,7 +323,7 @@ def get_report_data(start, end):
 @login_required
 def report_27():
     today = date.today()
-    go_live = get_go_live_date() or date(2025, 1, 1)
+    go_live = get_report_start_date() or date(2025, 1, 1)
 
     start_a = request.values.get("start_date", go_live.strftime('%Y-%m-%d'))
     end_a   = request.values.get("end_date",   today.strftime('%Y-%m-%d'))

@@ -27,7 +27,7 @@ from datetime import datetime
 from flask import Blueprint, render_template, request, send_file, url_for, jsonify, abort
 from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db, get_etl_cutoff_date
+from db import db, get_report_start_date
 from routes.report_cache import cache_get, cache_put
 from utils.site_resolver import default_site
 from utils.report_filters import (rh_device_sql, sidebar_filters as _sidebar_filters,
@@ -328,7 +328,7 @@ def get_gold_standard_data(form_data):
     if cached is not None:
         return cached
 
-    go_live = get_etl_cutoff_date()
+    go_live = get_report_start_date()
     start = form_data.get("start_date") or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
     end = form_data.get("end_date") or date.today().strftime("%Y-%m-%d")
     
@@ -1408,7 +1408,7 @@ def report_25():
     run_report = 'start_date' in request.values
     active_tab = request.values.get("active_tab", "ops")
 
-    go_live = get_etl_cutoff_date()
+    go_live = get_report_start_date()
     display_start = go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01"
     display_end   = date.today().strftime("%Y-%m-%d")
 

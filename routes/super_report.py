@@ -34,7 +34,12 @@ super_report_bp = Blueprint("super_report", __name__)
 @super_report_bp.route("/viewer/super-report-page")
 @login_required
 def super_report_page():
-    return render_template("super_report.html")
+    # Opens on the report start date (settings, migration 0149), as every report does;
+    # it used to open on the last 30 days.
+    from db import get_report_start_date
+    start = get_report_start_date()
+    return render_template("super_report.html",
+                           report_start_date=start.isoformat() if start else "")
 
 
 # ─────────────────────────────────────────────

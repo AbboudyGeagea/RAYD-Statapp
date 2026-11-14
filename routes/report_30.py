@@ -7,7 +7,7 @@ from datetime import date
 from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
-from db import db, get_etl_cutoff_date
+from db import db, get_report_start_date
 
 report_30_bp = Blueprint("report_30", __name__)
 
@@ -15,7 +15,7 @@ _SR = "AND COALESCE(study_modality, '') NOT IN ('SR', 'BMD')"
 
 
 def _date_range(form_data):
-    go_live = get_etl_cutoff_date()
+    go_live = get_report_start_date()
     default_start = str(go_live) if go_live else "2025-01-01"
     default_end   = date.today().strftime('%Y-%m-%d')
     return (

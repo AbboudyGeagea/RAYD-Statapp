@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from flask import Blueprint, render_template, request, Response
 from flask_login import login_required
 from sqlalchemy import text
-from db import db, get_go_live_date
+from db import db, get_report_start_date
 from utils.report_filters import REPORTS_WITHOUT_IMAGES_AES, picked, picked_sql
 from utils.site_resolver import default_site
 from utils.ae_display import ae_display_sql
@@ -198,7 +198,7 @@ def _build_volume(cte, where, params):
 @report_22_bp.route("/report/22", methods=["GET", "POST"])
 @login_required
 def report_22():
-    go_live = get_go_live_date() or date(2025, 1, 1)
+    go_live = get_report_start_date() or date(2025, 1, 1)
     today = date.today()
     start_date = request.values.get("start_date", go_live.strftime('%Y-%m-%d'))
     end_date = request.values.get("end_date", today.strftime('%Y-%m-%d'))

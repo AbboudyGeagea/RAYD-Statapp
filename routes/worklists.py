@@ -151,6 +151,10 @@ def api_catalog():
                  'can_write_sql': _can_write_sql(),
                  'can_edit_shared': current_user.role in EDITOR_ROLES,
                  'can_schedule': _can_schedule()}
+    # "Fixed dates" starts on the report start date (settings, migration 0149)
+    from db import get_report_start_date
+    start = get_report_start_date()
+    out['report_start_date'] = start.isoformat() if start else None
     return jsonify(out)
 
 

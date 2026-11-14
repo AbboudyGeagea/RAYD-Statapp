@@ -471,10 +471,13 @@
     window._searchSelected = {};
 
     // ── Dates ─────────────────────────────────────────────────────────
+    // Starts on the report start date set on the ETL Control Room; the last 30 days
+    // only when none is set.
     const today = new Date();
     const prior = new Date(); prior.setDate(today.getDate() - 30);
+    const reportStart = {{ report_start_date | default('', true) | tojson }};
     document.getElementById('super-end').value   = today.toISOString().split('T')[0];
-    document.getElementById('super-start').value = prior.toISOString().split('T')[0];
+    document.getElementById('super-start').value = reportStart || prior.toISOString().split('T')[0];
     updateCmpDates();
     ['super-start','super-end'].forEach(id =>
         document.getElementById(id).addEventListener('change', updateCmpDates)
