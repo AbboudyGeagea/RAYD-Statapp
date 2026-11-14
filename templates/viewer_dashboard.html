@@ -129,16 +129,16 @@
                         <!-- Orders vs PACS Studies Reconciliation -->
                         <div class="exec-card" style="background:#0f1a16;border:1px solid #1a2d22;border-radius:12px;padding:16px 20px;margin-top:12px;">
                           <div style="font-size:10px;font-weight:800;color:#34d399;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">
-                            Orders &#8596; PACS Reconciliation
+                            Orders &#8596; PACS Reconciliation<i class="bi bi-info-circle chart-info-icon" data-explain="home-reconciliation" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
                           </div>
                           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
                             <div class="rec-kpi">
                               <div class="rec-val" id="rec-total-orders">&#8212;</div>
-                              <div class="rec-lbl">Orders Placed</div>
+                              <div class="rec-lbl">RIS Exams Done</div>
                             </div>
                             <div class="rec-kpi">
                               <div class="rec-val" id="rec-linked">&#8212;</div>
-                              <div class="rec-lbl">Linked Groups<br><span style="font-size:9px;color:#4b7a63;">(multi-order protocols)</span></div>
+                              <div class="rec-lbl">Linked Groups<br><span style="font-size:9px;color:#4b7a63;">(exams in several parts)</span></div>
                             </div>
                             <div class="rec-kpi">
                               <div class="rec-val" id="rec-expected">&#8212;</div>
@@ -158,7 +158,7 @@
                             </div>
                           </div>
                           <div style="margin-top:8px;font-size:9px;color:#4b7a63;">
-                            Linked groups: same patient, same modality, accessions within &#177;6 (CT full-body protocols, etc.)
+                            Yesterday&#8217;s exams that reached Exam Done or later on the RIS. The parts of one exam ordered together (the RIS&#8217;s linked group, e.g. CT abdomen and pelvis) count as one expected study. Discrepancy = expected &#8722; PACS studies.
                           </div>
                         </div>
 

@@ -78,7 +78,7 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 20 | CRN go-live (low) | Medium | 3.5–4.5 | provider, signed-off wording |
 | 21 | Patient schedule lead time (very low) | Low–Medium | 2.5–3 | which moment counts as "booked" |
 | 22 | Daily Briefing snapshot RH only (found 2026-11-14) | Low | 1 | — (counts checked on the server) |
-| 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) | Low | 0.5–1 | — |
+| 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) — **done** | Low | 0.5–1 | — |
 | 24 | Deploy the 2026-11-14 work (migrations 0148, 0149) | Low | 0.5 | item 4's Monday check |
 | 25 | ER dashboard onto the one report UI (Report 38) — **done** | Low | 1–1.5 | — |
 
@@ -258,8 +258,7 @@ read; radiologists approve or finalise (check both).
       `rep_study_last_composed_ts`.
     - **Home → Yesterday → Orders ↔ PACS Reconciliation** groups on `etl_orders.proc_id`
       (the procedure code, not the accession) and counts groups as "Orders Placed", so Orders
-      Placed always equals Expected Studies; orders are not site-scoped. Fix: reuse Report 27's
-      agreement method (RIS linked group, `o.site_id`). Left without an info icon until then.
+      Placed always equals Expected Studies. **Fixed 2026-11-14, item 23.**
 13. **Separate database for SJH, same web app** (confirmed; RBAC rejected, full database
     separation is safer). Replaces the RH-only rule (CLAUDE.md rule 0) once built.
     a. A dropdown on every report switches between the two databases (selected users only).
@@ -333,6 +332,12 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     reads the real tables, keeps SR and times TAT on the PACS final signature.
 23. **Yesterday tab, Orders ↔ PACS reconciliation.** See item 12's note: groups on
     `proc_id`; redo with Report 27's linked-group method, RH only, then give it its icon.
+    **Done 2026-11-14**, not deployed (`tests/test_yesterday_reconciliation.py`): yesterday's
+    RIS exams that reached Exam Done or later (status CM), grouped by `etl_orders.linked_id`
+    (a step with none is its own group) = expected studies, against the PACS studies of the
+    day. Orders still Scheduled or cancelled no longer count. The orders were already RH only
+    (the `rh.etl_orders` view). "Orders Placed" is now "RIS Exams Done"; the panel has its
+    info icon.
 24. **Deploy the 2026-11-14 work** (items 3, 4, 6, 11, 12; migrations 0148 and 0149) after
     item 4's Monday room-name check.
 25. **ER dashboard onto the one report UI** (CLAUDE.md rule 8). The ORU tab was taken out of

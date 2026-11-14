@@ -516,66 +516,52 @@ def yesterday_overview():
             for r in ae_by_util
         ]
 
-        # ── Query 4: Orders vs PACS studies reconciliation (Mazloum) ──────
-        # Numeric accession numbers allow linking multi-part protocols by proximity (±6).
+        # ── Query 4: RIS exams vs PACS studies reconciliation ──────────────
+        # Item 23 of the LAUMC to-do (2026-11-14), on Report 27's method (its "Do the RIS
+        # and PACS agree?" card). The RIS counts scheduled procedure steps and the PACS
+        # studies: a CT abdomen and pelvis is two steps and one study. The RIS's own
+        # LINKED_ID (etl_orders.linked_id) groups the steps of one exam, so the groups are
+        # the studies to expect; a step with no linked_id is a group of its own.
+        #
+        # This used to group on etl_orders.proc_id, which is the procedure CODE, not the
+        # accession, by "consecutive numbers per patient and modality", and counted the
+        # groups as "orders placed", so Orders Placed always equalled Expected Studies.
+        #
+        # Steps are yesterday's exams that reached Exam Done or later on the RIS
+        # (order_status 'CM'), so an exam never done (a no-show, a step still Scheduled)
+        # does not count as a missing study. In a web request etl_orders is the RH-only
+        # view (utils/rh_scope.py), as the PACS side is.
         link_row = db.session.execute(text("""
-            WITH orders_yesterday AS (
-                SELECT
-                    o.patient_dbid::TEXT                        AS patient_id,
-                    UPPER(TRIM(COALESCE(o.modality, '')))       AS modality,
-                    o.scheduled_datetime::date                  AS order_date,
-                    o.proc_id                                   AS accession,
-                    REGEXP_REPLACE(o.proc_id, '[^0-9]', '', 'g')::BIGINT AS acc_num
+            WITH done AS (
+                SELECT o.order_dbid, o.linked_id
                 FROM etl_orders o
                 WHERE o.scheduled_datetime::date = CURRENT_DATE - 1
-                  AND o.order_status NOT ILIKE '%CA%'
-                  AND o.proc_id ~ '^[0-9]+$'
+                  AND UPPER(TRIM(COALESCE(o.order_status, ''))) = 'CM'
                   AND UPPER(TRIM(COALESCE(o.modality, ''))) NOT IN ('SR', 'OT', 'SCN', 'BMD')
             ),
-            grouped AS (
-                SELECT
-                    patient_id, modality, order_date, accession, acc_num,
-                    acc_num - ROW_NUMBER() OVER (
-                        PARTITION BY patient_id, modality, order_date
-                        ORDER BY acc_num
-                    ) AS grp_key
-                FROM orders_yesterday
-            ),
             link_groups AS (
-                SELECT
-                    patient_id, modality, order_date, grp_key,
-                    COUNT(*)         AS orders_in_group,
-                    MIN(accession)   AS primary_accession,
-                    MIN(acc_num)     AS min_acc,
-                    MAX(acc_num)     AS max_acc
-                FROM grouped
-                GROUP BY patient_id, modality, order_date, grp_key
-            ),
-            summary AS (
-                SELECT
-                    COUNT(*)                                                        AS total_orders,
-                    COUNT(*) FILTER (WHERE orders_in_group > 1)                    AS linked_groups,
-                    SUM(orders_in_group) FILTER (WHERE orders_in_group > 1)       AS orders_in_linked,
-                    COUNT(*) FILTER (WHERE orders_in_group = 1)                    AS standalone_orders,
-                    COUNT(*) FILTER (WHERE orders_in_group > 1)
-                        + COUNT(*) FILTER (WHERE orders_in_group = 1)              AS expected_studies
-                FROM link_groups
+                SELECT COALESCE(linked_id::text, 'S' || order_dbid::text) AS grp,
+                       COUNT(*) AS orders_in_group
+                FROM done
+                GROUP BY 1
             )
             SELECT
-                total_orders,
-                linked_groups,
-                orders_in_linked,
-                standalone_orders,
-                expected_studies
-            FROM summary
+                (SELECT COUNT(*) FROM done)                                   AS total_orders,
+                COUNT(*) FILTER (WHERE orders_in_group > 1)                   AS linked_groups,
+                COALESCE(SUM(orders_in_group) FILTER (WHERE orders_in_group > 1), 0)
+                                                                              AS orders_in_linked,
+                COUNT(*) FILTER (WHERE orders_in_group = 1)                   AS standalone_orders,
+                COUNT(*)                                                      AS expected_studies
+            FROM link_groups
         """)).fetchone()
 
+        # int(): SUM comes back as a Decimal, which jsonify sends as a string
         orders_link = {
-            'total_orders':      link_row[0] or 0,
-            'linked_groups':     link_row[1] or 0,
-            'orders_in_linked':  link_row[2] or 0,
-            'standalone_orders': link_row[3] or 0,
-            'expected_studies':  link_row[4] or 0,
+            'total_orders':      int(link_row[0] or 0),
+            'linked_groups':     int(link_row[1] or 0),
+            'orders_in_linked':  int(link_row[2] or 0),
+            'standalone_orders': int(link_row[3] or 0),
+            'expected_studies':  int(link_row[4] or 0),
         }
 
         pacs_studies = studies_total

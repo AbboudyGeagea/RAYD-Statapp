@@ -608,6 +608,12 @@ const ChartExplanations = {
       valueMeaning: 'Procedures = studies stored by the room, named by its RIS room name, else the AE title. Utilization = the catalogue duration of those studies (15 min when a procedure has none) ÷ the room’s daily capacity on the Mapping page, else its weekly schedule, else 8 h.',
       interpretation: 'Utilization here uses catalogue durations, not real scan times, so it is a rough guide; Report 34 uses the RIS start and end times where they exist.'
     },
+    'home-reconciliation': {
+      title: 'Orders ↔ PACS Reconciliation (yesterday)',
+      purpose: 'Yesterday’s exams done on the RIS against the Rizk Hospital studies stored on the PACS for the same day.',
+      valueMeaning: 'RIS Exams Done = scheduled procedure steps scheduled yesterday that reached Exam Done or later. The parts of one exam ordered together share a RIS linked group (a CT abdomen and pelvis is two steps, one study), so each group is one expected study; Linked Groups counts the groups with more than one part. PACS Studies = yesterday’s studies, structured reports and other objects left out. Discrepancy = expected − PACS; positive means fewer studies than expected.',
+      interpretation: 'A small gap is normal: walk-ins and imported outside studies have no RIS order (negative), and an exam closed on the RIS before its images were sent shows as positive until they arrive. A large positive gap means images did not reach the PACS or were stored under another accession; Report 27 shows the same comparison month by month.'
+    },
 
     // ── ER Analytics Dashboard ──────────────────────────────────────────────────
     // Rows: Rizk Hospital studies with patient location ER in the dates chosen.
