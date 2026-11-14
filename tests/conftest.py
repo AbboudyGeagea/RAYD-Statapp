@@ -59,6 +59,7 @@ DATA_TABLES = [
     'worklist_email_runs', 'worklist_email_schedules',
     'hl7_oru_analysis', 'ai_nlp_cache', 'crn_events', 'crn_notifications',
     'hl7_oru_reports', 'hl7_orders', 'hl7_scn_studies', 'order_status_log',
+    'worklist_status_history',
     # what the Report Composer views read (migration 0136): the RIS and PACS detail,
     # before the PACS studies they point at (std_pps.study_db_uid)
     'std_pps_person_reference', 'std_worklist_scheduled', 'std_worklist_arrivals',

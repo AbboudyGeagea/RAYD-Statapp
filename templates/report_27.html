@@ -377,7 +377,8 @@
                         </button>
                     </div>
                     <div class="card-desc">
-                        Number of orders scheduled per hour of the day, aggregated across the full audit period. Peaks show the busiest scheduling windows — useful for staffing and machine planning.
+                        Per hour of the day, the average per day over the period: <span style="color:#60a5fa;font-weight:700">blue</span> = exams scheduled, <span style="color:#f87171;font-weight:700">red</span> = exams started (RIS status Started). The gap shows where the schedule and the real start drift apart.
+                        <span id="busiest-days-line"></span>
                     </div>
                     <div id="chart_hourly" class="flex-1 p-2"></div>
                 </div>
@@ -617,20 +618,28 @@
                 grid: { left: '3%', right: '4%', bottom: '10%', top: '10%', containLabel: true },
                 xAxis: {
                     type: 'category',
-                    data: Object.keys(raw.audit.hourly).map(h => h + ':00'),
+                    data: raw.audit.hourly.hours.map(h => h + ':00'),
                     axisLabel: { ...axisLabel, rotate: 30 },
                     name: 'Hour of Day', nameTextStyle: { color: '#475569', fontSize: 11 }
                 },
-                yAxis: { type: 'value', splitLine, axisLabel, name: 'Orders', nameTextStyle: { color: '#475569', fontSize: 11 } },
+                yAxis: { type: 'value', splitLine, axisLabel, name: 'Exams per day', nameTextStyle: { color: '#475569', fontSize: 11 } },
+                legend: { top: 0, textStyle: { color: '#94a3b8', fontSize: 11 } },
                 series: [{
-                    data: Object.values(raw.audit.hourly), type: 'line', smooth: true,
-                    areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: '#60a5fa' }, { offset: 1, color: 'transparent' }
-                    ])},
-                    lineStyle: { width: 3, color: '#60a5fa' },
-                    itemStyle: { color: '#60a5fa' }
+                    name: 'Scheduled', data: raw.audit.hourly.scheduled, type: 'line', smooth: true,
+                    lineStyle: { width: 3, color: '#60a5fa' }, itemStyle: { color: '#60a5fa' }
+                }, {
+                    name: 'Started', data: raw.audit.hourly.started, type: 'line', smooth: true,
+                    lineStyle: { width: 3, color: '#f87171' }, itemStyle: { color: '#f87171' }
                 }]
             });
+            // Busiest day on started exams: Monday to Friday ranked, weekend apart
+            const bd = raw.audit.busiest_days;
+            if (bd && bd.weekdays) {
+                document.getElementById('busiest-days-line').textContent =
+                    ' Busiest days (started, average per day): ' +
+                    bd.weekdays.map(w => `${w.day} ${w.avg}`).join(' · ') +
+                    ` — Saturday ${bd.saturday}, Sunday ${bd.sunday}.`;
+            }
             registerChart('chart_hourly', cHourly);
 
             // Demographics stacked bar

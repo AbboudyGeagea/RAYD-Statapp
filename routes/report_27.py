@@ -263,6 +263,9 @@ def get_report_data(start, end):
             s.storing_ae,
             -- the device's RIS room name, else its AE title (utils.ae_display)
             COALESCE(dev.label, s.storing_ae) AS ae_label,
+            -- when the exam reached RIS status Started (stage in_progress), for the
+            -- hourly load (meeting of 2026-11-13, item 6)
+            st.started_at,
             s.procedure_code,
             p.birth_date,
             p.gender_code AS sex,
@@ -289,6 +292,11 @@ def get_report_data(start, end):
             LIMIT 1
         ) m ON TRUE
         {ae_label_join_sql('s.storing_ae')}
+        LEFT JOIN LATERAL (
+            SELECT MIN(COALESCE(h.source_time, h.captured_at)) AS started_at
+            FROM worklist_status_history h
+            WHERE h.site_worklist_key = o.order_dbid AND h.stage = 'in_progress'
+        ) st ON TRUE
         WHERE o.scheduled_datetime >= :start
           AND o.scheduled_datetime <  (CAST(:end AS DATE) + INTERVAL '1 day')
     """)
@@ -318,6 +326,38 @@ def get_report_data(start, end):
         df['sex'] = df['sex'].fillna('Unknown')
 
     return df
+
+def _days_in(start, end):
+    """Calendar days in the range, at least 1."""
+    try:
+        return max((date.fromisoformat(str(end)[:10]) - date.fromisoformat(str(start)[:10])).days + 1, 1)
+    except ValueError:
+        return 1
+
+
+def _hourly_load(df, start, end):
+    """Meeting of 2026-11-13, item 6: per hour of the day, the average per day over the
+    range of exams scheduled (blue) and exams started on the RIS (red, status Started)."""
+    days = _days_in(start, end)
+    def per_hour(col):
+        hours = pd.to_datetime(df[col], errors='coerce').dropna().dt.hour.value_counts()
+        return [round(float(hours.get(h, 0)) / days, 2) for h in range(24)]
+    return {"hours": list(range(24)), "scheduled": per_hour('scheduled_datetime'),
+            "started": per_hour('started_at'), "days": days}
+
+
+def _busiest_days(df, start, end):
+    """Busiest day on exams started (item 6): Monday to Friday ranked by the average per
+    day, Saturday (half day) and Sunday (ER only) shown apart."""
+    names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    occurs = pd.Series(pd.date_range(str(start)[:10], str(end)[:10])).dt.dayofweek.value_counts()
+    started = pd.to_datetime(df['started_at'], errors='coerce').dropna().dt.dayofweek.value_counts()
+    avg = {d: round(float(started.get(d, 0)) / int(occurs.get(d, 0)), 1) if occurs.get(d, 0) else 0.0
+           for d in range(7)}
+    ranked = sorted(range(5), key=lambda d: -avg[d])
+    return {"weekdays": [{"day": names[d], "avg": avg[d]} for d in ranked],
+            "saturday": avg[5], "sunday": avg[6]}
+
 
 @report_27_bp.route("/report/27", methods=["GET", "POST"])
 @login_required
@@ -388,7 +428,8 @@ def report_27():
                 "mismatches":                int(len(df_a) - df_a['match'].sum()),
                 "avg_duration":              avg_duration,
                 "duration_outliers_removed": duration_outliers_removed,
-                "hourly":                    df_a['scheduled_datetime'].dt.hour.value_counts().sort_index().to_dict(),
+                "hourly":                    _hourly_load(df_a, start_a, end_a),
+                "busiest_days":              _busiest_days(df_a, start_a, end_a),
                 "status_mix":                _build_status_mix(df_a),
                 "ae_mix":                    df_a['ae_label'].fillna('Unknown').value_counts().to_dict(),
                 "demo":                      df_a.groupby(['age_group', 'sex'], observed=False).size().unstack(fill_value=0).to_dict('index'),
