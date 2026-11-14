@@ -1,3 +1,4 @@
+{% from '_report_filter_panel.html' import filter_panel_head, filter_panel %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -50,13 +51,15 @@
         body.light input, body.light select { background:#f8fafc!important; border-color:#e2e8f0!important; color:#1a202c!important; }
     </style>
     <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
+    {{ filter_panel_head() }}
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
 
 {% include '_header.html' %}
 
 <div class="flex flex-1 overflow-hidden">
-    {% include '_sidebar.html' %}
+    {# the shared left panel: dates, the reporting target, modality #}
+    {{ filter_panel(start, end, filters, extra=sla_box) }}
 
     <main class="flex-1 overflow-y-auto bg-[#181f1c] p-8">
 
@@ -68,27 +71,6 @@
                     <h1 class="text-2xl font-black text-white tracking-tight">ER Analytics Dashboard</h1>
                 </div>
                 <p class="text-slate-400 text-sm">Turnaround time, SLA compliance, and workload for emergency patients.</p>
-            </div>
-            <!-- Filters -->
-            <div class="flex items-center gap-3">
-                <div class="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-widest">
-                    <i class="bi bi-clock"></i> SLA
-                </div>
-                <!-- Entered in HOURS to match every figure this page renders. The API
-                     and all SLA comparisons stay in minutes; loadData() converts at the
-                     boundary, the same place fmtHours() converts the other direction. -->
-                <input id="sla-input" type="number" value="1" min="0.25" max="8" step="0.25"
-                    class="w-16 bg-[#1d2522] border border-[#28332e] rounded-lg px-2 py-1.5 text-xs font-bold text-white text-center focus:outline-none focus:border-[#60a5fa]">
-                <span class="text-xs text-slate-500">h</span>
-                <input id="start-input" type="date" value="{{ default_start }}"
-                    class="bg-[#1d2522] border border-[#28332e] rounded-lg px-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-[#60a5fa]">
-                <span class="text-xs text-slate-500">→</span>
-                <input id="end-input" type="date" value="{{ default_end }}"
-                    class="bg-[#1d2522] border border-[#28332e] rounded-lg px-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-[#60a5fa]">
-                <button onclick="loadData()"
-                    class="px-4 py-1.5 bg-[#60a5fa] text-white text-xs font-black uppercase tracking-widest rounded-lg hover:bg-[#7db8fb] transition-colors">
-                    Apply
-                </button>
             </div>
         </div>
 
@@ -198,17 +180,9 @@ function tatColor(min, sla) {
 }
 
 async function loadData() {
-    const start = document.getElementById('start-input').value;
-    const end   = document.getElementById('end-input').value;
-    // The box is in hours; /er/data and every SLA comparison downstream are in
-    // minutes. Convert here so the rest of the page keeps its single unit.
-    const slaHours = parseFloat(document.getElementById('sla-input').value);
-    const sla = Math.round((isNaN(slaHours) || slaHours <= 0 ? 1 : slaHours) * 60);
-
-    document.getElementById('loading').classList.remove('hidden');
-    document.getElementById('content').classList.add('hidden');
-
-    const r = await fetch(`/er/data?start=${start}&end=${end}&sla=${sla}`);
+    // The filters are those in the page address (the panel's Generate puts them there);
+    // the target arrives in hours and comes back in minutes as kpi.sla_limit.
+    const r = await fetch(`{{ url_for('report_38.data') }}?${window.location.search.replace(/^\?/, '')}`);
     const d = await r.json();
 
     if (d.error) {

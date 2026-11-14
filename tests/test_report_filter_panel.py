@@ -20,6 +20,7 @@ REPORTS = {
     '/report/34': (FOUR, None),                    # its download shows once there is data
     '/report/35': ((('modality', 'mod_enabled'),), '/report/35/export'),
     '/report/36': (FOUR, None),
+    '/report/38': ((('modality', 'mod_enabled'),), None),
 }
 
 

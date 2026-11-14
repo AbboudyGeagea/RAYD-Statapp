@@ -22,6 +22,7 @@ import routes.report_34   # noqa: F401
 import routes.report_35   # noqa: F401
 import routes.report_36   # noqa: F401
 import routes.report_37   # noqa: F401
+import routes.report_38   # noqa: F401  (the ER dashboard, until 2026-11-14 /er)
 from routes.report_registry import get_all_reports, get_report_ids
 from routes.api_controller   import api_bp
 from routes.hl7_orders       import hl7_orders_bp
@@ -32,7 +33,6 @@ from routes.capacity_ladder  import capacity_ladder_bp
 from routes.live_feed        import live_feed_bp
 from routes.preferences      import preferences_bp
 from routes.docs             import docs_bp
-from routes.er_dashboard     import er_bp
 from routes.oru_analytics    import oru_bp
 from routes.db_manager       import db_manager_bp
 from routes.floor_plan_admin import floor_plan_bp
@@ -304,7 +304,8 @@ def register_blueprints(app):
         'custom_reports':  (worklists_bp,        {}, [('/report-composer',             'Report Composer'),
                                                       ('/worklists',                   'Report Composer'),
                                                       ('/reports/custom',              'Report Composer')]),
-        'er_dashboard':    (er_bp,               {}, [('/er',                          'ER Dashboard')]),
+        # 'er_dashboard' became Report 38 (2026-11-14): licensed through 'reports' like
+        # every report, opened at /viewer/38; /er redirects there.
         'capacity_ladder': (capacity_ladder_bp,  {}, [('/viewer/capacity-ladder',      'Capacity Ladder')]),
         'saved_reports':   (saved_reports_bp,    {'url_prefix': '/saved'}, []),
         'super_report':    (super_report_bp,     {}, [('/viewer/super-report-page',    'Super Report'),

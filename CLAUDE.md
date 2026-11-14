@@ -32,7 +32,9 @@ routes/
   report_22.py                  — main radiology stats (date/modality/physician filters)
   super_report.py               — aggregated multi-section report
   report_25.py                  — shift & device utilization
-  er_dashboard.py               — ER unread studies panel + SLA tracking
+  report_38.py                  — Report 38, the ER dashboard (until 2026-11-14 the page /er,
+                                   routes/er_dashboard.py; /er redirects): TAT, target compliance,
+                                   unread ER studies; migration 0150
   report_37.py                  — Report 37, JCI urgent emergent (the former Sticky Notes page,
                                    /sticky-notes redirects; report card next to ER in Clinical KPIs;
                                    per-user report access; report_template row + licence in migration
@@ -270,9 +272,9 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    multi-select dropdowns each with an "Apply filter" tick named like `sidebar_filters` reads
    them, one **Generate** button; optional hidden fields, Excel button posting with the CSRF
    token, Include/Exclude per filter). `utils/report_filters.panel_filters()` builds the
-   dropdowns. Reports 22, 25, 34, 35, 36, 37 and the Super Report use it (2026-11-14,
-   `tests/test_report_filter_panel.py`); the ER dashboard and the ORU tab follow with to-do
-   item 25.
+   dropdowns. Reports 22, 25, 34, 35, 36, 37, 38 and the Super Report use it (2026-11-14,
+   `tests/test_report_filter_panel.py`), and Report 38, the ER dashboard. The ORU tab (`/oru`)
+   stays a standalone page (operator, 2026-11-14).
 
 ## Dev Workflow
 

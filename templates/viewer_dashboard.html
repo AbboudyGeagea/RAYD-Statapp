@@ -202,24 +202,34 @@
                     </div>
                     {% endfor %}
 
-                    <!-- ER Dashboard card -->
-                    {% if current_user.role != 'tec' %}
-                    <div class="card-custom p-6 flex flex-col hover:border-[#f43f5e]/30 transition-colors" style="border-top:2px solid #f43f5e;">
+                    <!-- Report 38, the ER dashboard (until 2026-11-14 the page /er). A report card
+                         like the ones above: shown to whoever has access to report 38. -->
+                    {% for report in reports if report.report_id == 38 %}
+                    <div class="card-custom p-6 flex flex-col hover:border-[#f43f5e]/30 transition-colors" style="border-top:2px solid #f43f5e;"
+                         data-report-id="{{ report.report_id }}"
+                         data-report-name="{{ report.report_name }}"
+                         data-report-desc="{{ report.long_description }}"
+                         data-report-url="{{ url_for('viewer.viewer_report', report_id=report.report_id) }}"
+                         data-report-color="blue">
                         <div class="flex items-start justify-between mb-4">
                             <div class="p-2.5 rounded-xl" style="background:rgba(244,63,94,0.1);">
                                 <i class="bi bi-heart-pulse-fill text-xl" style="color:#f43f5e;"></i>
                             </div>
-                            <span style="font-size:9px;font-weight:900;padding:2px 8px;border-radius:4px;background:rgba(244,63,94,0.15);color:#f43f5e;text-transform:uppercase;letter-spacing:0.08em;">Emergency</span>
+                            <button class="star-btn {% if report.report_id in user_favorites %}starred{% endif %}"
+                                    onclick="toggleFavorite({{ report.report_id }}, this)"
+                                    title="Add to favorites">
+                                <i class="bi {% if report.report_id in user_favorites %}bi-star-fill{% else %}bi-star{% endif %}"></i>
+                            </button>
                         </div>
-                        <h3 class="text-base font-bold text-white mb-2">ER Analytics Dashboard</h3>
-                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">Real-time TAT tracking, SLA compliance, breach log, and unread study alerts scoped exclusively to emergency patients. Configurable SLA threshold.</p>
-                        <a href="{{ url_for('er.er_page') }}" target="_blank"
+                        <h3 class="text-base font-bold text-white mb-2">{{ report.report_name }}</h3>
+                        <p class="text-slate-400 text-xs leading-relaxed mb-6 flex-1">{{ report.long_description }}</p>
+                        <a href="{{ url_for('viewer.viewer_report', report_id=report.report_id) }}" target="_blank"
                            class="w-full py-3 text-white text-center text-xs font-black uppercase tracking-widest rounded-xl transition-colors"
                            style="background:#f43f5e;">
-                            Open ER Dashboard
+                            Open Analysis
                         </a>
                     </div>
-                    {% endif %}
+                    {% endfor %}
 
                     <!-- Report 37 (JCI urgent emergent), next to the ER card. A report card like the
                          ones above: shown to whoever has access to report 37. -->
@@ -246,7 +256,7 @@
                 </div>
 
                 <div id="grid-it" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {% for report in reports if report.report_id not in [22,23,25,27,28,30,35,36,37] %}
+                    {% for report in reports if report.report_id not in [22,23,25,27,28,30,35,36,37,38] %}
                     <div class="card-custom p-6 flex flex-col hover:border-[#60a5fa]/30 transition-colors"
                          data-report-id="{{ report.report_id }}"
                          data-report-name="{{ report.report_name }}"

@@ -723,9 +723,10 @@ def _report_37_card(source):
 
 def test_card_sits_after_the_er_card_in_the_clinical_tab_and_nowhere_else():
     source = _card()
-    assert (source.index('id="grid-clinical"') < source.index('<!-- ER Dashboard card -->')
+    # the ER card is Report 38's since 2026-11-14 (tests/test_report_38.py)
+    assert (source.index('id="grid-clinical"') < source.index('report.report_id == 38')
             < source.index('report.report_id == 37') < source.index('id="grid-it"'))
-    assert 'not in [22,23,25,27,28,30,35,36,37]' in source      # not repeated in the IT tab
+    assert 'not in [22,23,25,27,28,30,35,36,37,38]' in source   # not repeated in the IT tab
 
 
 @pytest.mark.parametrize('has_access', [True, False])

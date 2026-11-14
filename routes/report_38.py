@@ -1,11 +1,30 @@
-from flask import Blueprint, render_template, request, jsonify, abort
+"""
+routes/report_38.py — Report 38, the ER dashboard: turnaround, target compliance, unread
+studies and workload for emergency patients.
+
+Until 2026-11-14 this was the standalone page /er (routes/er_dashboard.py) behind the licence
+feature 'er_dashboard'. Like every report now (CLAUDE.md rule 8, to-do item 25): its
+report_template row, licence entry and access come from migration 0150, it registers itself
+below, it opens through /viewer/38, access is per-user report access, and its filters are the
+shared left panel (templates/_report_filter_panel.html). It keeps its own default period, the
+last 30 days.
+
+    /report/38        the page (/viewer/38 opens it; /er redirects)
+    /report/38/data   the figures, for the filters in the page address:
+                      start_date, end_date, sla_hours (the target, in hours) and the
+                      modality dropdown (modality + mod_enabled)
+"""
+from flask import Blueprint, render_template, request, jsonify, abort, redirect
 from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import db
+from db import ReportAccessControl, db
 from datetime import date, timedelta
 from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql
+from utils.report_filters import panel_filters, picked, picked_sql
 
-er_bp = Blueprint('er', __name__)
+REPORT_ID = 38
+report_38_bp = Blueprint('report_38', __name__)
+DEFAULT_SLA_HOURS = 1
 
 _ER_WHERE = """(
     UPPER(COALESCE(s.patient_location, '')) = 'ER'
@@ -70,32 +89,76 @@ def _cluster_tat_histogram(vals, k=10):
     return clusters
 
 
-@er_bp.route('/er')
-@login_required
-def er_page():
-    if current_user.role == 'tec':
-        abort(403)
-    default_end   = date.today().isoformat()
-    default_start = (date.today() - timedelta(days=30)).isoformat()
-    return render_template('er_dashboard.html',
-                           default_start=default_start,
-                           default_end=default_end)
-
-
-@er_bp.route('/er/data')
-@login_required
-def er_data():
-    if current_user.role == 'tec':
+def _require_access():
+    """As /viewer/<id> checks it: an admin, or a user whose access to report 38 is on."""
+    if current_user.role == 'admin':
+        return
+    allowed = ReportAccessControl.query.filter_by(
+        user_id=current_user.id, report_template_id=REPORT_ID, is_enabled=True).first()
+    if not allowed:
         abort(403)
 
-    start     = request.args.get('start', (date.today() - timedelta(days=30)).isoformat())
-    end       = request.args.get('end',   date.today().isoformat())
-    sla_limit = int(request.args.get('sla', 60))
+
+def _period():
+    """The dates in the page address, else the last 30 days (this report's own default)."""
+    today = date.today()
+    try:
+        start = date.fromisoformat(request.args.get('start_date') or (today - timedelta(days=30)).isoformat())
+        end = date.fromisoformat(request.args.get('end_date') or today.isoformat())
+    except ValueError:
+        abort(400, 'Dates must look like 2026-11-05')
+    return start.isoformat(), end.isoformat()
+
+
+def _sla_hours():
+    """The reporting target in hours, as typed in the panel; 1 h when blank or not positive."""
+    try:
+        hours = float(request.args.get('sla_hours') or DEFAULT_SLA_HOURS)
+    except ValueError:
+        hours = DEFAULT_SLA_HOURS
+    return hours if hours > 0 else DEFAULT_SLA_HOURS
+
+
+@report_38_bp.route('/er')
+@login_required
+def old_address():
+    """The page's address before it became Report 38 (bookmarks, the old dashboard card)."""
+    return redirect(f'/viewer/{REPORT_ID}')
+
+
+@report_38_bp.route('/report/38')
+@login_required
+def report_38():
+    _require_access()
+    start, end = _period()
+    sla = _sla_hours()
+    sla_box = (f'<div><label class="rfp-label" for="sla-input">Reporting target (hours)</label>'
+               f'<input id="sla-input" type="number" name="sla_hours" value="{sla:g}" min="0.25" max="48" '
+               f'step="0.25" class="rfp-input" aria-label="Reporting target in hours"></div>')
+    from markupsafe import Markup
+    return render_template('report_38.html', start=start, end=end,
+                           filters=panel_filters(request.args, ('modality',)),
+                           sla_box=Markup(sla_box))
+
+
+@report_38_bp.route('/report/38/data')
+@login_required
+def data():
+    _require_access()
+    start, end = _period()
+    # The box is in hours; every SLA comparison downstream is in minutes.
+    sla_limit = round(_sla_hours() * 60)
     params    = {'start': start, 'end': end}
+    # the panel's modality dropdown, matched the way every report matches it
+    mod_clause = ''
+    if request.args.get('mod_enabled') == 'on' and picked(request.args, 'modality'):
+        params['modalities'] = picked(request.args, 'modality')
+        mod_clause = f"AND UPPER(TRIM(COALESCE(m.modality, s.study_modality, ''))) IN {picked_sql('modalities')}"
 
     from utils.audit import log_event
-    log_event('er_accessed', category='report', resource_type='er_dashboard',
-              detail={'from': start, 'to': end, 'sla': sla_limit})
+    log_event('report_run', category='report', resource_type='report_38',
+              detail={'from': start, 'to': end, 'sla': sla_limit,
+                      'modality': params.get('modalities')})
 
     try:
         # Radiologist raw fallback chain (PACS signing_physician_* -> RIS
@@ -144,6 +207,7 @@ def er_data():
             WHERE s.study_date BETWEEN :start AND :end
               AND {_ER_WHERE}
               AND COALESCE(m.modality, s.study_modality, 'Unknown') NOT IN ('SR', 'OT', 'BMD')
+              {mod_clause}
         )
         """
 
@@ -182,9 +246,10 @@ def er_data():
               AND COALESCE(s.study_has_report, false) = false
               AND {_ER_WHERE}
               AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')
+              {mod_clause}
             ORDER BY waiting_min DESC
             LIMIT 50
-        """), {}).mappings().fetchall()
+        """), {k: v for k, v in params.items() if k == 'modalities'}).mappings().fetchall()
         unread = [dict(r) for r in unread_rows]
         unread_count = len(unread)
 
@@ -262,3 +327,7 @@ def er_data():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+
+from routes.report_registry import register_report  # noqa: E402
+register_report(REPORT_ID, report_38_bp, report_38, None)

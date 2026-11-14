@@ -80,11 +80,10 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 22 | Daily Briefing snapshot RH only (found 2026-11-14) | Low | 1 | — (counts checked on the server) |
 | 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) | Low | 0.5–1 | — |
 | 24 | Deploy the 2026-11-14 work (migrations 0148, 0149) | Low | 0.5 | item 4's Monday check |
-| 25 | ER dashboard and ORU tab onto the one report UI | Medium–High | 6–9 | best after item 16 |
+| 25 | ER dashboard onto the one report UI (Report 38) — **done** | Low | 1–1.5 | — |
 
-Item 25 splits into: analysis, which ORU parts are admin tools rather than report content
-(0.5–1); ER dashboard as a numbered report (2–3); ORU tab as a numbered report (3–4);
-validation (0.5–1).
+Item 25 is the ER dashboard only (operator, 2026-11-14): the ORU tab stays a standalone page,
+out of scope.
 
 ## Server access (2026-11-14)
 
@@ -336,12 +335,15 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     `proc_id`; redo with Report 27's linked-group method, RH only, then give it its icon.
 24. **Deploy the 2026-11-14 work** (items 3, 4, 6, 11, 12; migrations 0148 and 0149) after
     item 4's Monday room-name check.
-25. **ER dashboard and ORU tab onto the one report UI** (CLAUDE.md rule 8): today both are
-    standalone pages (`/er`, `/oru`) with their own layout and filters. Make each a numbered
-    report (next free: 38 and 39) with `register_report()`, its `report_template` row and
-    licence by migration, per-user report access, `/viewer/NN`, and the shared left panel
-    `_report_filter_panel.html`; old URLs redirect. Decide which ORU parts are admin tools
-    (critical keyword dictionary, NLP processing) and move those under Administration.
+25. **ER dashboard onto the one report UI** (CLAUDE.md rule 8). The ORU tab was taken out of
+    scope (operator, 2026-11-14) and stays the standalone page `/oru`.
+    **Done 2026-11-14**, not deployed: the ER dashboard is Report 38 (`routes/report_38.py`,
+    `templates/report_38.html`, migration 0150: report row, licence entry unless the licence
+    switched `er_dashboard` off, access for every role but tec as the page had it). Opens at
+    `/viewer/38`, `/er` redirects; the home page card is a report card shown to whoever has
+    access. The shared left panel: dates (last 30 days by default), the reporting target in
+    hours, and a modality filter (new). Tests: `tests/test_report_38.py`. After deploy: run
+    migration 0150, then check the home card and a technologist account (no access).
 
 ## Low priority
 

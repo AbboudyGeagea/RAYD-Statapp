@@ -309,7 +309,8 @@ def app(database_url):
     from routes.report_34 import report_34_bp
     from routes.report_35 import report_35_bp
     from routes.report_36 import report_36_bp
-    for bp in (report_25_bp, report_34_bp, report_35_bp, report_36_bp):
+    from routes.report_38 import report_38_bp
+    for bp in (report_25_bp, report_34_bp, report_35_bp, report_36_bp, report_38_bp):
         flask_app.register_blueprint(bp)
 
     from db import db
