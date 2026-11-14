@@ -53,9 +53,28 @@ def test_every_icon_has_a_note():
         assert keys <= known, f'{name} names explanations with no text: {sorted(keys - known)}'
 
 
+def _pages_including(partial):
+    """Templates that {% include %} the partial."""
+    out = []
+    for name in os.listdir(TEMPLATES):
+        if name.endswith('.html'):
+            text = open(os.path.join(TEMPLATES, name), encoding='utf-8').read()
+            if re.search(r"""\{%\s*include\s+['"]""" + re.escape(partial) + r"""['"]""", text):
+                out.append((name, text))
+    return out
+
+
 def test_every_page_with_an_icon_loads_the_script():
     for name, (_keys, text) in template_keys().items():
-        assert 'js/chart-explanations.js' in text, f'{name} has icons but does not load the script'
+        if name.startswith('_'):
+            # a partial has no <head>: every page that includes it loads the script
+            pages = _pages_including(name)
+            assert pages, f'{name} has icons but no page includes it'
+            for page, page_text in pages:
+                assert 'js/chart-explanations.js' in page_text, \
+                    f'{page} includes {name}, which has icons, but does not load the script'
+        else:
+            assert 'js/chart-explanations.js' in text, f'{name} has icons but does not load the script'
 
 
 @pytest.fixture

@@ -46,6 +46,7 @@
             .chart-container, #chart-ae-tat, #chart-mod-tat { height: 320px !important; }
         }
     </style>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
@@ -158,7 +159,7 @@
 
         <!-- Device Utilization & Revenue Matrix -->
         <div class="glass-card !p-0 overflow-hidden">
-            <p class="p-6 text-xs font-black text-zinc-500 uppercase">Device Utilization &amp; Revenue Matrix</p>
+            <p class="p-6 text-xs font-black text-zinc-500 uppercase">Device Utilization &amp; Revenue Matrix<i class="bi bi-info-circle chart-info-icon" data-explain="r34-matrix" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
             <div style="overflow-x:auto;">
             <table class="w-full text-sm text-left border-t border-white/5">
                 <thead class="bg-white/5 text-zinc-500 uppercase font-black text-[11px]">
@@ -212,7 +213,7 @@
         <!-- Best vs Worst AE by Average TAT -->
         <div class="glass-card">
             <div class="flex items-center justify-between mb-4">
-                <p class="text-xs font-black text-blue-500 uppercase">Best vs Worst AE by Average TAT</p>
+                <p class="text-xs font-black text-blue-500 uppercase">Best vs Worst AE by Average TAT<i class="bi bi-info-circle chart-info-icon" data-explain="r25-ae-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                 <p class="text-[9px] text-zinc-500 uppercase">Min 5 studies · sorted fastest → slowest</p>
             </div>
             <div id="chart-ae-tat" class="w-full" style="height:320px;"></div>
@@ -222,7 +223,7 @@
         {% if data.modality_tat %}
         <div class="chart-card">
             <div class="chart-card-header">
-                <span class="chart-card-title">Avg TAT by Modality</span>
+                <span class="chart-card-title">Avg TAT by Modality<i class="bi bi-info-circle chart-info-icon" data-explain="r25-modality-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
             </div>
             <div class="chart-card-desc">Average and median turnaround time per modality. Sorted fastest to slowest.</div>
             <div class="chart-card-body">

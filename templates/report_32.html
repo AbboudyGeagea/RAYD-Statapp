@@ -71,6 +71,7 @@
             .chart-container { height: 320px !important; }
         }
     </style>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
@@ -212,7 +213,7 @@
             <!-- ── TAT Target Compliance by Patient Class ────────────────────── -->
             <div class="data-card !h-auto">
                 <div class="card-header">
-                    <span><i class="bi bi-stopwatch"></i> TAT Target Compliance by Patient Class</span>
+                    <span><i class="bi bi-stopwatch"></i> TAT Target Compliance by Patient Class<i class="bi bi-info-circle chart-info-icon" data-explain="r32-sla" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                 </div>
                 <div class="card-desc">
                     Reporting targets are set per patient class and are configurable
@@ -261,7 +262,7 @@
             <!-- ── Radiologist Performance Cards ─────────────────────────────── -->
             <div class="data-card !h-auto">
                 <div class="card-header">
-                    <span><i class="bi bi-person-badge"></i> Radiologist Performance</span>
+                    <span><i class="bi bi-person-badge"></i> Radiologist Performance<i class="bi bi-info-circle chart-info-icon" data-explain="r32-rad-perf" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     <div class="flex items-center gap-2 flex-wrap">
                         <input id="rad-search" type="text" placeholder="Search radiologist…"
                                class="input-dark" style="width:160px;padding:5px 10px;font-size:11px;">
@@ -284,7 +285,7 @@
             <!-- ── Reports per Radiologist × Modality / AE / Procedure / Month ── -->
             <div class="data-card !h-auto" id="r32-rad-matrix-card">
                 <div class="card-header">
-                    <span><i class="bi bi-grid-3x3-gap"></i> Reports per Radiologist</span>
+                    <span><i class="bi bi-grid-3x3-gap"></i> Reports per Radiologist<i class="bi bi-info-circle chart-info-icon" data-explain="r32-rad-volume" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                         <div style="display:inline-flex;border:1px solid #2d3733;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
                             <button id="r32-rad-toggle-mod" onclick="r32RadToggle('mod')"
@@ -340,7 +341,7 @@
             <!-- ── Addendum Rate per Radiologist ──────────────────────────────── -->
             <div class="data-card !h-auto">
                 <div class="card-header">
-                    <span><i class="bi bi-pencil-square"></i> Addendum Rate by Radiologist</span>
+                    <span><i class="bi bi-pencil-square"></i> Addendum Rate by Radiologist<i class="bi bi-info-circle chart-info-icon" data-explain="r32-addendum" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     <button class="export-pdf-btn" onclick="exportChartPdf32('chart-addendum','Addendum % per Radiologist','addendum_rate')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
                 </div>
                 <div class="card-desc">
@@ -395,7 +396,7 @@
             <!-- ── Reporting Cadence Analysis (radiologist shift patterns) ────── -->
             <div class="data-card !h-auto" id="r32-cadence-card">
                 <div class="card-header">
-                    <span><i class="bi bi-clock-history"></i> Reporting Cadence Analysis</span>
+                    <span><i class="bi bi-clock-history"></i> Reporting Cadence Analysis<i class="bi bi-info-circle chart-info-icon" data-explain="r32-cadence" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     <button id="r32-cadence-mode-btn" onclick="r32ToggleCadenceMode()" class="export-img-btn" title="Toggle enhanced view">
                         <i class="bi bi-circle-fill" style="font-size:6px;"></i> Enhanced View
                     </button>

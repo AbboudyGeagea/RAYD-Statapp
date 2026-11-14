@@ -65,6 +65,7 @@
             .chart-container { height: 320px !important; }
         }
     </style>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
@@ -220,7 +221,7 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div class="data-card">
                     <div class="card-header">
-                        <span>TAT per Patient Class</span>
+                        <span>TAT per Patient Class<i class="bi bi-info-circle chart-info-icon" data-explain="r25-class-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         <button class="export-pdf-btn" onclick="exportChartPdf('classTatChart','TAT per Patient Class','tat_per_class')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
                         <button class="export-img-btn" onclick="exportChart('classTatChart', 'tat_per_class')">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -267,7 +268,7 @@
 
                 <div class="data-card">
                     <div class="card-header">
-                        <span>Hourly Arrival Pattern</span>
+                        <span>Hourly Arrival Pattern<i class="bi bi-info-circle chart-info-icon" data-explain="r25-hourly-arrivals" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         <button class="export-pdf-btn" onclick="exportChartPdf('hourlyChart','Hourly Arrival Pattern','hourly_arrivals')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
                         <button class="export-img-btn" onclick="exportChart('hourlyChart', 'hourly_arrivals')">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -285,7 +286,7 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div class="data-card">
                     <div class="card-header">
-                        <span>Modality Volume Split</span>
+                        <span>Modality Volume Split<i class="bi bi-info-circle chart-info-icon" data-explain="r25-modality-split" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         <button class="export-pdf-btn" onclick="exportChartPdf('modSplitChart','Modality Volume Split','modality_split')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
                         <button class="export-img-btn" onclick="exportChart('modSplitChart', 'modality_split')">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -300,7 +301,7 @@
 
                 <div class="data-card">
                     <div class="card-header">
-                        <span>Duration vs. TAT Correlation</span>
+                        <span>Duration vs. TAT Correlation<i class="bi bi-info-circle chart-info-icon" data-explain="r25-duration-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                         {% if data.pearson_r is not none %}
                         <span class="corr-badge" style="background:{% if data.pearson_r|abs >= 0.7 %}#dcfce7{% elif data.pearson_r|abs >= 0.4 %}#fef9c3{% else %}#fee2e2{% endif %};">r = {{ data.pearson_r }}</span>
                         {% endif %}

@@ -63,6 +63,7 @@
             .chart-container, .tree-container { height: 320px !important; }
         }
     </style>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
@@ -160,7 +161,7 @@
             </div>
             <div class="glass-card">
                 <div class="chart-card-header">
-                    <span class="chart-card-title" style="color:#34d399;">Residents — Median TAT (h)</span>
+                    <span class="chart-card-title" style="color:#34d399;">Residents — Median TAT (h)<i class="bi bi-info-circle chart-info-icon" data-explain="r36-residents" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     <button onclick="r25ExportResRadCsv('residents')" title="Export as CSV"
                         style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
                         onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
@@ -181,7 +182,7 @@
 
             <div class="glass-card mt-6">
                 <div class="chart-card-header">
-                    <span class="chart-card-title" style="color:#60a5fa;">Radiologists — Median TAT (h)</span>
+                    <span class="chart-card-title" style="color:#60a5fa;">Radiologists — Median TAT (h)<i class="bi bi-info-circle chart-info-icon" data-explain="r36-radiologists" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     <button onclick="r25ExportResRadCsv('radiologists')" title="Export as CSV"
                         style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
                         onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
@@ -209,7 +210,7 @@
             </p>
             <div class="glass-card">
                 <div class="chart-card-header">
-                    <span class="chart-card-title" style="color:#60a5fa;">Modality TAT — Median TAT (h)</span>
+                    <span class="chart-card-title" style="color:#60a5fa;">Modality TAT — Median TAT (h)<i class="bi bi-info-circle chart-info-icon" data-explain="r36-modality" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     <button onclick="r25ExportModTatCsv()" title="Export as CSV"
                         style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
                         onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
@@ -436,7 +437,7 @@
             {% if wait_time_data %}
             <div class="glass-card" id="wait-time-card">
                 <div class="chart-card-header">
-                    <span class="chart-card-title">Patient Wait Time</span>
+                    <span class="chart-card-title">Patient Wait Time<i class="bi bi-info-circle chart-info-icon" data-explain="r36-wait" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     <button onclick="r25ExportWaitCsv()" title="Export as CSV"
                         style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
                         onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
@@ -522,7 +523,7 @@
             </p>
             <div class="glass-card" id="tech-tat-scatter-card">
                 <div class="chart-card-header">
-                    <span class="chart-card-title">Technician TAT by AE Station</span>
+                    <span class="chart-card-title">Technician TAT by AE Station<i class="bi bi-info-circle chart-info-icon" data-explain="r36-tech-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
                     <button onclick="r36ExportTechTatScatterCsv()" title="Export as CSV"
                         style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
                         onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
@@ -667,7 +668,7 @@
             <div class="glass-card mt-8" id="r25-rad-matrix-card">
                 <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
                     <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Reports per Reader
-                        <span class="text-zinc-600 normal-case tracking-normal font-bold">— radiologists and residents, see badges</span></p>
+                        <span class="text-zinc-600 normal-case tracking-normal font-bold">— radiologists and residents, see badges</span><i class="bi bi-info-circle chart-info-icon" data-explain="r36-reader-volume" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                         <div style="display:inline-flex;border:1px solid #3f3f46;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
                             <button id="r25-rad-toggle-mod" onclick="r25RadToggle('mod')"
@@ -966,7 +967,7 @@
             <!-- ── Reporting Cadence Analysis ─────────────────────────── -->
             <div class="mt-8" id="shift-patterns-section">
                 <div class="flex items-center justify-between mb-1">
-                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Reporting Cadence Analysis</p>
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Reporting Cadence Analysis<i class="bi bi-info-circle chart-info-icon" data-explain="r36-cadence" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                     <button id="sp-mode-btn" onclick="toggleSpMode()"
                         title="Enhanced view"
                         class="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border transition-all"

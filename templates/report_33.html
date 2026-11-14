@@ -35,6 +35,7 @@
             main { overflow: visible !important; padding: 0 !important; }
         }
     </style>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
     {% include '_header.html' %}
@@ -83,7 +84,7 @@
                         <label class="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Modality</label>
                         <select id="kpi-modality-select" class="bg-zinc-900 border border-white/10 rounded-lg text-xs font-bold text-white px-3 py-1.5"></select>
                         <label class="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-2">Patient Class</label>
-                        <div id="kpi-class-tabs" class="flex gap-1"></div>
+                        <div id="kpi-class-tabs" class="flex gap-1"></div><i class="bi bi-info-circle chart-info-icon" data-explain="r33-kpi" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
                     </div>
                     <div id="kpi-table-container" class="overflow-x-auto"></div>
                 </div>

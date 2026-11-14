@@ -52,7 +52,7 @@
 {% if tech_data.daily_trend and tech_data.daily_trend|length > 1 %}
 <div class="glass-card space-y-2">
     <div class="flex items-center justify-between">
-        <p class="text-sm font-black text-blue-500 uppercase tracking-widest">Daily TAT Trend</p>
+        <p class="text-sm font-black text-blue-500 uppercase tracking-widest">Daily TAT Trend<i class="bi bi-info-circle chart-info-icon" data-explain="r35-daily" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
         <button type="button" onclick="downloadChartPNG('chart-tech-trend', 'tech_trend')"
                 class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-zinc-800 border border-white/10 text-[12px] font-black text-zinc-400 hover:text-white transition-all uppercase">
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -66,7 +66,7 @@
 <!-- By Technician -->
 {% if tech_data.by_technician %}
 <div class="space-y-3">
-    <p class="text-sm font-black text-blue-500 uppercase tracking-widest">By Technician</p>
+    <p class="text-sm font-black text-blue-500 uppercase tracking-widest">By Technician<i class="bi bi-info-circle chart-info-icon" data-explain="r35-by-tech" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
     <div class="glass-card overflow-x-auto">
         <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
             <thead>
@@ -153,7 +153,7 @@
 <!-- By Modality -->
 {% if tech_data.by_modality %}
 <div class="space-y-3">
-    <p class="text-sm font-black text-blue-500 uppercase tracking-widest">By Modality</p>
+    <p class="text-sm font-black text-blue-500 uppercase tracking-widest">By Modality<i class="bi bi-info-circle chart-info-icon" data-explain="r35-by-modality" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
     <div class="glass-card overflow-x-auto">
         <table class="w-full text-left" style="border-collapse:separate; border-spacing:0;">
             <thead>
@@ -183,7 +183,7 @@
 
 <!-- JCI Compliance: order-to-acquisition interval vs. admin-configurable per-priority target -->
 <div id="jci-compliance" class="space-y-3">
-    <p class="text-sm font-black text-blue-500 uppercase tracking-widest">JCI Compliance — Order to Acquisition</p>
+    <p class="text-sm font-black text-blue-500 uppercase tracking-widest">JCI Compliance — Order to Acquisition<i class="bi bi-info-circle chart-info-icon" data-explain="r35-jci" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
     <p class="text-[12px] text-zinc-600 -mt-2">
         Time from order scheduling to actual scan start, per priority tier. Tiers with no target set below show
         the raw time distribution only — no pass/fail judgement is made until a threshold is entered.
@@ -301,7 +301,7 @@
 <div id="tech-flagged" class="space-y-3">
     <div class="flex items-center gap-4 flex-wrap">
         <p class="text-sm font-black text-rose-500 uppercase tracking-widest">
-            Flagged Exams
+            Flagged Exams<i class="bi bi-info-circle chart-info-icon" data-explain="r35-flagged" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
             <span class="ml-2 px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[12px]">{{ tech_data.flagged|length }} exams</span>
         </p>
         <div class="flex items-center gap-2 ml-auto">
@@ -433,7 +433,7 @@
 {% set ack_seen = namespace(n=0) %}
 <div class="space-y-3">
     <p class="text-sm font-black text-emerald-500 uppercase tracking-widest">
-        Acknowledgements Log
+        Acknowledgements Log<i class="bi bi-info-circle chart-info-icon" data-explain="r35-ack-log" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
         <span id="ack-log-count" class="ml-2 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[12px]">{{ tech_data.ack_map|length }} ack'd</span>
     </p>
     <div class="glass-card overflow-x-auto">
@@ -512,7 +512,7 @@
 {% set nd_total = tech_data.never_done|length %}
 <div id="tech-never-done" class="space-y-3">
     <p class="text-sm font-black text-rose-500 uppercase tracking-widest">
-        Never Marked Done
+        Never Marked Done<i class="bi bi-info-circle chart-info-icon" data-explain="r35-never-done" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
         <span class="ml-2 px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[12px]">{{ nd_total }} overdue</span>
     </p>
     <div class="glass-card overflow-x-auto">
