@@ -172,7 +172,7 @@
                 <tbody>
                     {% for row in data.matrix %}
                     <tr class="border-b border-white/5 hover:bg-white/[0.02]">
-                        <td class="p-4 font-bold text-white text-sm">{{ row.ae }}
+                        <td class="p-4 font-bold text-white text-sm" title="{{ row.ae }}">{{ row.ae_display or row.ae }}
                             {% if row.no_schedule %}<i class="bi bi-exclamation-triangle-fill text-rose-500" title="No capacity schedule configured for this AE title"></i>{% endif %}
                         </td>
                         {% for day in row.days %}
@@ -256,7 +256,7 @@
                 tooltip: { trigger: 'axis', formatter: p => `${p[0].name}<br>Avg TAT: <b>${p[0].value}m</b>` },
                 grid: { left: 80, right: 60, top: 10, bottom: 30 },
                 xAxis: { type: 'value', name: 'Avg TAT (min)', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
-                yAxis: { type: 'category', data: d.ae_tat.map(r => r.ae), ...axisStyle },
+                yAxis: { type: 'category', data: d.ae_tat.map(r => r.label || r.ae), ...axisStyle },
                 series: [{
                     type: 'bar', data: d.ae_tat.map(r => r.avg_tat),
                     itemStyle: { borderRadius: [0,5,5,0], color: (p) => p.dataIndex < midpoint ? '#22c55e' : p.dataIndex > d.ae_tat.length - midpoint - 1 ? '#ef4444' : '#60a5fa' },

@@ -242,7 +242,7 @@ async function loadOverview() {
             return `<div class="ae-card${closed?' closed':''}" onclick="${closed?'':  `drillDown('${escJs(ae.aetitle)}')`}">
                 <div class="flex items-start justify-between mb-2">
                     <div><p class="text-[9px] font-black text-slate-500 uppercase tracking-widest">${ae.modality}</p>
-                    <p class="text-white font-black text-sm leading-tight">${escHtml(ae.aetitle)}</p></div>
+                    <p class="text-white font-black text-sm leading-tight" title="${escHtml(ae.aetitle)}">${escHtml(ae.label || ae.aetitle)}</p></div>
                     <span class="badge ${bdg}">${ae.status}</span>
                 </div>
                 <div class="flex justify-between items-end mb-1">
@@ -282,7 +282,7 @@ async function drillDown(aetitle) {
         _candidates = sg.procedures || [];
         _gaps       = sg.gaps       || [];
 
-        document.getElementById('d-aetitle').textContent   = _detail.aetitle;
+        document.getElementById('d-aetitle').textContent   = _detail.label || _detail.aetitle;
         document.getElementById('d-modality').textContent  = _detail.modality;
         document.getElementById('d-opening').textContent   = hm(_detail.opening_min);
         document.getElementById('d-scheduled').textContent = hm(_detail.scheduled_min);

@@ -13,6 +13,7 @@ from flask import Blueprint, jsonify
 from flask_login import login_required
 from sqlalchemy import text
 from db import db
+from utils.ae_display import ae_label_join_sql
 
 logger = logging.getLogger(__name__)
 ai_alerts_bp = Blueprint("ai_alerts", __name__)
@@ -73,7 +74,7 @@ def alerts():
                     })
 
             # Device volume outliers: this-week count > prior avg + 2σ
-            for r in conn.execute(text("""
+            for r in conn.execute(text(f"""
                 WITH weekly_ae AS (
                     SELECT storing_ae, DATE_TRUNC('week', study_date) AS wk, COUNT(*) AS cnt
                     FROM etl_didb_studies
@@ -90,8 +91,10 @@ def alerts():
                     SELECT storing_ae, cnt FROM weekly_ae
                     WHERE wk = DATE_TRUNC('week', CURRENT_DATE)
                 )
-                SELECT t.storing_ae, t.cnt, s.avg_cnt, s.std_cnt
+                -- named by the device's RIS room name, else the AE (utils.ae_display)
+                SELECT COALESCE(dev.label, t.storing_ae), t.cnt, s.avg_cnt, s.std_cnt
                 FROM this_week t JOIN stats s ON t.storing_ae = s.storing_ae
+                {ae_label_join_sql('t.storing_ae')}
                 WHERE s.std_cnt > 0 AND t.cnt > s.avg_cnt + 2 * s.std_cnt
                 ORDER BY (t.cnt - s.avg_cnt) / s.std_cnt DESC LIMIT 3
             """)).fetchall():

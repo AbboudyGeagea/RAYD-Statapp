@@ -6,6 +6,7 @@ from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_go_live_date
 from utils.report_filters import study_site_sql
+from utils.ae_display import ae_label_join_sql
 from utils.site_resolver import default_site
 
 report_27_bp = Blueprint("report_27", __name__)
@@ -248,7 +249,7 @@ def get_report_data(start, end):
     # (PACS procedure code first, RIS proc_id as fallback) so a code present in
     # only one of the two still resolves a duration -- COALESCE would have
     # silently dropped those.
-    sql = text("""
+    sql = text(f"""
         SELECT
             o.order_dbid,
             o.order_status,
@@ -260,6 +261,8 @@ def get_report_data(start, end):
             o.has_study,
             s.study_date,
             s.storing_ae,
+            -- the device's RIS room name, else its AE title (utils.ae_display)
+            COALESCE(dev.label, s.storing_ae) AS ae_label,
             s.procedure_code,
             p.birth_date,
             p.gender_code AS sex,
@@ -285,6 +288,7 @@ def get_report_data(start, end):
             ORDER BY (dm.procedure_code::TEXT IS NOT DISTINCT FROM s.procedure_code::TEXT) DESC
             LIMIT 1
         ) m ON TRUE
+        {ae_label_join_sql('s.storing_ae')}
         WHERE o.scheduled_datetime >= :start
           AND o.scheduled_datetime <  (CAST(:end AS DATE) + INTERVAL '1 day')
     """)
@@ -386,7 +390,7 @@ def report_27():
                 "duration_outliers_removed": duration_outliers_removed,
                 "hourly":                    df_a['scheduled_datetime'].dt.hour.value_counts().sort_index().to_dict(),
                 "status_mix":                _build_status_mix(df_a),
-                "ae_mix":                    df_a['storing_ae'].fillna('Unknown').value_counts().to_dict(),
+                "ae_mix":                    df_a['ae_label'].fillna('Unknown').value_counts().to_dict(),
                 "demo":                      df_a.groupby(['age_group', 'sex'], observed=False).size().unstack(fill_value=0).to_dict('index'),
             }
 
@@ -524,6 +528,7 @@ _CANCELLED_EXPORT_COLUMNS = [
     ("cancelled_at_source",    "Cancelled At Source"),
     ("days_notice",            "Days Notice"),
     ("study_in_pacs",          "Study in PACS"),
+    ("ae_label",               "Room"),          # the RIS room name, else the AE title
     ("storing_ae",             "AE Title"),
     ("accession_number",       "Accession Number"),
     ("order_dbid",             "RIS Order ID"),
@@ -647,6 +652,7 @@ def get_cancelled_exams(start, end):
             {status_name_sql}                               AS ris_status_name,
             {stage_sql}                                     AS stage,
             o.has_study,
+            COALESCE(dev.label, s.storing_ae)               AS ae_label,
             s.storing_ae,
             {cancelled_at_sql}                              AS cancelled_recorded_at,
             {cancelled_src_sql}                             AS cancelled_at_source,
@@ -684,6 +690,7 @@ def get_cancelled_exams(start, end):
             ORDER BY (dm.procedure_code::TEXT IS NOT DISTINCT FROM s.procedure_code::TEXT) DESC
             LIMIT 1
         ) dm ON TRUE
+        {ae_label_join_sql('s.storing_ae')}
         LEFT JOIN sites site ON site.id = o.site_id
         WHERE o.scheduled_datetime >= :start
           AND o.scheduled_datetime <  (CAST(:end AS DATE) + INTERVAL '1 day')

@@ -17,6 +17,7 @@ from flask_login import login_required
 from sqlalchemy import text
 from db import db
 from utils.report_filters import rh_device_sql
+from utils.ae_display import ae_display_sql
 
 logger = logging.getLogger("CAPACITY_LADDER")
 capacity_ladder_bp = Blueprint("capacity_ladder", __name__)
@@ -61,7 +62,8 @@ def overview():
 
         # Get all AEs
         aes = db.session.execute(text(f"""
-            SELECT a.aetitle, a.modality, a.daily_capacity_minutes
+            SELECT a.aetitle, a.modality, a.daily_capacity_minutes,
+                   {ae_display_sql('a', 'a.aetitle')} AS label
             FROM aetitle_modality_map a
             WHERE {rh_device_sql('a')}
             ORDER BY a.modality, a.aetitle
@@ -76,6 +78,7 @@ def overview():
             if opening == 0:
                 result.append({
                     "aetitle":       aetitle,
+                    "label":         ae["label"],
                     "modality":      modality,
                     "opening_min":   0,
                     "scheduled_min": 0,
@@ -97,6 +100,7 @@ def overview():
 
             result.append({
                 "aetitle":         aetitle,
+                "label":           ae["label"],
                 "modality":        modality,
                 "opening_min":     opening,
                 "scheduled_min":   scheduled_min,
@@ -130,9 +134,10 @@ def detail():
         dow = day.weekday()
 
         # AE info
-        ae_row = db.session.execute(text("""
-            SELECT aetitle, modality, daily_capacity_minutes
-            FROM aetitle_modality_map WHERE aetitle = :ae
+        ae_row = db.session.execute(text(f"""
+            SELECT aetitle, modality, daily_capacity_minutes,
+                   {ae_display_sql('m', 'm.aetitle')} AS label
+            FROM aetitle_modality_map m WHERE aetitle = :ae
         """), {"ae": aetitle}).mappings().fetchone()
 
         if not ae_row:
@@ -187,6 +192,7 @@ def detail():
 
         return jsonify({
             "aetitle":       aetitle,
+            "label":         ae_row["label"],
             "modality":      ae_row["modality"],
             "date":          day_str,
             "opening_min":   opening_min,

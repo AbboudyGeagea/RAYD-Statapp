@@ -54,6 +54,7 @@ from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
 from utils.site_resolver import default_site
+from utils.ae_display import ae_label_join_sql
 from utils import tat_sla
 
 logger = logging.getLogger("report_32")
@@ -304,10 +305,12 @@ def get_radiologist_performance_data(form_data):
 
         rad_volume_matrix["by_aetitle"] = [dict(r) for r in db.session.execute(text(f"""
             SELECT {_RAD} AS radiologist,
-                   COALESCE(s.storing_ae, 'Unknown') AS dim,
+                   -- the device's RIS room name, else its AE title (utils.ae_display)
+                   COALESCE(dev.label, s.storing_ae, 'Unknown') AS dim,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s
             {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))" if sec_needs_mod_join else ""}
+            {ae_label_join_sql('s.storing_ae')}
             {_PAM}
             WHERE s.study_date BETWEEN :start AND :end
               AND COALESCE(s.study_modality, '') NOT IN ('SR', 'BMD')

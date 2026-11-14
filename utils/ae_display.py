@@ -47,3 +47,32 @@ def ae_display_sql(map_alias="m", fallback="aetitle"):
     parts = [f"NULLIF(BTRIM({map_alias}.{col}), '')" for col in AE_DISPLAY_COLUMNS]
     parts.append(fallback)
     return "COALESCE(" + ", ".join(parts) + ")"
+
+
+def ae_label_map(session):
+    """{UPPER(TRIM(aetitle)): room name} for every device the AE map names, for pages that
+    build their tables in Python. The lowest id wins, as in ae_label_join_sql."""
+    from sqlalchemy import text
+    rows = session.execute(text(
+        f"SELECT aetitle, {ae_display_sql('m', 'NULL')} FROM aetitle_modality_map m "
+        "WHERE aetitle IS NOT NULL ORDER BY id DESC")).fetchall()
+    return {str(ae).strip().upper(): label for ae, label in rows if label}
+
+
+def ae_label(labels, ae):
+    """The room name of AE title `ae` from an ae_label_map(), else the AE title itself."""
+    if ae is None:
+        return None
+    return labels.get(str(ae).strip().upper()) or ae
+
+
+def ae_label_join_sql(ae_expr, alias="dev"):
+    """A LEFT JOIN giving `<alias>.label`, the room name of the device `ae_expr` names
+    (NULL when the AE map does not name it), for queries that hold an AE title and no
+    join on aetitle_modality_map. LATERAL ... LIMIT 1: the map's UNIQUE is on the raw
+    aetitle while this matches on UPPER(TRIM()), so 'ct1' and 'CT1' must not double a row.
+    Select COALESCE(<alias>.label, <ae_expr>) to fall back to the AE title."""
+    return (f"LEFT JOIN LATERAL (SELECT {ae_display_sql('d', 'NULL')} AS label "
+            f"FROM aetitle_modality_map d "
+            f"WHERE UPPER(TRIM(d.aetitle)) = UPPER(TRIM({ae_expr})) "
+            f"ORDER BY d.id LIMIT 1) {alias} ON TRUE")

@@ -440,8 +440,12 @@ def _get_utilization_intelligence(start, end):
     all_anomalies = 0
     high_stress  = []
     low_util     = []
+    # what the page calls each device: its RIS room name, else the AE (utils.ae_display)
+    from utils.ae_display import ae_label_map, ae_label
+    labels = ae_label_map(db.session)
 
     for ae, ae_df in df.groupby('ae', sort=False):
+        label = ae_label(labels, ae)
         daily_utils = ae_df['util_pct'].tolist()
         daily_theoretical = ae_df['theoretical_pct'].tolist()
         daily_dates = ae_df['date_str'].tolist()
@@ -459,15 +463,16 @@ def _get_utilization_intelligence(start, end):
         all_anomalies += anom_count
 
         if avg_util > 85:
-            high_stress.append(ae)
+            high_stress.append(label)
         elif 0 < avg_util < 30:
-            low_util.append(ae)
+            low_util.append(label)
 
         # Forecast
         f_dates, f_vals, r2, slope = _linear_forecast(daily_dates, daily_utils, 30) if len(daily_utils) >= 5 else ([], [], 0, 0)
 
         ae_results.append({
             "ae": ae,
+            "label": label,
             "avg_util": avg_util,
             "avg_theoretical_util": avg_theoretical,
             "gap_pct": gap_pct,

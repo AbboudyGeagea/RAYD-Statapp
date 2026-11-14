@@ -13,7 +13,7 @@
     <button id="ae-chip-{{ loop.index0 }}" onclick="selectAE({{ loop.index0 }})"
         style="flex-shrink:0;min-width:130px;max-width:170px;background:var(--surface);border:1px solid var(--border);border-left:{{ border_l }};border-radius:10px;padding:10px 12px;cursor:pointer;text-align:left;transition:all 0.15s;font-family:'Space Grotesk',sans-serif;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-            <span style="font-size:11px;font-weight:700;color:white;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;">{{ ae.ae }}</span>
+            <span style="font-size:11px;font-weight:700;color:white;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;" title="{{ ae.ae }}">{{ ae.label or ae.ae }}</span>
             <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:{{ util_color }};flex-shrink:0;">{{ ae.avg_util }}%</span>
         </div>
         <div style="background:var(--border);border-radius:4px;height:3px;overflow:hidden;">

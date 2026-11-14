@@ -290,7 +290,7 @@
             if (chip) chip.style.borderColor = i === idx ? 'var(--accent2)' : 'var(--border)';
         });
         const ae = AE_DATA[idx]; if (!ae || !aeChart) return;
-        document.getElementById('ae-chart-title').textContent = `${ae.ae} — Daily Utilization + 30-Day Forecast`;
+        document.getElementById('ae-chart-title').textContent = `${ae.label || ae.ae} — Daily Utilization + 30-Day Forecast`;
         const mixStr = ae.modality_mix && ae.modality_mix.length
             ? '  ·  ' + ae.modality_mix.slice(0,4).map(m=>`${m.modality} (${m.count})`).join(', ') : '';
         const gapStr = ae.avg_theoretical_util != null

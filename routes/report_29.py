@@ -48,6 +48,15 @@ def get_report_data(form_data):
                 lambda c: name_map.get(str(c).strip().upper()) or (c if pd.notna(c) else None)
             )
 
+        # The device's RIS room name, else its AE title (utils.ae_display), resolved in
+        # pandas for the same reason as the procedure names above. Charts and the table
+        # group on it; storing_ae stays in the frame.
+        if "storing_ae" in df.columns:
+            from utils.ae_display import ae_label_map, ae_label
+            labels = ae_label_map(db.session)
+            df["ae_label"] = df["storing_ae"].map(
+                lambda ae: ae_label(labels, ae) if pd.notna(ae) else None)
+
         df["total_gb"]    = pd.to_numeric(df["total_gb"],    errors="coerce").fillna(0)
         df["study_count"] = pd.to_numeric(df["study_count"], errors="coerce").fillna(0)
         # Exclude rows with 0 studies — replace(0,1) would produce misleading averages
@@ -97,9 +106,9 @@ def report_29():
                 }]
             }
 
-            # 2. Top AE titles by avg MB/study (IQR filter to exclude freak outliers)
+            # 2. Top devices (by room name) by avg MB/study (IQR filter to exclude freak outliers)
             ae_agg = (
-                df.groupby("storing_ae")[["total_gb", "study_count"]]
+                df.groupby("ae_label")[["total_gb", "study_count"]]
                 .sum().reset_index()
             )
             ae_agg["avg_mb"] = (
@@ -116,7 +125,7 @@ def report_29():
                 tech_outliers_removed = 0
             ae_agg_filtered = ae_agg_filtered.sort_values("avg_mb", ascending=False).head(15)
             tech_bar_json = {
-                "labels": ae_agg_filtered["storing_ae"].tolist(),
+                "labels": ae_agg_filtered["ae_label"].tolist(),
                 "data":   ae_agg_filtered["avg_mb"].tolist(),
                 "outliers_removed": tech_outliers_removed
             }
@@ -142,14 +151,15 @@ def report_29():
 
             # 4. Table — aggregate by procedure + modality + AE
             table_df = (
-                df.groupby(["procedure_display", "modality", "storing_ae"])
+                df.groupby(["procedure_display", "modality", "ae_label"])
                 .agg(study_count=("study_count", "sum"), total_gb=("total_gb", "sum"))
                 .reset_index()
             )
             table_df["avg_mb_per_study"] = (
                 table_df["total_gb"] * 1024 / table_df["study_count"]
             ).round(2)
-            table_df = table_df.rename(columns={"storing_ae": "performing_technician"})
+            # the template's name for the device column
+            table_df = table_df.rename(columns={"ae_label": "performing_technician"})
             table_data = table_df.sort_values("total_gb", ascending=False).to_dict(orient="records")
 
     return render_template(

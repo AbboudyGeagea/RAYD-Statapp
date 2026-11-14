@@ -37,6 +37,7 @@ from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
 from utils.site_resolver import default_site
 from utils.report_filters import picked, picked_sql
+from utils.ae_display import ae_label_map, ae_label
 
 logger = logging.getLogger("report_34")
 
@@ -148,6 +149,10 @@ def get_device_utilization_data(form_data):
 
     df['study_date_dt'] = pd.to_datetime(df['study_date'], errors='coerce') if 'study_date' in df.columns else pd.to_datetime(date.today())
 
+    # what the page calls each device: its RIS room name, else the AE (utils.ae_display),
+    # as Report 25's matrix already does
+    labels = ae_label_map(db.session)
+
     # ── Device Utilization & Revenue Matrix (verbatim port of report_25's matrix loop) ──
     matrix_rows = []
     high_stress = 0
@@ -248,7 +253,7 @@ def get_device_utilization_data(form_data):
                     under_utilized += 1
 
             matrix_rows.append({
-                "ae": ae, "days": days_util, "avg": ae_avg,
+                "ae": ae, "ae_display": ae_label(labels, ae), "days": days_util, "avg": ae_avg,
                 "total_rvu": round(ae_df['technical_rvu'].sum(), 1),
                 "total_cap": ae_total_cap,
                 "no_schedule": ae_no_schedule,
@@ -259,7 +264,8 @@ def get_device_utilization_data(form_data):
     if 'aetitle' in df.columns and 'total_tat_min' in df.columns:
         ae_g = df[df['total_tat_min'] > 0].groupby('aetitle')['total_tat_min'].agg(['mean', 'count']).reset_index()
         ae_g = ae_g[ae_g['count'] >= 5].sort_values('mean')
-        ae_tat = [{'ae': r['aetitle'], 'avg_tat': round(float(r['mean']), 1), 'cnt': int(r['count'])} for _, r in ae_g.iterrows()]
+        ae_tat = [{'ae': r['aetitle'], 'label': ae_label(labels, r['aetitle']),
+                   'avg_tat': round(float(r['mean']), 1), 'cnt': int(r['count'])} for _, r in ae_g.iterrows()]
 
     modality_tat = []
     try:

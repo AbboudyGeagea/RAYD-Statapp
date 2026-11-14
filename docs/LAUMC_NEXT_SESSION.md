@@ -177,10 +177,16 @@ read; radiologists approve or finalise (check both).
    Super Report and the AE dropdown labels all use it. The Mapping page lost "Display As";
    a RIS device's description shows read-only (the API answers 409). Tests:
    `tests/test_ris_room_names.py`. Deploy after Monday's comparison, so RIS data errors are
-   fixed first. **Left (slice 2):** Report Composer's `rpt.exams`/`rpt.studies` still read
-   `display_aetitle` as `device_name` (needs a migration); and a sweep for screens that show
-   the raw AE title with no label (charts, tables, exports, sidebar filters of other
-   reports).
+   fixed first.
+   **Slice 2 built 2026-11-14:** Report Composer (migration 0148: `device_name` and `room`
+   are the RIS room name). Screens that showed the bare AE title now show the room name:
+   Report 27 (AE mix chart; a Room column added to the exports beside AE Title), Report 29
+   (storage by device, chart and table), Report 32 (radiologists by device), Report 34
+   (utilization matrix, TAT chart), the AI report (device chips, chart title, summary), AI
+   alerts, the capacity ladder. Checked and left: Reports 23, 31, 33, 35, 36, ER dashboard,
+   financial, ORU analytics, referring intel (AE titles in joins only); the BRAYN console
+   (admin tool, AE titles identify messages). **Left:** the AE sidebar filters show
+   "Room (AE)", and stay keyed on the AE; Monday's comparison of RIS and RAYD names.
 5. **ORU tab severity — on hold until the chief radiologist answers.** It is RAYD's own
    rule-based score (`nlp_worker/clustering.py`, `classify_report`), averaged per modality in
    `routes/oru_analytics.py`, with no published medical reference. It must follow a recognised

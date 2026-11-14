@@ -293,6 +293,11 @@ def app(database_url):
     # the Mapping page's device edits
     from routes.mapping_controller import mapping_bp
     flask_app.register_blueprint(mapping_bp)
+    # screens that name devices (RIS room names, item 4 of 2026-11-13)
+    from routes.ai_alerts import ai_alerts_bp
+    from routes.capacity_ladder import capacity_ladder_bp
+    flask_app.register_blueprint(ai_alerts_bp)
+    flask_app.register_blueprint(capacity_ladder_bp)
 
     from db import db
     from sqlalchemy import text

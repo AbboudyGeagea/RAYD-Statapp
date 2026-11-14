@@ -248,3 +248,103 @@ def test_a_device_the_ris_does_not_know_keeps_its_typed_room_name(client):
     row = db.session.execute(text("SELECT room_name, display_aetitle FROM aetitle_modality_map "
                                   "WHERE aetitle = 'GWX1'")).one()
     assert tuple(row) == ('Gateway A', None)
+
+
+# ── screens that showed the bare AE title (item 4, slice 2) ────────────────────
+
+IN_OCT = '2026-10-15'
+
+
+def ct_room_study(uid=1, ae='ctx1', day=IN_OCT, **cols):
+    """A study on CTX1, whose RIS room is 'CT Room 1'; stored as PACS spelled the AE."""
+    names = ['study_db_uid', 'patient_db_uid', 'study_instance_uid', 'storing_ae', 'study_date',
+             'study_modality', 'study_status', 'procedure_code'] + list(cols)
+    values = dict(study_db_uid=uid, patient_db_uid=uid, study_instance_uid=f'1.2.3.{uid}',
+                  storing_ae=ae, study_date=day, study_modality='CT', study_status='APPROVED',
+                  procedure_code='CT01', **cols)
+    sql(f"INSERT INTO etl_didb_studies ({', '.join(names)}) "
+        f"VALUES ({', '.join(':' + n for n in names)})", **values)
+
+
+@pytest.fixture
+def ct_room():
+    existing('CTX1', name='CT Room 1', alias='ALIAS')
+
+
+def test_report_27_names_the_device_in_its_chart_and_exports(ct_room):
+    from routes.report_27 import get_report_data, get_cancelled_exams
+    ct_room_study()
+    sql("""INSERT INTO etl_orders (order_dbid, study_db_uid, accession_number, order_status,
+                                   modality, proc_id, scheduled_datetime, has_study)
+           VALUES (1, 1, 'A1', 'CA', 'CT', 'CT01', :d, true)""", d=IN_OCT + ' 09:00')
+    audit = get_report_data('2026-10-01', '2026-10-31')
+    assert audit['ae_label'].tolist() == ['CT Room 1']
+    cancelled = get_cancelled_exams('2026-10-01', '2026-10-31')
+    assert cancelled['ae_label'].tolist() == ['CT Room 1']
+    assert cancelled['storing_ae'].tolist() == ['ctx1']      # the AE title stays beside it
+
+
+def test_report_29_groups_storage_by_room(ct_room):
+    from routes.report_29 import get_report_data
+    sql("""INSERT INTO summary_storage_daily (id, study_date, modality, procedure_code, total_gb,
+                                              study_count, storing_ae)
+           VALUES (1, :d, 'CT', 'CT01', 2.5, 4, 'CTX1'), (2, :d, 'MR', 'MR01', 1, 1, 'NOT_MAPPED')""",
+        d=IN_OCT)
+    df, _start, _end = get_report_data({'start_date': '2026-10-01', 'end_date': '2026-10-31'})
+    assert sorted(df['ae_label']) == ['CT Room 1', 'NOT_MAPPED']
+
+
+def test_report_34_matrix_and_tat_chart_use_the_room(ct_room):
+    from werkzeug.datastructures import MultiDict
+    from routes.report_34 import get_device_utilization_data
+    for uid in range(1, 6):
+        ct_room_study(uid, rep_final_timestamp=IN_OCT + ' 12:00', rep_final_signed_by='dr',
+                      insert_time=IN_OCT + ' 10:00', rep_study_last_composed_ts=IN_OCT + ' 12:00',
+                      rep_study_last_composed_by='dr.test@ad')
+    data, _start, _end = get_device_utilization_data(
+        MultiDict({'start_date': '2026-10-01', 'end_date': '2026-10-31'}))
+    assert [r['ae_display'] for r in data['matrix']] == ['CT Room 1']
+
+
+def test_the_ai_report_names_devices_by_room(ct_room):
+    from routes.report_ai import _get_utilization_intelligence
+    ct_room_study(day='2026-09-15')
+    data = _get_utilization_intelligence('2026-09-01', '2026-09-30')
+    assert [a['label'] for a in data['ae_list']] == ['CT Room 1']
+
+
+def test_ai_alerts_name_a_busy_device_by_room(client, ct_room):
+    from db import db
+    week0 = db.session.execute(text("SELECT DATE_TRUNC('week', CURRENT_DATE)::date")).scalar()
+    from datetime import timedelta
+    uid = 0
+    for weeks_back, count in ((5, 2), (4, 3), (3, 2), (2, 3), (1, 2), (0, 20)):
+        for _ in range(count):
+            uid += 1
+            ct_room_study(uid, day=week0 - timedelta(weeks=weeks_back))
+    alerts = client.get('/ai/alerts', headers=ADMIN).get_json()['alerts']
+    msgs = [a['msg'] for a in alerts if a['type'] == 'utilization']
+    assert msgs and msgs[0].startswith('CT Room 1: 20 studies this week')
+
+
+def test_the_capacity_ladder_names_devices_by_room(client, ct_room):
+    tiles = client.get('/viewer/capacity-ladder/overview', headers=ADMIN,
+                       query_string={'date': IN_OCT}).get_json()
+    assert {t['aetitle']: t['label'] for t in tiles}['CTX1'] == 'CT Room 1'
+    detail = client.get('/viewer/capacity-ladder/detail', headers=ADMIN,
+                        query_string={'date': IN_OCT, 'aetitle': 'CTX1'}).get_json()
+    assert detail['label'] == 'CT Room 1'
+
+
+def test_report_32_breaks_radiologists_down_by_room(ct_room):
+    from werkzeug.datastructures import MultiDict
+    from routes.report_32 import get_radiologist_performance_data
+    for uid in range(1, 4):
+        ct_room_study(uid, rep_final_timestamp=IN_OCT + ' 12:00', rep_final_signed_by='dr',
+                      insert_time=IN_OCT + ' 10:00', rep_study_last_composed_ts=IN_OCT + ' 12:00',
+                      rep_study_last_composed_by='dr.test@ad', signing_physician_last_name='Test',
+                      reading_physician_last_name='Test')
+    out = get_radiologist_performance_data(
+        MultiDict({'start_date': '2026-10-01', 'end_date': '2026-10-31'}))
+    data = out[0] if isinstance(out, tuple) else out
+    assert {r['dim'] for r in data['rad_volume_matrix']['by_aetitle']} == {'CT Room 1'}
