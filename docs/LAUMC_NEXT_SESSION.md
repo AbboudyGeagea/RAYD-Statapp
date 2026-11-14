@@ -234,6 +234,10 @@ read; radiologists approve or finalise (check both).
     follow too.
 12. **Chart explanations (info icon on each chart) from the other branches**, written for
     LAUMC's own queries. Newest copy: Bekaa `static/js/chart-explanations.js` (2026-10-14).
+    **Started 2026-11-14:** `static/js/chart-explanations.js` (the browser's own dialog, no
+    CDN) and Report 22, all 15 charts. `tests/test_chart_explanations.py` fails when a page
+    names a note with no text or does not load the script. Left: Reports 23, 25, 27, 29, 31–36,
+    the Super Report, the daily briefing, the ER dashboard and the ORU tab, page by page.
 13. **Separate database for SJH, same web app** (confirmed; RBAC rejected, full database
     separation is safer). Replaces the RH-only rule (CLAUDE.md rule 0) once built.
     a. A dropdown on every report switches between the two databases (selected users only).
