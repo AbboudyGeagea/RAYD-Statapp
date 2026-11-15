@@ -1,6 +1,6 @@
 # LAUMC — To do
 
-Updated 2026-11-15. This file holds only what is still open. What was built is in the commit
+Updated 2026-11-16. This file holds only what is still open. What was built is in the commit
 messages, and the July version of this file (history, punch list round 2) is in git history.
 Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 `LAUMC_OPEN_QUESTIONS.md` (vendor questions), `LAUMC_DATA_REQUEST.md` (discovery record).
