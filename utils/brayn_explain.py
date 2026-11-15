@@ -52,7 +52,9 @@ RULES = {
                              'ORC-9 / OBR-22 is later than the time the message arrived. '
                              "Usually the sender's clock."),
     'PLACEHOLDER_DATA':     ('Placeholder or test data',
-                             'Values a quick registration leaves behind, such as birth date 9999-11-11.'),
+                             'Values a quick registration leaves behind, such as birth date 9999-11-11, '
+                             'and anyone on the placeholder list below: test patients, '
+                             '"Referring, Generic", service accounts.'),
     'LADDER_REGRESSION':    ('Lifecycle went backwards',
                              'Retired in 0135: covered by "Times contradict the lifecycle".'),
     'STALLED_SCHEDULED':    ('Scheduled, not arrived',

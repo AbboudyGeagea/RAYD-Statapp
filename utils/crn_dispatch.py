@@ -291,14 +291,33 @@ def _ris_refresh(code):
         logger.warning(f"[CRN] RIS contact lookup for {code} failed: {e}")
 
 
+def _placeholder_referrer(code):
+    """A code on BRAYN's placeholder list (migration 0151), such as "Referring, Generic":
+    nobody to text. A failed lookup counts as a real doctor, as before the list."""
+    if not code:
+        return False
+    try:
+        with db.session.begin_nested():
+            return bool(db.session.execute(text("""
+                SELECT EXISTS (SELECT 1 FROM brayn_placeholders
+                               WHERE kind = 'referring' AND active AND UPPER(BTRIM(code)) = :c)
+            """), {'c': code.strip().upper()}).scalar())
+    except Exception as e:
+        logger.warning(f"[CRN] placeholder lookup for {code} failed: {e}")
+        return False
+
+
 def _route(n, cfg):
     code, referring_name = _referring_doctor(n)
-    if code:
+    placeholder = _placeholder_referrer(code)
+    if code and not placeholder:
         _ris_refresh(code)
-    contact = _contact(code)
+    contact = None if placeholder else _contact(code)
 
     if not code:
         reason = 'no referring doctor code (PV1-8) on the report or its order'
+    elif placeholder:
+        reason = f'doctor code {code} is a placeholder referring doctor (BRAYN placeholder list), not a person'
     elif not contact:
         reason = f'doctor code {code} is not in the contact list'
     elif not contact['active']:

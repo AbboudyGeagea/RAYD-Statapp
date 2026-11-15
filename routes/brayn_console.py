@@ -573,7 +573,61 @@ def _settings():
     """)
     ladder = _rows("""SELECT rung, ladder_rank, label, expected, enforce_order
                         FROM brayn_ladder_profile ORDER BY ladder_rank""")
-    return {'groups': groups, 'status_map': status_map, 'result_map': result_map, 'ladder': ladder}
+    return {'groups': groups, 'status_map': status_map, 'result_map': result_map, 'ladder': ladder,
+            'placeholders': _placeholders()}
+
+
+# ── Placeholder records (migration 0151) ──────────────────────────────────────
+#
+# Test patients, "Referring, Generic" and the CSH service account are loaded faithfully, but
+# are not what they claim to be. The rh views read around whatever is listed here, so every page
+# follows this list at once; nothing is deleted. Each row says how much of the data it reaches,
+# counted on the real tables (the views already hide it), Rizk Hospital only.
+
+PLACEHOLDER_KINDS = {
+    'patient':   ('Test patient', 'left out of every page'),
+    'referring': ('Referring doctor', 'exams counted, referrer left blank'),
+    'staff':     ('Service account', 'left out of staff lists'),
+}
+_RH_STUDY = "COALESCE(s.site_id = (SELECT id FROM public.sites WHERE is_default LIMIT 1), TRUE)"
+_NAME_OF = "UPPER(CONCAT_WS(', ', BTRIM({0}last_name), BTRIM({0}first_name)))"
+
+
+def _placeholders():
+    rows = _rows("""SELECT id, kind, code, name, label, active, updated_at
+                      FROM brayn_placeholders ORDER BY kind, label, code, name""")
+    names = {r['name'].strip().upper() for r in rows if r['kind'] == 'referring' and (r['name'] or '').strip()}
+    referred = {r['n']: r['studies'] for r in _rows(f"""
+        SELECT {_NAME_OF.format('s.referring_physician_')} AS n, COUNT(*) AS studies
+          FROM public.etl_didb_studies s
+         WHERE {_RH_STUDY} AND {_NAME_OF.format('s.referring_physician_')} = ANY(:names)
+         GROUP BY 1""", {'names': sorted(names)})} if names else {}
+    for r in rows:
+        r['kind_label'], r['effect'] = PLACEHOLDER_KINDS.get(r['kind'], (r['kind'], ''))
+        code = (r['code'] or '').strip()
+        if r['kind'] == 'patient':
+            n = _scalar(f"""
+                SELECT COUNT(*) FROM public.etl_didb_studies s
+                 WHERE {_RH_STUDY}
+                   AND (s.patient_db_uid IN (SELECT patient_db_uid FROM public.etl_patient_view WHERE id = :c)
+                        OR s.accession_number IN (
+                            SELECT o.accession_number FROM public.etl_orders o
+                             WHERE o.accession_number IS NOT NULL
+                               AND o.patient_dbid IN (SELECT patient_person_key::text
+                                                        FROM public.std_patient_ids WHERE patient_id = :c)))
+            """, {'c': code}) if code else 0
+            r['reach'] = f"{n:,} {'study' if n == 1 else 'studies'}"
+        elif r['kind'] == 'referring':
+            n = referred.get((r['name'] or '').strip().upper(), 0)
+            r['reach'] = f"{n:,} {'study' if n == 1 else 'studies'}" if (r['name'] or '').strip() else 'HL7 and CRN only'
+        else:
+            n = _scalar(f"""
+                SELECT COUNT(*) FROM public.std_resources_ris r
+                 WHERE (:c <> '' AND :c IN (r.resource_id_key::text, r.person_key::text, r.resource_id))
+                    OR (:n <> '' AND {_NAME_OF.format('r.')} = :n)
+            """, {'c': code, 'n': (r['name'] or '').strip().upper()})
+            r['reach'] = f"{n:,} RIS staff {'entry' if n == 1 else 'entries'}"
+    return rows
 
 
 # ── the page ──────────────────────────────────────────────────────────────────
@@ -1111,6 +1165,83 @@ def save_rule():
     _audit('brayn_rule_changed', {'rule_code': code, 'modality': modality,
                                   **{k: v for k, v in params.items() if k not in ('c', 'm')}})
     return jsonify({'status': 'ok'})
+
+
+@brayn_bp.route('/brayn/placeholders/save', methods=['POST'])
+@login_required
+def save_placeholder():
+    """Add a placeholder record, or change one (with its id). Every page follows at once."""
+    _require_access()
+    body = request.json or {}
+    kind = str(body.get('kind') or '').strip()
+    code = str(body.get('code') or '').strip() or None
+    name = re.sub(r'\s+', ' ', str(body.get('name') or '')).strip() or None
+    label = re.sub(r'\s+', ' ', str(body.get('label') or '')).strip()
+    if kind not in PLACEHOLDER_KINDS:
+        return jsonify({'error': 'choose a kind: test patient, referring doctor or service account'}), 400
+    if kind == 'patient' and name:
+        return jsonify({'error': 'a patient is listed by patient ID only: no patient name is kept in RAYD'}), 400
+    if not code and not name:
+        return jsonify({'error': 'enter a code' + ('' if kind == 'patient' else ' or a name')}), 400
+    if (code and len(code) > 64) or (name and len(name) > 120) or len(label) > 120:
+        return jsonify({'error': 'too long: codes up to 64 characters, names and descriptions up to 120'}), 400
+    try:
+        pid = int(body['id']) if body.get('id') not in (None, '') else None
+    except (TypeError, ValueError):
+        return jsonify({'error': 'unknown record'}), 400
+    params = {'id': pid, 'k': kind, 'c': code, 'n': name, 'l': label, 'u': current_user.id}
+    try:
+        if pid is None:
+            pid = db.session.execute(text("""
+                INSERT INTO brayn_placeholders (kind, code, name, label, active, updated_by, updated_at)
+                VALUES (:k, :c, :n, :l, TRUE, :u, NOW()) RETURNING id
+            """), params).scalar()
+        elif not db.session.execute(text("""
+                UPDATE brayn_placeholders SET kind = :k, code = :c, name = :n, label = :l,
+                       updated_by = :u, updated_at = NOW()
+                 WHERE id = :id RETURNING id
+            """), params).scalar():
+            db.session.rollback()
+            return jsonify({'error': 'unknown record'}), 404
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        if 'uq_brayn_placeholders' in str(e):
+            return jsonify({'error': 'already on the list'}), 409
+        logger.exception("BRAYN console: placeholder save failed")
+        return jsonify({'error': 'save failed'}), 500
+    _drop_cache('placeholders')
+    _audit('brayn_placeholder_saved', {'id': pid, 'kind': kind, 'code': code, 'name': name, 'label': label})
+    return jsonify({'status': 'ok', 'id': pid})
+
+
+@brayn_bp.route('/brayn/placeholders/active', methods=['POST'])
+@login_required
+def placeholder_active():
+    """Switch a placeholder record on or off. Off: its data shows again everywhere."""
+    _require_access()
+    body = request.json or {}
+    on = str(body.get('active')).lower() in ('1', 'true', 'yes', 'on')
+    try:
+        pid = int(body.get('id'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'unknown record'}), 400
+    try:
+        found = db.session.execute(text("""
+            UPDATE brayn_placeholders SET active = :on, updated_by = :u, updated_at = NOW()
+             WHERE id = :id RETURNING id
+        """), {'on': on, 'u': current_user.id, 'id': pid}).scalar()
+        if not found:
+            db.session.rollback()
+            return jsonify({'error': 'unknown record'}), 404
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception("BRAYN console: placeholder switch failed | %s", pid)
+        return jsonify({'error': 'save failed'}), 500
+    _drop_cache('placeholders')
+    _audit('brayn_placeholder_switched', {'id': pid, 'active': on})
+    return jsonify({'status': 'ok', 'active': on})
 
 
 def _audit(action, detail):

@@ -604,6 +604,23 @@
     {% for m in result_map %}<tr><td class="mono"><b>{{ m.result_status }}</b></td><td class="mono dim">{{ m.sending_app or 'any' }}</td><td>{{ X.step_label(m.canonical_state) }}</td></tr>{% endfor %}
     </tbody></table></div>
     <p class="dim" style="font-size:12px;margin:8px 0 0">A value missing here appears in To fix, where it can be mapped.</p></div>
+  <div class="box" style="margin-top:12px" id="placeholders"><h3>Placeholder records</h3>
+    <p class="t2" style="font-size:13px;margin:0 0 8px">Records loaded as they are, though they are not what they claim to be. Every page reads around them at once, and nothing is deleted. A test patient is left out of every page. A placeholder referring doctor's exams stay in every count with the referrer left blank, and CRN texts the fallback contact instead. A service account is left out of staff lists. BRAYN names any of them on an HL7 message.</p>
+    <div class="tablewrap"><table><thead><tr><th>Kind</th><th>Code</th><th>Name</th><th>What it is</th><th>Reaches</th><th>On</th></tr></thead><tbody>
+    {% for p in placeholders %}<tr data-placeholder="{{ p.id }}"><td>{{ p.kind_label }}<span class="t2" style="display:block;font-size:12px">{{ p.effect }}</span></td><td class="mono">{{ p.code or '-' }}</td><td>{{ p.name or '-' }}</td><td>{{ p.label or '-' }}</td><td style="white-space:nowrap">{{ p.reach }}</td>
+      <td><button class="toggle {{ 'on' if p.active }}" type="button" aria-pressed="{{ 'true' if p.active else 'false' }}" aria-label="{{ p.kind_label }} {{ p.code or p.name }} on or off" {% if can_configure %}data-placeholderactive{% else %}disabled{% endif %}></button></td></tr>
+    {% else %}<tr><td colspan="6" class="dim">Nothing is listed.</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% if can_configure %}
+    <form class="act" data-placeholderadd style="margin-top:10px">
+      <select class="sel" name="kind" aria-label="Kind of record">{% for k, v in [('patient', 'Test patient'), ('referring', 'Referring doctor'), ('staff', 'Service account')] %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+      <input type="text" name="code" maxlength="64" placeholder="Patient ID or RIS code" aria-label="Patient ID or RIS code">
+      <input type="text" name="name" maxlength="120" placeholder="Last, First (doctors and staff)" aria-label="Name as Last, First, for a referring doctor or service account">
+      <input type="text" name="label" maxlength="120" placeholder="What it is" aria-label="What it is">
+      <button class="btn primary" type="submit">Add</button>
+    </form>
+    {% endif %}
+    <p class="dim" style="font-size:12px;margin:8px 0 0">A test patient is listed by patient ID only, as the RIS or PACS shows it. Never type a patient's name, because no patient name is kept in RAYD. PACS studies carry only the referring doctor's name, so a referring doctor needs the name exactly as the studies show it, as Last, First. "Reaches" counts Rizk Hospital studies in the whole history.</p></div>
 {% endif %}
 </div>
 </main>
@@ -724,6 +741,14 @@
   document.addEventListener('click', async e => {
     if (e.target.id === 'drawer') { closeDrawer(); return; }
     const sw = e.target.closest('[data-switch]');
+    const ph = e.target.closest('[data-placeholderactive]');
+    if (ph) {
+      const on = !ph.classList.contains('on');
+      const res = await post('/brayn/placeholders/active', {id: ph.closest('[data-placeholder]').dataset.placeholder, active: on});
+      if (!res.ok) { fail(res, 'Saving'); return; }
+      reloadWith(on ? 'On: every page reads around this record again.' : 'Off: this record shows again on every page.');
+      return;
+    }
     if (sw) {
       const on = sw.dataset.switch === '1';
       const ok = await askYesNo(on ? 'Turn BRAYN on?' : 'Turn BRAYN off?',
@@ -830,6 +855,12 @@
       const res = await post('/brayn/result-status/save', {result_status: f.dataset.value, sending_app: f.dataset.app || '', canonical_state: state});
       if (!res.ok) { fail(res, 'Saving'); return; }
       reloadWith('Saved: OBX-11 = ' + f.dataset.value + ' means ' + (state === 'signed_final' ? 'a final' : 'a preliminary') + ' report. New reports use it.');
+    } else if (f.matches('[data-placeholderadd]')) {
+      e.preventDefault();
+      const v = k => f.elements[k].value.trim();
+      const res = await post('/brayn/placeholders/save', {kind: v('kind'), code: v('code'), name: v('name'), label: v('label')});
+      if (!res.ok) { fail(res, 'Adding'); return; }
+      reloadWith('Added to the placeholder list. Every page reads around it from now on.');
     }
   });
   document.addEventListener('change', async e => {

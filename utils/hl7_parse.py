@@ -331,6 +331,8 @@ def _clinical(segments, msg):
     # PV1-2 patient class, falling back to PID-18 for senders that omit PV1.
     msg.patient_class = field(pv1, 2) or field(pid, 18)
     msg.patient_location = component(field(pv1, 3, ''), 0)
+    # PV1-8 referring doctor's code: BRAYN's placeholder list names "Referring, Generic".
+    msg.referring_id = component(field(pv1, 8, ''), 0) or None
 
 
 def parse_adt(segments, msg):

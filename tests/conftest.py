@@ -81,6 +81,8 @@ CONFIG_TABLES = [
     'settings', 'go_live_config', 'aetitle_modality_map',
     'brayn_rules', 'hl7_status_map', 'hl7_result_status_map', 'brayn_ladder_profile',
     'hl7_field_mappings', 'hl7_field_targets',
+    # BRAYN's placeholder list (migration 0151), seeded with "Referring, Generic" and CSH
+    'brayn_placeholders',
     # what the Live Department board reads for durations and opening minutes
     'procedure_duration_map', 'device_weekly_schedule', 'device_exceptions',
     # name merging the worklist views read

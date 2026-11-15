@@ -115,7 +115,7 @@ _FUTURE_SKEW_MINUTES = 5
 _CACHE_TTL = 300
 _CACHE_LOCK = threading.Lock()
 _cache = {'rules': (0.0, None), 'status_map': (0.0, None), 'aetitles': (0.0, None),
-          'result_map': (0.0, None), 'ladder': (0.0, None)}
+          'result_map': (0.0, None), 'ladder': (0.0, None), 'placeholders': (0.0, None)}
 
 
 # ── The contract BRAYN screens ─────────────────────────────────────────────────
@@ -175,6 +175,7 @@ class ParsedMessage:
     procedure_text:    str  = None
     patient_class:     str  = None
     patient_location:  str  = None
+    referring_id:      str  = None        # PV1-8, the referring doctor's code
 
     # Demographics (ADT)
     patient_name:      str  = None
@@ -475,6 +476,26 @@ def is_expected(rank):
     return bool(ladder_profile().get(rung, {}).get('expected'))
 
 
+def placeholder_list():
+    """
+    BRAYN's placeholder list (migration 0151, kept in the console's Settings):
+    {'patient': {patient IDs}, 'referring': {codes}, 'staff': {codes}}, upper-cased.
+    The rh views apply the same list to what the Oracle ETL loads.
+    """
+    def load():
+        rows, err = _bounded_query('placeholder list load', """
+            SELECT kind, UPPER(BTRIM(code)) AS code FROM brayn_placeholders
+             WHERE active AND BTRIM(code) <> ''
+        """)
+        if err:
+            raise RuntimeError(err)
+        listed = {'patient': set(), 'referring': set(), 'staff': set()}
+        for r in rows:
+            listed.setdefault(r['kind'], set()).add(r['code'])
+        return listed
+    return _cached('placeholders', load) or {}
+
+
 def _known_aetitles():
     def load():
         rows, err = _bounded_query(
@@ -704,10 +725,26 @@ def _placeholder(msg):
     Reports what the parser already recognised and neutralised, rather than
     re-deriving it. The parser has to null a 9999-11-11 birth date anyway to keep it
     out of the age bands; this makes that silent correction visible and countable.
+
+    Also names a patient, referring doctor or account on BRAYN's placeholder list
+    (migration 0151): a test patient, "Referring, Generic", the CSH service account.
     """
-    if msg.placeholders:
+    found = list(msg.placeholders)
+    listed = placeholder_list()
+    key = lambda v: (v or '').strip().upper()
+    if key(msg.patient_id) and key(msg.patient_id) in listed.get('patient', ()):
+        found.append('patient %s (a test patient on the placeholder list)' % msg.patient_id.strip())
+    referring = {key(msg.referring_id)}
+    if msg.performed_by_role == 'referring':
+        referring.add(key(msg.performed_by_id))
+    for code in sorted(c for c in referring if c and c in listed.get('referring', ())):
+        found.append('referring doctor %s (a placeholder, not a person)' % code)
+    if msg.performed_by_role != 'referring' and key(msg.performed_by_id) \
+            and key(msg.performed_by_id) in listed.get('staff', ()):
+        found.append('done by %s (a service account on the placeholder list)' % msg.performed_by_id.strip())
+    if found:
         return Finding('PLACEHOLDER_DATA', INFO, {
-            'placeholders': list(msg.placeholders),
+            'placeholders': found,
             'patient_id': msg.patient_id,
         })
 

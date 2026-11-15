@@ -32,6 +32,36 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
                   NULLIF(BTRIM(station_name),''), aetitle) AS label_on_screen
   FROM aetitle_modality_map ORDER BY aetitle;
   ```
+- **Monday too, item 19: find the test patients.** Names stay in Oracle; only the patient IDs
+  are typed on the BRAYN console (Settings → Placeholder records). Review the list by hand:
+  `%TEST%` also catches real surnames.
+  ```sql
+  -- RIS Oracle: test patients and their patient IDs
+  SELECT pil.PATIENT_ID, pil.IS_PRIMARY, per.LAST_NAME, per.FIRST_NAME
+  FROM PATIENT p
+  JOIN PERSON per ON per.PERSON_KEY = p.PATIENT_PERSON_KEY
+  JOIN PATIENT_ID_LIST pil ON pil.PATIENT_PERSON_KEY = p.PATIENT_PERSON_KEY
+  WHERE UPPER(per.LAST_NAME) LIKE '%TEST%' OR UPPER(per.FIRST_NAME) LIKE '%TEST%'
+     OR UPPER(per.LAST_NAME) LIKE '%PHANTOM%' OR UPPER(per.LAST_NAME) IN ('QA', 'DUMMY')
+  ORDER BY per.LAST_NAME, pil.PATIENT_ID;
+
+  -- PACS Oracle: the same on PACS (QA images sent with no RIS order have only this ID)
+  SELECT p.ID, p.LAST_NAME, p.FIRST_NAME, p.NUMBER_OF_PATIENT_STUDIES
+  FROM MEDISTORE.DIDB_PATIENTS p
+  WHERE UPPER(p.LAST_NAME) LIKE '%TEST%' OR UPPER(p.FIRST_NAME) LIKE '%TEST%'
+     OR UPPER(p.LAST_NAME) LIKE '%PHANTOM%' OR UPPER(p.LAST_NAME) IN ('QA', 'DUMMY')
+  ORDER BY p.NUMBER_OF_PATIENT_STUDIES DESC;
+  ```
+  After deploy, the console's "Reaches" column shows how many studies each record touches.
+  If "Referring, Generic" reaches 0 studies, PACS spells it differently. Find the spelling on
+  RAYD Postgres and correct the name on the console:
+  ```sql
+  SELECT referring_physician_last_name, referring_physician_first_name, COUNT(*)
+  FROM etl_didb_studies
+  WHERE referring_physician_last_name ILIKE '%generic%' OR referring_physician_first_name ILIKE '%generic%'
+     OR referring_physician_last_name ILIKE '%referring%'
+  GROUP BY 1, 2 ORDER BY 3 DESC;
+  ```
 - **Tuesday 2026-11-17, from 9:30:** double-check session on Report 27 Order Status Mix,
   mainly the scheduled status (item 7); a session on the PACS user columns in
   `MEDILINK.SECM_USERS` (item 9); and finding the RIS column that holds ORC-2 (item 1).
@@ -74,7 +104,7 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 16 | Shared filter panel, 6 reports | Medium | 4–5.5 | — |
 | 17 | R2I and BRAYN switch-on checks | Medium | 2 | feed live |
 | 18 | ORU final-only via BRAYN | Low–Medium | 2 | meaning of `FAP` or a prelim sample |
-| 19 | Placeholders via BRAYN | Low | 1.5–2 | — |
+| 19 | Placeholders via BRAYN — **done** (test patient IDs on Monday) | Low | 1.5–2 | — |
 | 20 | CRN go-live (low) | Medium | 3.5–4.5 | provider, signed-off wording |
 | 21 | Patient schedule lead time (very low) | Low–Medium | 2.5–3 | which moment counts as "booked" |
 | 22 | Daily Briefing snapshot RH only (found 2026-11-14) — **done** | Low | 1 | — (counts checked on the server) |
@@ -322,6 +352,24 @@ read; radiologists approve or finalise (check both).
 - **Placeholder records — to be filtered by BRAYN.** "Referring, Generic"
   (`4101031379966`/`...68`), test patients and the CSH service account are loaded faithfully
   and not yet excluded from any report. Same BRAYN note as above.
+  **Done 2026-11-15**, not deployed (migration 0151, `tests/test_placeholders.py`). BRAYN keeps
+  the list (`brayn_placeholders`, console Settings → Placeholder records, admin only), seeded
+  with both "Referring, Generic" codes and the CSH account (9271030205716). BRAYN never sees
+  what the Oracle ETL loads, so the list is applied in the `rh` views every page reads, the way
+  RH-only works; nothing is deleted:
+  - a test patient (listed by patient ID, RIS or PACS, never by name) is left out of every
+    page: studies, RIS orders, steps, status history, RIS reports and ORU reports;
+  - a placeholder referrer's exams stay in every count, with the referrer blank, so it leads
+    no referrer list (matched by "Last, First" on PACS studies, by code on HL7). CRN texts the
+    fallback contact straight away and records why;
+  - a service account is left out of `std_resources_ris`, so of every staff list and the
+    Report Composer.
+  BRAYN names a listed patient, referrer or account on any HL7 message (`PLACEHOLDER_DATA`).
+  Keeping such messages out of RAYD's tables comes with the BRAYN gate, per message type.
+  Test patients are not listed yet: their IDs come from Monday's queries (see the Monday
+  section). Cost: the views add roughly 0.15 µs per study scanned, and blanking the referrer
+  about 0.5 µs (about +45 ms and +150 ms on a cold query over a year of studies, measured on
+  a test database).
 
 Numbered 15–21 in the estimates above, in this order: urgent emergent, shared filter panel,
 R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedule lead time.
@@ -347,8 +395,9 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     day. Orders still Scheduled or cancelled no longer count. The orders were already RH only
     (the `rh.etl_orders` view). "Orders Placed" is now "RIS Exams Done"; the panel has its
     info icon.
-24. **Deploy the 2026-11-14 work** (items 3, 4, 6, 11, 12; migrations 0148 and 0149) after
-    item 4's Monday room-name check.
+24. **Deploy the 2026-11-14 and 2026-11-15 work** (items 3, 4, 6, 11, 12, 16, 19, 22, 23,
+    25; migrations 0148–0151) after item 4's Monday room-name check. Then add Monday's test
+    patients on the BRAYN console and check each placeholder record's "Reaches" count.
 25. **ER dashboard onto the one report UI** (CLAUDE.md rule 8). The ORU tab was taken out of
     scope (operator, 2026-11-14) and stays the standalone page `/oru`.
     **Done 2026-11-14**, not deployed: the ER dashboard is Report 38 (`routes/report_38.py`,
@@ -406,7 +455,8 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
 - **Listener contract**: whitelist-and-discard (parse ORM/ORU, ACK+ignore the rest, never NAK).
 - **Placeholders ≠ NULL**: "Referring, Generic" (`4101031379966`/`...68` — seen again in
   the `RESOURCE_ID` sample, type-6/3 rows with value `SCH`), test patients, CSH service
-  account → exclusion list, separate from NULL handling (open item 7 above).
+  account → exclusion list, separate from NULL handling: BRAYN's `brayn_placeholders`,
+  applied by the `rh` views (migration 0151, item 19).
 - Backfill: **never** row-level the 166M image rows — aggregate at source to ~614k/study
   (`LAUMC_DATA_REQUEST.md` §B5) if the full Phase 3/4 row-level sync ever proves too slow
   or unnecessary.
