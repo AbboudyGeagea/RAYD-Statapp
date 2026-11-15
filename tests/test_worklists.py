@@ -589,8 +589,11 @@ def test_crn(full_study):
 def test_study_date_filter_reads_the_study_date_index(app):
     """study_at is computed, so on its own it could only be filtered after reading
     every study; the compiler adds the same day range on study_date."""
+    # the hospital's date (TODAY), not the database's CURRENT_DATE: the database runs on UTC,
+    # so from midnight to 02:00 in Beirut its date is still yesterday
     sql("""INSERT INTO etl_didb_studies (study_db_uid, patient_db_uid, study_date, study_modality)
-           SELECT g, g, CURRENT_DATE - (g % 400), 'CT' FROM generate_series(1, 2000) g""")
+           SELECT g, g, CAST(:today AS date) - (g % 400), 'CT' FROM generate_series(1, 2000) g""",
+        today=TODAY)
     sql('ANALYZE etl_didb_studies')
     c = engine.compile_definition({'dataset': 'studies',
                                    'criteria': {'study_at': {'mode': 'quick', 'quick': 'today'}},

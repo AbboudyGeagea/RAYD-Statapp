@@ -373,10 +373,13 @@ def _bootstrap(url, code):
                     db_bootstrap.load_schema(url.set(drivername='postgresql')
                                              .render_as_string(hide_password=False))
                     logger.info(f"database {url.database}: schema loaded")
-                db_migrations.run_migrations_on(engine)
+                # Before the migrations: a migration may ask which site this database serves
+                # (rayd_served_site_id(), e.g. 0154's CRN hospital name).
                 with engine.begin() as c:
                     c.execute(text("INSERT INTO settings (key, value) VALUES ('served_site', :c) "
                                    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"), {'c': code})
+                db_migrations.run_migrations_on(engine)
+                with engine.begin() as c:
                     # Access lives on the main database only: the rows the schema and the
                     # migrations seed here would only mislead (and a read that strayed here
                     # finds nothing, so it fails closed).

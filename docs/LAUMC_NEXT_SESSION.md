@@ -121,7 +121,7 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 17 | R2I and BRAYN switch-on checks | Medium | 2 | feed live |
 | 18 | ORU final-only via BRAYN | Low–Medium | 2 | meaning of `FAP` or a prelim sample |
 | 19 | Placeholders via BRAYN — **done** (test patient IDs on Monday) | Low | 1.5–2 | — |
-| 20 | CRN go-live (low) | Medium | 3.5–4.5 | provider, signed-off wording |
+| 20 | CRN go-live — **this month** (operator, 2026-11-15); SMS sender and hospital name **built** | Medium | 2–3 left | SMS account, gateway address, fallback contact, wording |
 | 21 | Patient schedule lead time (very low) | Low–Medium | 2.5–3 | which moment counts as "booked" |
 | 22 | Daily Briefing snapshot RH only (found 2026-11-14) — **done** | Low | 1 | — (counts checked on the server) |
 | 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) — **done** | Low | 0.5–1 | — |
@@ -544,6 +544,14 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     copied, not moved; orders, RIS reports and visits are told apart by the RIS issuer, since
     their `site_id` columns are empty. Also found: `worklist_status_history` is empty on
     production (item 6).
+**Users per site (operator, 2026-11-15)** — already possible since 13f/13a, checked on the
+local stack with real accounts: (A) an RH user = role User, site RH: reads RH only, no site
+dropdown, SJH refused; (B) an SJH user = User, site SJH: reads SJH's database only (signs in
+once SJH has its database, after 13b); (C) a chief radiologist for both sites = Administrator
+(or User) with RH and SJH: the header's site dropdown and the side-by-side views. Created in
+Administration > User Management > Add user: role, then the site boxes; a User then gets its
+pages and reports ticked per site in its drawer.
+
 27. **Patient names in Postgres.** Four tables have a `patient_name` column (`hl7_orders`,
     `hl7_scn_studies`, `hl7_patients`, `cd_print_log`), and `hl7_orders.raw_message` and
     BRAYN's `hl7_message_archive` keep whole HL7 messages. **Operator, 2026-11-15: the HL7
@@ -584,12 +592,34 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
       AND UPPER(TRIM(study_modality)) IN ('CARD', 'SJH_CARD', 'CARDUS', 'SJHCARD');
     ```
 
+## CRN go-live — this month (operator, 2026-11-15)
+
+CRN is off (`crn_live_since` empty, provider "log", nothing sent). **Built 2026-11-15**
+(`tests/test_crn_sms.py`), not deployed:
+- **A real SMS sender: e-tec SMS** (e-tecsms.com), ported from the Mazloum branch where CHT
+  runs it. Admin > CRN > Settings: provider, username, password (stored encrypted), sender
+  name; the readiness check names what is missing. One POST per batch of up to 50 numbers;
+  a refusal (answer starting ERR) is a failed send that the dispatcher retries. If LAUMC
+  uses another provider, it plugs in at `utils/crn_sms.send_sms`.
+- **The hospital name** on the page a doctor opens was "Mazloum Hospital" (migration 0132's
+  seed, ported from Mazloum). Migration 0154 sets each database's own site name: "LAUMC -
+  Rizk Hospital", and "LAUMC - Saint John" in SJH's database. A typed name stays.
+
+**To go live (in order):**
+1. Deploy (git pull, rebuild; migration 0154 runs).
+2. The SMS account: confirm e-tec for LAUMC, then username, password and a sender name
+   registered with e-tec (at most 11 characters, e.g. LAUMC).
+3. The CRN gateway (the page a doctor opens from the SMS): its address
+   (`crn_public_base_url`), `crn_gateway_url` and API key, and IT's firewall rules
+   (`docs/LAUMC_CRN_FIREWALL_REQUEST.md`).
+4. The fallback contact (who is texted when the referring doctor cannot be reached) and
+   the doctors' mobile numbers (Admin > CRN > Contacts; the RIS sync fills them nightly).
+5. SMS wording signed off (only `{ref}` and `{link}`; never patient data).
+6. A test SMS to a real phone (Settings > Test), then switch CRN on (Settings > Live).
+The readiness panel on Admin > CRN > Settings shows each of these as ok / missing.
+
 ## Low priority
 
-- **CRN go-live.** CRN is off (`crn_live_since` empty, provider "log"). It needs a real
-  provider and signed-off message wording before it is switched on. Also: production's
-  `crn_hospital_name` reads "Mazloum Hospital" (seen in the 2026-11-15 sample); set it to
-  LAUMC's name on the CRN settings page before going live.
 
 ## Very low priority — later, as a goodwill gesture (added 2026-11-14)
 
