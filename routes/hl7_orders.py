@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, jsonify, request, abort
 from flask_login import login_required, current_user
+from utils.roles import can
 from sqlalchemy import text
 from db import db, user_has_page
 from datetime import date
@@ -145,7 +146,7 @@ def hl7_orders_get_field_map():
 @login_required
 def hl7_orders_save_field_map():
     """Persist a custom HL7→DB column mapping (admin only)."""
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         abort(403)
     data = request.get_json(force=True)
     mappings = data.get('mappings', [])

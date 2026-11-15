@@ -39,6 +39,7 @@ from urllib.parse import quote
 
 from flask import Blueprint, render_template, request, jsonify, abort, redirect, g
 from flask_login import login_required, current_user
+from utils.roles import can
 from sqlalchemy import text
 
 from db import db
@@ -79,15 +80,17 @@ STICKY = {'FUTURE_EVENT', 'PLACEHOLDER_DATA'}     # facts about a message: never
 
 
 def _require_access():
+    """Super user and CHT (implementation, item 13f): what the console shows is what
+    implementation maps, and its switch decides what BRAYN does."""
     if not current_user.is_authenticated:
         abort(401)
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         abort(403)
 
 
 def _can_configure():
-    """Admin only, like the console itself."""
-    return current_user.role == 'admin'
+    """Super user and CHT, like the console itself."""
+    return can(current_user, 'implementation')
 
 
 def _rows(sql, params=None):

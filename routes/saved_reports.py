@@ -2,6 +2,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from db import db, SavedReport, ReportTemplate, ReportAccessControl
+from utils.roles import can, can_open_report
 from datetime import datetime
 import json
 
@@ -33,11 +34,8 @@ def create_saved_report():
 
     # optional: verify user has access to base_report
     def user_has_base_access(uid, rid):
-        # admin can access everything
-        if current_user.role == 'admin':
-            return True
-        access = ReportAccessControl.query.filter_by(user_id=uid, report_template_id=rid, is_enabled=True).first()
-        return access is not None
+        # Super user, CHT and Administrator open every report; a User the ones ticked
+        return can_open_report(current_user, rid)
 
     if not user_has_base_access(current_user.id, base_report_id):
         return jsonify({"status":"error","message":"No access to base report"}), 403
@@ -74,17 +72,12 @@ def run_saved_report(saved_id):
     # Access control: admin sees all; owner sees their own; everyone else only
     # sees public reports they also have base-report permission for.
     # Private reports from other users are never accessible regardless of base access.
-    if current_user.role == 'admin':
+    if can(current_user, 'settings'):
         pass
     elif sr.owner_user_id == current_user.id:
         pass
     elif sr.is_public:
-        access = ReportAccessControl.query.filter_by(
-            user_id=current_user.id,
-            report_template_id=sr.base_report_id,
-            is_enabled=True
-        ).first()
-        if not access:
+        if not can_open_report(current_user, sr.base_report_id):
             return jsonify({"status": "error", "message": "Access denied"}), 403
     else:
         return jsonify({"status": "error", "message": "Access denied"}), 403
@@ -141,7 +134,7 @@ def delete_saved_report(saved_id):
     sr = SavedReport.query.get(saved_id)
     if not sr:
         return jsonify({"status":"error","message":"Not found"}), 404
-    if not (sr.owner_user_id == current_user.id or current_user.role == 'admin'):
+    if not (sr.owner_user_id == current_user.id or can(current_user, 'settings')):
         return jsonify({"status":"error","message":"Forbidden"}), 403
     try:
         db.session.delete(sr)

@@ -28,6 +28,8 @@ rayd_db      postgres:15                — primary DB, port 5432 (dev: exposed 
 ```
 app.py                          — app factory, blueprint registration, APScheduler jobs
 db.py                           — SQLAlchemy setup, ORM models, permission helpers
+utils/roles.py                  — the four roles (Super user, CHT, Administrator, User), their
+                                   capabilities, sites and per-site access (item 13f, rule 9)
 routes/
   report_22.py                  — main radiology stats (date/modality/physician filters)
   super_report.py               — aggregated multi-section report
@@ -75,12 +77,12 @@ routes/
                                    PACS views (studies, series, reports, findings, storage, crn).
                                    Catalog in utils/worklist_catalog.py (tests fail if a view
                                    column is undocumented); SQL runs only as the rpt_<db> role.
-                                   Scheduled emails (admin; migration 0138): utils/worklist_email.py
+                                   Scheduled emails (settings capability; migration 0138): utils/worklist_email.py
                                    mails saved reports as .xlsx through settings smtp_*, only to
                                    smtp_allowed_domains. Off until the relay is set. Microsoft 365
                                    signs in with OAuth (client credentials, XOAUTH2; migration 0140,
                                    docs/LAUMC_O365_EMAIL_SETUP.md)
-  email_server.py               — Administration > Email Server (/admin/email-server), admin only,
+  email_server.py               — Administration > Email Server (/admin/email-server), settings (Super user, CHT, Administrator),
                                    no licence: the one mail server (settings smtp_*) that Report
                                    Composer's schedules and the Sticky Notes monthly report send
                                    through. Moved out of Report Composer 2026-11-07
@@ -94,7 +96,7 @@ utils/brayn_shadow.py           — BRAYN on LAUMC, OBSERVING ONLY (migration 01
                                    hl7_orders or hl7_oru_reports; never holds a message
                                    ('quarantined' = "not identified"). Its transactions run
                                    on hospital time via clock() — LAUMC's Postgres is UTC.
-routes/brayn_console.py         — BRAYN console (/brayn, Administration → BRAYN), ADMIN ONLY:
+routes/brayn_console.py         — BRAYN console (/brayn, Administration → BRAYN), SUPER USER + CHT:
                                    on/off switch, To fix + Re-check, messages, study
                                    timeline, notes, settings. Writes BRAYN tables only
                                    (status map, accession field, steps, checks); devices
@@ -198,7 +200,19 @@ device_weekly_schedule  — standard weekly schedule per AE title
 ```
 users
   id SERIAL PK, username VARCHAR UNIQUE, email VARCHAR, password_hash VARCHAR,
-  role VARCHAR (admin | viewer | viewer2), active BOOL DEFAULT true
+  role VARCHAR NOT NULL (superuser | cht | administrator | user; CHECK, migration 0152),
+  status VARCHAR (active | pending | disabled)
+
+user_sites              — sites an account may open (RH, SJH); a Super user holds all
+  user_id → users ON DELETE CASCADE, site_id → sites, PK (user_id, site_id)
+
+user_page_permissions   — a User's feature pages, per site (utils/roles.PAGES)
+  user_id, site_id (default rayd_default_site_id()), page_key, is_enabled;
+  UNIQUE (user_id, site_id, page_key)
+
+report_access_control   — a User's numbered reports, per site
+  user_id, site_id (default rayd_default_site_id()), report_template_id, is_enabled;
+  UNIQUE (user_id, site_id, report_template_id)  -- not (user_id, report_template_id) since 0152
 
 active_sessions
   session_id VARCHAR PK, user_id INT, role VARCHAR, ip_address VARCHAR,
@@ -278,6 +292,18 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    dropdowns. Reports 22, 25, 34, 35, 36, 37, 38 and the Super Report use it (2026-11-14,
    `tests/test_report_filter_panel.py`), and Report 38, the ER dashboard. The ORU tab (`/oru`)
    stays a standalone page (operator, 2026-11-14).
+9. **Roles: ask for a capability, never compare a role name** (item 13f, migration 0152,
+   2026-11-15). Four roles: `superuser` (Super user, everything, every site), `cht`
+   (implementation: mapping, ETL, BRAYN console), `administrator` (users and settings of the
+   sites granted), `user` (pages and reports ticked per site). Code calls
+   `utils.roles.can(user, 'implementation' | 'settings' | 'users' | 'all_pages' | 'all_sites')`,
+   `user_has_page()` and `can_open_report()`; templates `can('...')`. Who holds what is the
+   CAPABILITIES table in `utils/roles.py`, nowhere else. A User's access is per site and needs
+   the site granted; until the SJH database exists the site served is the default one (RH)
+   and an account without it is signed out. A migration that grants a new report writes
+   `(user_id, site_id, report_template_id)` and ON CONFLICT on those three columns; nothing
+   grants reports automatically any more. `tests/test_roles_access.py` fails on any
+   comparison with an old role name (admin, viewer, viewer2, tec, finance, secretary).
 
 ## Dev Workflow
 

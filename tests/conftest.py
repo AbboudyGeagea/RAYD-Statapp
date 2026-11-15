@@ -103,7 +103,10 @@ CREATE TABLE IF NOT EXISTS hl7_oru_reports (
     impression_text  TEXT,
     result_datetime  TIMESTAMP,
     received_at      TIMESTAMP DEFAULT NOW()
-)
+);
+-- create_app() adds these after the migrations (app.py, "MIGRATE"); db.User reads them
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_theme VARCHAR DEFAULT 'dark';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS favorites TEXT DEFAULT '[]'
 """
 
 
@@ -268,6 +271,9 @@ def app(database_url):
     flask_app.add_url_rule('/', 'index', lambda: '')
     from db import user_has_page as _uhp
     flask_app.add_template_filter(lambda user, key: _uhp(user, key), 'user_has_page')
+    # can('implementation'), role_label(...) in templates, as create_app() wires them
+    from utils.roles import init_app as _init_roles
+    _init_roles(flask_app)
 
     @flask_app.context_processor
     def _shell_context():
@@ -378,6 +384,32 @@ def clean(request, app):
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+# ── access, as migration 0152 (item 13f) keeps it ─────────────────────────────
+
+def grant_report(run, uid, report_id, enabled, role='user'):
+    """A real account (report access points at users) granted RH, the site this database
+    serves, and, unless enabled is None, its access to one report on RH. run(sql, **params)
+    executes and commits. Roles: superuser, cht, administrator, user (utils/roles.py)."""
+    run("""INSERT INTO users (id, username, password_hash, role) VALUES (:u, :n, 'x', :r)
+           ON CONFLICT (id) DO NOTHING""", u=uid, n=f'acc-{uid}', r=role)
+    run("""INSERT INTO user_sites (user_id, site_id) VALUES (:u, rayd_default_site_id())
+           ON CONFLICT DO NOTHING""", u=uid)
+    if enabled is not None:
+        run("""INSERT INTO report_access_control (user_id, site_id, report_template_id, is_enabled)
+               VALUES (:u, rayd_default_site_id(), :r, :e)
+               ON CONFLICT (user_id, site_id, report_template_id) DO UPDATE SET is_enabled = EXCLUDED.is_enabled""",
+            u=uid, r=report_id, e=enabled)
+
+
+def as_before_0152(session):
+    """Replaying a migration written before 0152: the old role names and the old key of
+    report_access_control (one row per account and report), inside the caller's
+    transaction, which must roll back afterwards."""
+    from sqlalchemy import text
+    session.execute(text("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check"))
+    session.execute(text("CREATE UNIQUE INDEX _pre0152_rac ON report_access_control (user_id, report_template_id)"))
 
 
 # ── the listener, over a real socket ──────────────────────────────────────────

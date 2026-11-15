@@ -18,14 +18,12 @@
         .tab-btn { transition: all 0.15s; padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-size: 0.7rem; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; color: #64748b; cursor: pointer; border: none; background: transparent; }
         .tab-btn.active { background: var(--surface2); color: var(--accent); }
 
-        /* ── Role / status badges ── */
-        .badge-role { display: inline-block; padding: 0.2rem 0.65rem; border-radius: 0.4rem; font-size: 0.6rem; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
-        .role-viewer   { background: rgba(96,165,250,.12); color: #60a5fa; border: 1px solid rgba(96,165,250,.25); }
-        .role-viewer2  { background: rgba(129,140,248,.12); color: #818cf8; border: 1px solid rgba(129,140,248,.25); }
-        .role-tec      { background: rgba(168,85,247,.12);  color: #a855f7; border: 1px solid rgba(168,85,247,.25); }
-        .role-finance  { background: rgba(52,211,153,.12);  color: #34d399; border: 1px solid rgba(52,211,153,.25); }
-        .role-secretary{ background: rgba(251,146,60,.12);  color: #fb923c; border: 1px solid rgba(251,146,60,.25); }
-        .role-admin    { background: rgba(245,158,11,.12);  color: #f59e0b; border: 1px solid rgba(245,158,11,.25); }
+        /* ── Role / status badges (roles: utils/roles.py) ── */
+        .badge-role { display: inline-block; padding: 0.2rem 0.65rem; border-radius: 0.4rem; font-size: 0.6rem; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+        .role-superuser     { background: rgba(244,63,94,.12);   color: #fb7185; border: 1px solid rgba(244,63,94,.28); }
+        .role-cht           { background: rgba(168,85,247,.12);  color: #c084fc; border: 1px solid rgba(168,85,247,.28); }
+        .role-administrator { background: rgba(245,158,11,.12);  color: #f59e0b; border: 1px solid rgba(245,158,11,.25); }
+        .role-user          { background: rgba(96,165,250,.12);  color: #60a5fa; border: 1px solid rgba(96,165,250,.25); }
 
         .st-active   { color: #22c55e; }
         .st-disabled { color: #ef4444; }
@@ -38,17 +36,15 @@
         }
         .user-card:hover { border-color: rgba(96,165,250,.35); background: #27312e; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,.2); }
         .user-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(96,165,250,.3); }
+        .site-chip { display: inline-block; padding: 0.05rem 0.4rem; border-radius: 0.3rem; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.06em; background: rgba(148,163,184,.1); color: #94a3b8; border: 1px solid rgba(148,163,184,.2); }
 
         /* ── Avatar ── */
         .avatar { width: 2.5rem; height: 2.5rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 900; flex-shrink: 0; }
-        .av-viewer   { background: rgba(96,165,250,.12);  color: #60a5fa; }
-        .av-viewer2  { background: rgba(129,140,248,.12); color: #818cf8; }
-        .av-tec      { background: rgba(168,85,247,.12);  color: #a855f7; }
-        .av-finance  { background: rgba(52,211,153,.12);  color: #34d399; }
-        .av-secretary{ background: rgba(251,146,60,.12);  color: #fb923c; }
-        .av-admin    { background: rgba(245,158,11,.12);  color: #f59e0b; }
-        .av-pending  { background: rgba(245,158,11,.12);  color: #f59e0b; }
-        .av-default  { background: rgba(100,116,139,.12); color: #64748b; }
+        .av-superuser     { background: rgba(244,63,94,.12);  color: #fb7185; }
+        .av-cht           { background: rgba(168,85,247,.12); color: #c084fc; }
+        .av-administrator { background: rgba(245,158,11,.12); color: #f59e0b; }
+        .av-user          { background: rgba(96,165,250,.12); color: #60a5fa; }
+        .av-pending       { background: rgba(245,158,11,.12); color: #f59e0b; }
 
         /* ── Permission toggle ── */
         .toggle-track { width: 2.25rem; height: 1.25rem; border-radius: 9999px; border: 1px solid; transition: all 0.2s; position: relative; flex-shrink: 0; cursor: pointer; }
@@ -60,7 +56,7 @@
 
         /* ── Drawer ── */
         #drawer {
-            position: fixed; top: 0; right: 0; height: 100vh; width: 420px;
+            position: fixed; top: 0; right: 0; height: 100vh; width: 460px; max-width: 100vw;
             background: var(--surface); border-left: 1px solid var(--border);
             z-index: 9999; display: flex; flex-direction: column;
             transform: translateX(100%); transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
@@ -77,10 +73,26 @@
         .act-btn.warn:hover   { color: #f59e0b; border-color: rgba(245,158,11,.3); background: rgba(245,158,11,.05); }
         .act-btn.sky:hover    { color: #38bdf8; border-color: rgba(56,189,248,.3); background: rgba(56,189,248,.05); }
         .act-btn.green:hover  { color: #34d399; border-color: rgba(52,211,153,.3); background: rgba(52,211,153,.05); }
+        .mini-btn { padding: 0.25rem 0.6rem; border-radius: 0.5rem; font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--border); color: #94a3b8; background: transparent; cursor: pointer; }
+        .mini-btn:hover { color: var(--accent); border-color: rgba(96,165,250,.35); }
 
-        /* ── Role select (drawer) ── */
-        .role-select { background: var(--surface2); border: 1px solid var(--border); color: #e2e8f0; border-radius: 0.75rem; padding: 0.55rem 0.85rem; font-size: 0.75rem; font-weight: 700; width: 100%; appearance: none; cursor: pointer; outline: none; }
-        .role-select:focus { border-color: var(--accent); }
+        /* ── Selects / inputs ── */
+        .role-select, .text-input { background: var(--surface2); border: 1px solid var(--border); color: #e2e8f0; border-radius: 0.75rem; padding: 0.55rem 0.85rem; font-size: 0.75rem; font-weight: 700; width: 100%; outline: none; }
+        .role-select { appearance: none; cursor: pointer; }
+        .role-select:focus, .text-input:focus { border-color: var(--accent); }
+        .select-arrow { background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2360a5fa' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 0.75rem center; padding-right: 2rem; }
+        .site-check { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.5rem 0.25rem; font-size: 0.8rem; cursor: pointer; }
+        .site-check input { margin-top: 0.2rem; accent-color: var(--accent); }
+        .help { color: #64748b; font-size: 0.7rem; line-height: 1.35; }
+
+        /* ── Site tabs in the drawer ── */
+        .site-tab { padding: 0.3rem 0.8rem; border-radius: 0.5rem; font-size: 0.68rem; font-weight: 900; letter-spacing: 0.08em; border: 1px solid var(--border); color: #64748b; background: transparent; cursor: pointer; }
+        .site-tab.active { color: var(--accent); border-color: rgba(96,165,250,.45); background: var(--surface2); }
+
+        /* ── Modal ── */
+        #create-modal { position: fixed; inset: 0; z-index: 10000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55); padding: 16px; }
+        #create-modal.show { display: flex; }
+        #create-modal .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 1.25rem; width: 440px; max-width: 100%; max-height: 92vh; overflow-y: auto; padding: 1.25rem; }
 
         /* ── Scrollbar ── */
         ::-webkit-scrollbar { width: 5px; }
@@ -100,15 +112,16 @@
         body.light main { background: #f0f4f8 !important; }
         body.light .user-card { background: #fff; border-color: #e2e8f0; color: #1a202c; }
         body.light .user-card:hover { background: #f8fafc; }
-        body.light #drawer { background: #fff; border-color: #e2e8f0; }
-        body.light .act-btn { border-color: #e2e8f0; color: #64748b; }
+        body.light #drawer, body.light #create-modal .panel { background: #fff; border-color: #e2e8f0; }
+        body.light .act-btn, body.light .mini-btn, body.light .site-tab { border-color: #e2e8f0; color: #64748b; }
         body.light .act-btn:hover { background: #f0f4f8; }
-        body.light .role-select { background: #f0f4f8; border-color: #e2e8f0; color: #1a202c; }
+        body.light .role-select, body.light .text-input { background: #f0f4f8; border-color: #e2e8f0; color: #1a202c; }
         body.light .search-input { background: #fff; border-color: #e2e8f0; color: #1a202c; }
         body.light .toggle-track.off { border-color: #cbd5e1; }
-        body.light .tab-btn.active { background: #e2e8f0; }
+        body.light .tab-btn.active, body.light .site-tab.active { background: #e2e8f0; }
         body.light .perm-row { border-color: #e2e8f0; }
         body.light .section-label { color: #64748b; }
+        body.light .text-white { color: #1a202c !important; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
@@ -121,7 +134,7 @@
             <div class="max-w-6xl mx-auto">
 
                 <!-- Page header -->
-                <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center justify-between gap-3 mb-6 flex-wrap">
                     <div>
                         <h1 class="text-white text-xl font-black tracking-tight">User Management</h1>
                         <p class="text-slate-500 text-[11px] font-bold uppercase tracking-widest mt-0.5">
@@ -129,10 +142,18 @@
                             {% if pending_users %}&nbsp;&bull;&nbsp;<span class="text-amber-400">{{ pending_users|length }} pending</span>{% endif %}
                         </p>
                     </div>
-                    <a href="{{ url_for('auth.register') }}"
-                       class="flex items-center gap-2 px-4 py-2 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
-                        <i class="bi bi-person-plus-fill"></i> Add User
-                    </a>
+                    <div class="flex items-center gap-2">
+                        {% if can('users') %}
+                        <a href="{{ url_for('groups.groups_page') }}"
+                           class="flex items-center gap-2 px-4 py-2 border border-[#28332e] text-slate-400 text-xs font-black uppercase tracking-widest rounded-xl hover:text-[#60a5fa] transition-colors">
+                            <i class="bi bi-collection-fill"></i> Permission Groups
+                        </a>
+                        {% endif %}
+                        <button type="button" onclick="openCreate()"
+                           class="flex items-center gap-2 px-4 py-2 bg-[#60a5fa] text-[#0f172a] text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#93c5fd] transition-colors">
+                            <i class="bi bi-person-plus-fill"></i> Add User
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Tabs -->
@@ -152,21 +173,17 @@
                 <div id="tab-active">
 
                     <!-- Search + role filter strip -->
-                    <div class="flex items-center gap-3 mb-5">
-                        <div class="relative flex-1 max-w-xs">
+                    <div class="flex items-center gap-3 mb-5 flex-wrap">
+                        <div class="relative flex-1 max-w-xs min-w-[180px]">
                             <i class="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
                             <input type="text" id="user-search" placeholder="Search users…"
                                 class="search-input w-full" oninput="filterCards()">
                         </div>
-                        <select id="role-filter" class="role-select !w-auto px-3 pr-8 text-xs"
-                                style="background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2360a5fa' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 0.75rem center;"
-                                onchange="filterCards()">
+                        <select id="role-filter" class="role-select select-arrow !w-auto px-3 text-xs" onchange="filterCards()">
                             <option value="">All roles</option>
-                            <option value="viewer">Viewer</option>
-                            <option value="viewer2">Viewer 2</option>
-                            <option value="tec">Tec</option>
-                            <option value="finance">Finance</option>
-                            <option value="secretary">Secretary</option>
+                            {% for r in roles %}
+                            <option value="{{ r.key }}">{{ r.label }}</option>
+                            {% endfor %}
                         </select>
                         <span id="filter-count" class="text-slate-500 text-xs font-bold hidden"></span>
                     </div>
@@ -183,16 +200,21 @@
                              onclick="openDrawer({{ u.id }})">
 
                             <div class="flex items-start gap-3 mb-3">
-                                <div class="avatar av-{{ u.role }} {% if u.role not in ['viewer','viewer2','tec','finance','secretary','admin'] %}av-default{% endif %}">
-                                    {{ (u.full_name or u.username)[0]|upper }}
+                                <div class="avatar av-{{ u.role }}">
+                                    {{ ((u.full_name or u.username) or '?')[0]|upper }}
                                 </div>
                                 <div class="flex-1 min-w-0">
                                     <div class="font-bold text-white text-sm leading-tight truncate">{{ u.full_name or u.username }}</div>
                                     {% if u.full_name %}
                                     <div class="text-slate-500 text-[11px] truncate">@{{ u.username }}</div>
                                     {% endif %}
+                                    <div class="mt-1 flex gap-1 flex-wrap" data-sitechips>
+                                        {% for s in sites if s.id in user_sites.get(u.id, []) %}
+                                        <span class="site-chip">{{ s.code }}</span>
+                                        {% endfor %}
+                                    </div>
                                 </div>
-                                <span class="badge-role role-{{ u.role }}">{{ u.role }}</span>
+                                <span class="badge-role role-{{ u.role }}">{{ role_label(u.role) }}</span>
                             </div>
 
                             <div class="flex items-center justify-between text-[11px]">
@@ -227,7 +249,7 @@
                     {% else %}
                     <div class="text-center py-16 text-slate-600">
                         <i class="bi bi-people text-4xl block mb-3"></i>
-                        <p class="text-sm font-bold">No active users</p>
+                        <p class="text-sm font-bold">No users for you to manage</p>
                     </div>
                     {% endif %}
                 </div>
@@ -239,7 +261,7 @@
                         {% for u in pending_users %}
                         <div class="user-card" id="pending-card-{{ u.id }}" style="cursor:default;">
                             <div class="flex items-start gap-3 mb-4">
-                                <div class="avatar av-pending">{{ (u.full_name or u.username)[0]|upper }}</div>
+                                <div class="avatar av-pending">{{ ((u.full_name or u.username) or '?')[0]|upper }}</div>
                                 <div class="flex-1 min-w-0">
                                     <div class="font-bold text-white text-sm truncate">{{ u.full_name or u.username }}</div>
                                     {% if u.full_name %}<div class="text-slate-500 text-[11px]">@{{ u.username }}</div>{% endif %}
@@ -248,13 +270,19 @@
                                 </div>
                             </div>
 
-                            <select id="pending-role-{{ u.id }}" class="role-select mb-3 text-xs">
-                                <option value="viewer">Viewer</option>
-                                <option value="viewer2">Viewer 2</option>
-                                <option value="tec">Tec</option>
-                                <option value="finance">Finance</option>
-                                <option value="secretary">Secretary</option>
+                            <select id="pending-role-{{ u.id }}" class="role-select select-arrow mb-2 text-xs">
+                                {% for r in roles if r.key in assignable %}
+                                <option value="{{ r.key }}" {% if r.key == 'user' %}selected{% endif %}>{{ r.label }}</option>
+                                {% endfor %}
                             </select>
+                            <div class="mb-3" id="pending-sites-{{ u.id }}">
+                                {% for s in sites %}
+                                <label class="site-check">
+                                    <input type="checkbox" value="{{ s.id }}" {% if s.serves %}checked{% endif %}>
+                                    <span><b>{{ s.code }}</b> <span class="help">{{ s.name }}</span></span>
+                                </label>
+                                {% endfor %}
+                            </div>
 
                             <div class="flex gap-2">
                                 <button onclick="approveUser({{ u.id }})"
@@ -262,7 +290,7 @@
                                            bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors">
                                     <i class="bi bi-check-lg"></i> Approve
                                 </button>
-                                <button onclick="rejectUser({{ u.id }}, '{{ u.username }}')"
+                                <button onclick="rejectUser({{ u.id }}, {{ u.username|tojson|forceescape }})"
                                     class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider
                                            bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 transition-colors">
                                     <i class="bi bi-x-lg"></i> Reject
@@ -283,6 +311,51 @@
         </main>
     </div>
 
+    <!-- ═══════════════════════════════════════════════════════════ ADD USER -->
+    <div id="create-modal" role="dialog" aria-modal="true" aria-labelledby="create-title" onclick="if (event.target === this) closeCreate()">
+        <div class="panel">
+            <div class="flex items-center justify-between mb-4">
+                <h2 id="create-title" class="text-white font-black text-sm uppercase tracking-widest">Add user</h2>
+                <button onclick="closeCreate()" class="text-slate-500 hover:text-white p-1"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <form id="create-form" class="space-y-3" onsubmit="submitCreate(event)">
+                <label class="block"><span class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500">Username</span>
+                    <input name="username" class="text-input mt-1" required maxlength="80" autocomplete="off"></label>
+                <label class="block"><span class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500">Full name</span>
+                    <input name="full_name" class="text-input mt-1" maxlength="200" autocomplete="off"></label>
+                <label class="block"><span class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500">Email</span>
+                    <input name="email" type="email" class="text-input mt-1" maxlength="200" autocomplete="off"></label>
+                <label class="block"><span class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500">Temporary password</span>
+                    <input name="password" type="text" class="text-input mt-1" required minlength="6" autocomplete="new-password">
+                    <span class="help">At least 6 characters. They change it the first time they sign in.</span></label>
+                <label class="block"><span class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500">Role</span>
+                    <select name="role" class="role-select select-arrow mt-1" onchange="document.getElementById('create-role-help').textContent = ROLE_HELP[this.value] || ''">
+                        {% for r in roles if r.key in assignable %}
+                        <option value="{{ r.key }}" {% if r.key == 'user' %}selected{% endif %}>{{ r.label }}</option>
+                        {% endfor %}
+                    </select>
+                    <span id="create-role-help" class="help"></span></label>
+                <div>
+                    <span class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500">Sites</span>
+                    <div id="create-sites">
+                        {% for s in sites %}
+                        <label class="site-check">
+                            <input type="checkbox" value="{{ s.id }}" {% if s.serves %}checked{% endif %}>
+                            <span><b>{{ s.code }}</b> <span class="help">{{ s.name }}{% if not s.serves %} · opens in RAYD once its database is set up{% endif %}</span></span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <span class="help">A User then gets its pages and reports ticked in its drawer.</span>
+                </div>
+                <p id="create-error" class="text-red-400 text-xs font-bold hidden"></p>
+                <div class="flex gap-2 pt-1">
+                    <button type="submit" class="flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider bg-[#60a5fa] text-[#0f172a] hover:bg-[#93c5fd]">Create</button>
+                    <button type="button" onclick="closeCreate()" class="flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider border border-[#28332e] text-slate-400">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- ═══════════════════════════════════════════════════════════ DRAWER OVERLAY -->
     <div id="drawer-overlay" onclick="closeDrawer()"></div>
 
@@ -291,7 +364,7 @@
         <!-- Drawer header -->
         <div class="flex items-center justify-between px-5 py-4 border-b border-[#28332e] shrink-0">
             <div class="flex items-center gap-3" id="drawer-identity">
-                <div class="avatar av-default" id="d-avatar">?</div>
+                <div class="avatar av-user" id="d-avatar">?</div>
                 <div>
                     <div class="font-black text-white text-sm" id="d-fullname">—</div>
                     <div class="text-slate-500 text-[11px]" id="d-meta">—</div>
@@ -308,16 +381,24 @@
             <!-- Role -->
             <div>
                 <div class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Role</div>
-                <div class="relative">
-                    <select id="d-role" class="role-select pr-8" onchange="changeRole(window._drawerUserId, this.value)"
-                            style="background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2360a5fa' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 0.75rem center;">
-                        <option value="viewer">Viewer</option>
-                        <option value="viewer2">Viewer 2</option>
-                        <option value="tec">Tec</option>
-                        <option value="finance">Finance</option>
-                        <option value="secretary">Secretary</option>
-                    </select>
-                </div>
+                <select id="d-role" class="role-select select-arrow" onchange="changeRole(window._drawerUserId, this.value)">
+                    {% for r in roles if r.key in assignable %}
+                    <option value="{{ r.key }}">{{ r.label }}</option>
+                    {% endfor %}
+                </select>
+                <p id="d-role-help" class="help mt-1.5"></p>
+            </div>
+
+            <!-- Sites -->
+            <div>
+                <div class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Sites</div>
+                <div id="d-sites"><!-- filled by JS --></div>
+            </div>
+
+            <!-- Access: pages and reports, per site -->
+            <div>
+                <div class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Pages and reports</div>
+                <div id="d-access"><!-- filled by JS --></div>
             </div>
 
             <!-- Status + last login -->
@@ -359,31 +440,27 @@
                 </div>
             </div>
 
-            <!-- Permissions -->
-            <div>
-                <div class="section-label text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Page Permissions</div>
-                <div id="d-perms" class="space-y-1">
-                    <!-- filled by JS -->
-                </div>
-            </div>
-
         </div><!-- /drawer body -->
     </aside>
 
     <!-- ═══════════════════════════════════════════════ DATA & SCRIPTS -->
     <script>
     // ── Server data ──────────────────────────────────────────────────────────────
-    const PAGE_KEYS = {{ page_keys | tojson }};
+    const SITES        = {{ sites | tojson }};
+    const PAGES        = {{ page_catalogue | tojson }};
+    const REPORTS      = {{ report_catalogue | tojson }};
+    const ROLE_LABEL   = { {% for r in roles %}{{ r.key | tojson }}: {{ r.label | tojson }}{% if not loop.last %}, {% endif %}{% endfor %} };
+    const ROLE_HELP    = { {% for r in roles %}{{ r.key | tojson }}: {{ r.help | tojson }}{% if not loop.last %}, {% endif %}{% endfor %} };
+    const FULL_ACCESS  = {{ full_access_roles | tojson }};
 
     const PERM_ICONS = {
         live_feed:      'bi-broadcast-pin',
         hl7_orders:     'bi-clipboard-pulse',
-        scheduling:     'bi-calendar-check-fill',
         cd_print:       'bi-disc-fill',
         oru:            'bi-file-earmark-text-fill',
         referring_intel:'bi-person-lines-fill',
         custom_reports: 'bi-list-columns-reverse',
-        patient_portal: 'bi-hospital',
+        crn:            'bi-broadcast',
         mapping:        'bi-diagram-3-fill',
         report_ai:      'bi-robot',
         financial:      'bi-currency-dollar',
@@ -402,41 +479,41 @@
             sessions: {{ sessions_by_user.get(u.id, []) | length }},
             pw_reset_requested: {{ 'true' if u.password_reset_requested else 'false' }},
             must_change_pw: {{ 'true' if u.must_change_password else 'false' }},
-            perms: {
-                {% for pk, label in page_keys %}
-                {{ pk | tojson }}: {{ 'true' if page_perms.get(u.id, {}).get(pk, False) else 'false' }}{% if not loop.last %},{% endif %}
-                {% endfor %}
-            }
+            sites: {{ user_sites.get(u.id, []) | tojson }},
+            pages: {{ user_pages.get(u.id, {}) | tojson }},
+            reports: {{ user_reports.get(u.id, {}) | tojson }},
         }{% if not loop.last %},{% endif %}
         {% endfor %}
     };
 
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
     // ── Drawer state ─────────────────────────────────────────────────────────────
     window._drawerUserId = null;
+    window._drawerSite = null;
 
     function openDrawer(uid) {
         const u = USERS[uid];
         if (!u) return;
         window._drawerUserId = uid;
 
-        // Highlight card
         document.querySelectorAll('.user-card').forEach(c => c.classList.remove('selected'));
         document.getElementById('card-' + uid)?.classList.add('selected');
 
-        // Avatar + identity
-        const initials = (u.full_name || u.username)[0].toUpperCase();
         const avEl = document.getElementById('d-avatar');
-        avEl.textContent = initials;
+        avEl.textContent = ((u.full_name || u.username || '?')[0] || '?').toUpperCase();
         avEl.className = 'avatar av-' + u.role;
 
         document.getElementById('d-fullname').textContent = u.full_name || u.username;
         const meta = [u.full_name ? '@' + u.username : null, u.email].filter(Boolean).join(' · ');
         document.getElementById('d-meta').textContent = meta || '@' + u.username;
 
-        // Role
         document.getElementById('d-role').value = u.role;
+        document.getElementById('d-role-help').textContent = ROLE_HELP[u.role] || '';
 
-        // Status
+        renderSites(u);
+        renderAccess(u);
+
         const dot = document.getElementById('d-status-dot');
         const dotColors = { active: 'bg-emerald-400', disabled: 'bg-red-400', pending: 'bg-amber-400' };
         dot.className = 'w-2 h-2 rounded-full inline-block ' + (dotColors[u.status] || 'bg-slate-400');
@@ -446,17 +523,14 @@
         resetBadge.classList.toggle('hidden', !(u.pw_reset_requested || u.must_change_pw));
         resetBadge.title = u.pw_reset_requested ? 'Password reset requested by user' : 'Must change password';
 
-        // Last login
         document.getElementById('d-lastlogin').textContent = u.last_login ? 'Last: ' + u.last_login : 'Never logged in';
 
-        // Toggle status button
         const isActive = u.status === 'active';
         const toggleBtn = document.getElementById('d-toggle-status-btn');
         document.getElementById('d-toggle-icon').className = 'bi text-base ' + (isActive ? 'bi-pause-circle-fill' : 'bi-play-circle-fill');
         document.getElementById('d-toggle-label').textContent = isActive ? 'Disable account' : 'Re-enable account';
         toggleBtn.className = 'act-btn ' + (isActive ? 'warn' : 'green');
 
-        // Sessions
         const sessBtn = document.getElementById('d-sessions-btn');
         const sessLabel = document.getElementById('d-sessions-label');
         if (u.sessions > 0) {
@@ -467,28 +541,60 @@
             sessBtn.disabled = true; sessBtn.style.opacity = '0.4';
         }
 
-        // Permissions
-        const permsEl = document.getElementById('d-perms');
-        permsEl.innerHTML = '';
-        PAGE_KEYS.forEach(([pk, label]) => {
-            const on = u.perms[pk] === true;
-            const icon = PERM_ICONS[pk] || 'bi-shield';
-            const row = document.createElement('div');
-            row.className = 'perm-row flex items-center justify-between py-2.5 border-b border-[#28332e] last:border-0';
-            row.innerHTML = `
-                <div class="flex items-center gap-2.5 text-sm">
-                    <i class="bi ${icon} text-slate-500 w-4 text-center text-sm"></i>
-                    <span class="font-medium text-slate-300">${label}</span>
-                </div>
-                <div class="toggle-track ${on ? 'on' : 'off'}" data-pk="${pk}" data-uid="${uid}" onclick="drawerTogglePerm(this)">
-                    <div class="toggle-thumb"></div>
-                </div>`;
-            permsEl.appendChild(row);
-        });
-
-        // Open
         document.getElementById('drawer').classList.add('open');
         document.getElementById('drawer-overlay').classList.add('show');
+    }
+
+    function renderSites(u) {
+        const el = document.getElementById('d-sites');
+        if (!SITES.length) { el.innerHTML = '<p class="help">No site you can grant.</p>'; return; }
+        el.innerHTML = SITES.map(s => `
+            <label class="site-check">
+                <input type="checkbox" data-site="${s.id}" ${u.sites.includes(s.id) ? 'checked' : ''} onchange="toggleSite(this)">
+                <span><b>${esc(s.code)}</b> <span class="help">${esc(s.name)}${s.serves ? '' : ' · opens in RAYD once its database is set up'}</span></span>
+            </label>`).join('');
+    }
+
+    function renderAccess(u) {
+        const el = document.getElementById('d-access');
+        if (FULL_ACCESS.includes(u.role)) {
+            el.innerHTML = `<p class="help">${esc(ROLE_LABEL[u.role])}: every page and report of its sites, nothing to tick.</p>`;
+            return;
+        }
+        const granted = SITES.filter(s => u.sites.includes(s.id));
+        if (!granted.length) {
+            el.innerHTML = '<p class="help">Grant a site first: pages and reports are ticked site by site. With no site the account cannot sign in.</p>';
+            return;
+        }
+        if (!granted.some(s => s.id === window._drawerSite)) {
+            window._drawerSite = (granted.find(s => s.serves) || granted[0]).id;
+        }
+        const site = window._drawerSite;
+        const sp = u.pages[String(site)] || {};
+        const sr = u.reports[String(site)] || {};
+        const tabs = granted.length > 1 ? `<div class="flex gap-1.5 mb-3">${granted.map(s =>
+            `<button type="button" class="site-tab ${s.id === site ? 'active' : ''}" onclick="window._drawerSite=${s.id}; renderAccess(USERS[${u.id}])">${esc(s.code)}</button>`).join('')}</div>` : '';
+        const row = (kind, key, label, on, icon) => `
+            <div class="perm-row flex items-center justify-between py-2 border-b border-[#28332e] last:border-0">
+                <div class="flex items-center gap-2.5 text-sm min-w-0">
+                    <i class="bi ${icon} text-slate-500 w-4 text-center text-sm"></i>
+                    <span class="font-medium text-slate-300 truncate">${esc(label)}</span>
+                </div>
+                <div class="toggle-track ${on ? 'on' : 'off'}" data-kind="${kind}" data-key="${esc(key)}" onclick="toggleAccess(this)">
+                    <div class="toggle-thumb"></div>
+                </div>
+            </div>`;
+        el.innerHTML = tabs + `
+            <div class="flex items-center justify-between mb-1">
+                <span class="help">${esc((SITES.find(s => s.id === site) || {}).code || '')}: pages</span>
+                <span class="flex gap-1.5">
+                    <button type="button" class="mini-btn" onclick="accessAll(true)">Tick all</button>
+                    <button type="button" class="mini-btn" onclick="accessAll(false)">Untick all</button>
+                </span>
+            </div>
+            <div>${PAGES.map(([k, label]) => row('page', k, label, sp[k] === true, PERM_ICONS[k] || 'bi-shield')).join('')}</div>
+            <div class="help mt-3 mb-1">Reports</div>
+            <div>${REPORTS.map(([rid, name]) => row('report', rid, rid + ' · ' + name, sr[String(rid)] === true, 'bi-bar-chart-line')).join('')}</div>`;
     }
 
     function closeDrawer() {
@@ -498,7 +604,7 @@
         window._drawerUserId = null;
     }
 
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); closeCreate(); } });
 
     // ── API helper ───────────────────────────────────────────────────────────────
     async function api(url, body) {
@@ -506,7 +612,7 @@
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(body),
         });
-        return res.json();
+        try { return await res.json(); } catch (e) { return {status: 'error', message: 'HTTP ' + res.status}; }
     }
 
     function toast(msg, ok = true) {
@@ -519,33 +625,67 @@
     }
 
     // ── Drawer actions ───────────────────────────────────────────────────────────
-    async function drawerTogglePerm(el) {
-        const uid = parseInt(el.dataset.uid);
-        const pk  = el.dataset.pk;
+    async function toggleAccess(el) {
+        const uid = window._drawerUserId, site = window._drawerSite;
         const next = !el.classList.contains('on');
-        const data = await api('{{ url_for("admin.update_user_permissions") }}', {user_id: uid, page_key: pk, enabled: next});
+        const isPage = el.dataset.kind === 'page';
+        const url = isPage ? '{{ url_for("admin.update_user_permissions") }}' : '{{ url_for("admin.update_user_report") }}';
+        const body = isPage ? {user_id: uid, site_id: site, page_key: el.dataset.key, enabled: next}
+                            : {user_id: uid, site_id: site, report_id: parseInt(el.dataset.key), enabled: next};
+        const data = await api(url, body);
         if (data.status === 'ok') {
             el.classList.toggle('on', next);
             el.classList.toggle('off', !next);
-            USERS[uid].perms[pk] = next;
-        } else { toast('Error updating permission', false); }
+            const bag = isPage ? USERS[uid].pages : USERS[uid].reports;
+            (bag[String(site)] = bag[String(site)] || {})[el.dataset.key] = next;
+        } else { toast(data.message || 'Error updating access', false); }
+    }
+
+    async function accessAll(enabled) {
+        const uid = window._drawerUserId, site = window._drawerSite;
+        const data = await api('{{ url_for("admin.update_user_access_all") }}', {user_id: uid, site_id: site, enabled});
+        if (data.status !== 'ok') { toast(data.message || 'Error', false); return; }
+        const u = USERS[uid];
+        u.pages[String(site)] = Object.fromEntries(PAGES.map(([k]) => [k, enabled]));
+        u.reports[String(site)] = Object.fromEntries(REPORTS.map(([rid]) => [String(rid), enabled]));
+        renderAccess(u);
+        toast(enabled ? 'Everything ticked' : 'Everything unticked');
+    }
+
+    async function toggleSite(el) {
+        const uid = window._drawerUserId, site = parseInt(el.dataset.site), granted = el.checked;
+        if (!granted && !confirm('Take this site away? Its ticks are kept, unused, until it is granted again. The account is signed out.')) {
+            el.checked = true; return;
+        }
+        const data = await api('{{ url_for("admin.update_user_site") }}', {user_id: uid, site_id: site, granted});
+        if (data.status !== 'ok') { el.checked = !granted; toast(data.message || 'Error', false); return; }
+        const u = USERS[uid];
+        u.sites = granted ? [...new Set([...u.sites, site])] : u.sites.filter(s => s !== site);
+        u.sessions = 0;
+        const chips = document.querySelector('#card-' + uid + ' [data-sitechips]');
+        if (chips) chips.innerHTML = SITES.filter(s => u.sites.includes(s.id)).map(s => `<span class="site-chip">${esc(s.code)}</span>`).join('');
+        renderAccess(u);
+        toast(granted ? 'Site granted' : 'Site taken away');
     }
 
     async function changeRole(uid, newRole) {
+        const u = USERS[uid];
         const data = await api('{{ url_for("admin.update_user_role") }}', {user_id: uid, role: newRole});
         if (data.status === 'ok') {
-            USERS[uid].role = newRole;
-            // Update card badge + avatar
+            u.role = newRole; u.sessions = 0;
             const card = document.getElementById('card-' + uid);
             if (card) {
                 card.dataset.role = newRole;
                 card.querySelector('.badge-role').className = 'badge-role role-' + newRole;
-                card.querySelector('.badge-role').textContent = newRole;
+                card.querySelector('.badge-role').textContent = ROLE_LABEL[newRole] || newRole;
                 card.querySelector('.avatar').className = 'avatar av-' + newRole;
             }
-            document.getElementById('d-avatar').className = 'avatar av-' + newRole;
+            openDrawer(uid);
             toast('Role updated');
-        } else { toast('Error updating role', false); }
+        } else {
+            document.getElementById('d-role').value = u.role;
+            toast(data.message || 'Error updating role', false);
+        }
     }
 
     async function drawerForceReset() {
@@ -554,7 +694,7 @@
         if (!confirm(`Force "${u.username}" to change their password on next login?`)) return;
         const data = await api('{{ url_for("admin.force_password_reset") }}', {user_id: uid});
         if (data.status === 'ok') { toast('Password reset flagged'); USERS[uid].must_change_pw = true; openDrawer(uid); }
-        else toast('Error', false);
+        else toast(data.message || 'Error', false);
     }
 
     async function drawerSetPassword() {
@@ -576,13 +716,13 @@
             if (data.status === 'ok') {
                 USERS[uid].status = 'disabled'; USERS[uid].sessions = 0;
                 updateCardStatus(uid); openDrawer(uid); toast('Account disabled');
-            } else toast('Error', false);
+            } else toast(data.message || 'Error', false);
         } else {
             const data = await api('{{ url_for("admin.enable_user") }}', {user_id: uid});
             if (data.status === 'ok') {
                 USERS[uid].status = 'active';
                 updateCardStatus(uid); openDrawer(uid); toast('Account enabled');
-            } else toast('Error', false);
+            } else toast(data.message || 'Error', false);
         }
     }
 
@@ -593,7 +733,7 @@
         if (data.status === 'ok') {
             USERS[uid].sessions = 0;
             openDrawer(uid); toast('Sessions revoked');
-        } else toast('Error', false);
+        } else toast(data.message || 'Error', false);
     }
 
     async function drawerDeleteUser() {
@@ -618,11 +758,38 @@
         }
     }
 
+    // ── Add user ─────────────────────────────────────────────────────────────────
+    function openCreate() {
+        document.getElementById('create-form').reset();
+        document.getElementById('create-error').classList.add('hidden');
+        const sel = document.querySelector('#create-form select[name=role]');
+        document.getElementById('create-role-help').textContent = ROLE_HELP[sel.value] || '';
+        document.getElementById('create-modal').classList.add('show');
+        document.querySelector('#create-form input[name=username]').focus();
+    }
+    function closeCreate() { document.getElementById('create-modal').classList.remove('show'); }
+
+    async function submitCreate(ev) {
+        ev.preventDefault();
+        const f = ev.target;
+        const body = {
+            username: f.username.value.trim(), full_name: f.full_name.value.trim(), email: f.email.value.trim(),
+            password: f.password.value, role: f.role.value,
+            site_ids: [...document.querySelectorAll('#create-sites input:checked')].map(i => parseInt(i.value)),
+        };
+        const data = await api('{{ url_for("admin.create_user") }}', body);
+        if (data.status === 'ok') { location.reload(); return; }
+        const err = document.getElementById('create-error');
+        err.textContent = data.message || 'Could not create the account.';
+        err.classList.remove('hidden');
+    }
+
     // ── Pending user actions ─────────────────────────────────────────────────────
     async function approveUser(userId) {
         const role = document.getElementById('pending-role-' + userId).value;
-        const data = await api('{{ url_for("admin.approve_user") }}', {user_id: userId, role});
-        if (data.status === 'ok') { document.getElementById('pending-card-' + userId)?.remove(); toast('User approved'); }
+        const site_ids = [...document.querySelectorAll('#pending-sites-' + userId + ' input:checked')].map(i => parseInt(i.value));
+        const data = await api('{{ url_for("admin.approve_user") }}', {user_id: userId, role, site_ids});
+        if (data.status === 'ok') { location.reload(); }
         else toast(data.message || 'Error', false);
     }
 

@@ -10,9 +10,11 @@ from datetime import date, datetime, timedelta
 import pytest
 from sqlalchemy import text
 
-ADMIN = {'X-Test-Role': 'admin'}
+from conftest import as_before_0152, grant_report
+
+ADMIN = {'X-Test-Role': 'administrator'}
 GRANTED, REFUSED, NO_ROW = 9481, 9482, 9483
-VIEWER = {'X-Test-Role': 'viewer', 'X-Test-Uid': str(GRANTED)}
+VIEWER = {'X-Test-Role': 'user', 'X-Test-Uid': str(GRANTED)}
 DAY = date(2026, 10, 15)
 PERIOD = {'start_date': '2026-10-01', 'end_date': '2026-10-31'}
 MIGRATION = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -29,21 +31,16 @@ def sql(app):
         run("""INSERT INTO aetitle_modality_map (aetitle, modality, site_id)
                VALUES ('CT_ER', 'CT', (SELECT id FROM sites WHERE is_default LIMIT 1)),
                       ('MR_ER', 'MR', (SELECT id FROM sites WHERE is_default LIMIT 1))""")
-        access(run, GRANTED, 'viewer', True)
-        access(run, REFUSED, 'viewer', False)
-        access(run, NO_ROW, 'finance', None)
+        access(run, GRANTED, 'user', True)
+        access(run, REFUSED, 'user', False)
+        access(run, NO_ROW, 'user', None)
         yield run
         db.session.rollback()
 
 
 def access(sql, uid, role, enabled):
-    sql("""INSERT INTO users (id, username, password_hash, role) VALUES (:u, :n, 'x', :r)
-           ON CONFLICT (id) DO NOTHING""", u=uid, n=f'r38-{uid}', r=role)
-    if enabled is not None:
-        sql("""INSERT INTO report_access_control (user_id, report_template_id, is_enabled)
-               VALUES (:u, 38, :e)
-               ON CONFLICT (user_id, report_template_id) DO UPDATE SET is_enabled = EXCLUDED.is_enabled""",
-            u=uid, e=enabled)
+    """A real user granted RH and, unless None, its report 38 access (conftest.grant_report)."""
+    grant_report(sql, uid, 38, enabled, role)
 
 
 def study(sql, uid, ae, location='ER', minutes=45):
@@ -68,8 +65,8 @@ def load(client, **extra):
 def test_report_access_decides_who_opens_it(client, sql, who, expected):
     """As /viewer/38 decides it; the data checks it too, so it cannot be reached around the page."""
     headers = {'admin': ADMIN, 'granted': VIEWER,
-               'refused': {'X-Test-Role': 'viewer', 'X-Test-Uid': str(REFUSED)},
-               'no_row': {'X-Test-Role': 'finance', 'X-Test-Uid': str(NO_ROW)}}[who]
+               'refused': {'X-Test-Role': 'user', 'X-Test-Uid': str(REFUSED)},
+               'no_row': {'X-Test-Role': 'user', 'X-Test-Uid': str(NO_ROW)}}[who]
     assert client.get('/report/38', headers=headers).status_code == expected
     assert client.get('/report/38/data', headers=headers).status_code == expected
 
@@ -155,6 +152,7 @@ def test_access_carries_over_who_had_the_page(app):
     grant = next(s for s in _statements() if s.startswith('INSERT INTO report_access_control'))
     people = {9491: 'viewer', 9492: 'tec', 9493: 'finance', 9494: 'viewer'}
     with app.app_context():
+        as_before_0152(db.session)
         for uid, role in people.items():
             db.session.execute(text("INSERT INTO users (id, username, password_hash, role) VALUES (:u, :n, 'x', :r)"),
                                {'u': uid, 'n': f'r38m-{uid}', 'r': role})

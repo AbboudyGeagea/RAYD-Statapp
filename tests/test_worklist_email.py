@@ -732,7 +732,7 @@ def test_someone_elses_personal_worklist_stays_theirs(client, relay):
 
 def test_a_colleague_may_keep_what_a_schedule_holds(client, relay):
     users()
-    sql(f"INSERT INTO users (id, username, password_hash, role) VALUES ({OTHER_ADMIN}, 'wl-admin2', 'x', 'admin')")
+    sql(f"INSERT INTO users (id, username, password_hash, role) VALUES ({OTHER_ADMIN}, 'wl-admin2', 'x', 'administrator')")
     private = worklist(client, 'Admin private', LIST, visibility='personal')
     shared = worklist(client, 'Shared', LIST)
     sid = schedule(client, [private])

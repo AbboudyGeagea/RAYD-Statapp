@@ -21,7 +21,7 @@ pd = pytest.importorskip('pandas')
 
 TODAY = date.today()
 TEN = datetime.combine(TODAY, datetime.min.time()) + timedelta(hours=10)
-ADMIN = {'X-Test-Role': 'admin'}
+ADMIN = {'X-Test-Role': 'administrator'}
 
 
 @pytest.fixture(autouse=True)

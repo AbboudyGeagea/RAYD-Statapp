@@ -151,7 +151,7 @@ def test_report_23_applies_the_rule_to_every_other_case(every_case):
 
 def test_report_23_page_shows_the_router_aside(client, every_case):
     response = client.get('/report/23', query_string={'start_date': START, 'end_date': END},
-                          headers={'X-Test-Role': 'admin'})
+                          headers={'X-Test-Role': 'administrator'})
     assert response.status_code == 200
     assert re.search(r'Reports Without Images</p>\s*<p[^>]*>1</p>', response.get_data(as_text=True))
 

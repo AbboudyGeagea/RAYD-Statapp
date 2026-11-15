@@ -282,19 +282,19 @@ def test_crn_still_texts_a_real_referrer(crn_calls):
 
 # ── the console ───────────────────────────────────────────────────────────────
 
-def post(client, url, body, role='admin'):
+def post(client, url, body, role='cht'):
     return client.post(url, json=body, headers={'X-Test-Role': role, 'X-Test-Uid': '1'})
 
 
 def test_the_console_lists_what_each_record_reaches(client):
     study(1, last='Referring', first='Generic')
-    page = client.get('/brayn?view=settings', headers={'X-Test-Role': 'admin'}).get_data(as_text=True)
+    page = client.get('/brayn?view=settings', headers={'X-Test-Role': 'cht'}).get_data(as_text=True)
     assert 'Placeholder records' in page
     assert 'Referring, Generic' in page and GENERIC in page and CSH in page
     assert '1 study' in page
 
 
-def test_an_admin_adds_and_switches_a_record(client):
+def test_cht_adds_and_switches_a_record(client):
     r = post(client, '/brayn/placeholders/save', {'kind': 'patient', 'code': ' P-77 ', 'label': 'QA'})
     assert r.status_code == 200
     pid = r.json['id']
@@ -312,8 +312,8 @@ def test_the_console_refuses_a_patient_name_and_an_empty_record(client):
     assert post(client, '/brayn/placeholders/save', {'kind': 'other', 'code': 'X'}).status_code == 400
 
 
-def test_only_an_administrator_changes_the_list(client):
-    for role in ('viewer', 'viewer2', 'tec'):
+def test_only_super_user_and_cht_change_the_list(client):
+    for role in ('administrator', 'user', 'viewer'):
         assert post(client, '/brayn/placeholders/save', {'kind': 'patient', 'code': 'P-2'}, role).status_code == 403
         assert post(client, '/brayn/placeholders/active', {'id': 1, 'active': False}, role).status_code == 403
 

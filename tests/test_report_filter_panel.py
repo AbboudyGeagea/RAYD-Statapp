@@ -7,7 +7,7 @@ an unticked filter stays unticked after Generate, and the button says Generate.
 """
 import pytest
 
-ADMIN = {'X-Test-Role': 'admin'}
+ADMIN = {'X-Test-Role': 'administrator'}
 PERIOD = {'start_date': '2026-10-01', 'end_date': '2026-10-31'}
 
 # report page -> (dropdown name, tick name) pairs its panel must carry, and its Excel route

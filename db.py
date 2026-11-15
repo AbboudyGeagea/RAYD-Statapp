@@ -481,16 +481,22 @@ class report_derivative(db.Model):
     sort_order = db.Column(Integer, default=0)
 
 class ReportAccessControl(db.Model):
+    """A User's access to one numbered report on one site (migration 0152 added the site)."""
     __tablename__ = 'report_access_control'
     id = db.Column(Integer, primary_key=True)
     user_id = db.Column(Integer, ForeignKey('users.id'))
+    site_id = db.Column(Integer, nullable=False,     # sites.id (no Site model here)
+                        server_default=text('rayd_default_site_id()'))
     is_enabled = db.Column(Boolean, default=True)
     report_template_id = db.Column(Integer, ForeignKey('report_template.report_id'))
 
 class UserPagePermission(db.Model):
+    """A User's access to one feature page on one site (migration 0152 added the site)."""
     __tablename__ = 'user_page_permissions'
     id = db.Column(Integer, primary_key=True)
     user_id = db.Column(Integer, ForeignKey('users.id'), nullable=False)
+    site_id = db.Column(Integer, nullable=False,     # sites.id (no Site model here)
+                        server_default=text('rayd_default_site_id()'))
     page_key = db.Column(String(50), nullable=False)   # e.g. 'live_feed', 'hl7_orders'
     is_enabled = db.Column(Boolean, default=True)
 
@@ -514,31 +520,17 @@ class SchedulingEntry(db.Model):
     created_at = db.Column(DateTime, server_default=func.now())
     updated_at = db.Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-ALL_FEATURE_KEYS = [
-    # patient_portal + scheduling: modules removed at LAUMC (see docs/LAUMC_SCOPE.md)
-    'live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping',
-    'financial', 'cd_print', 'referring_intel', 'custom_reports',
-]
+# The feature pages a User can be granted per site: utils/roles.PAGES (item 13f).
+# patient_portal + scheduling: modules removed at LAUMC (see docs/LAUMC_SCOPE.md).
+from utils.roles import PAGE_KEYS as ALL_FEATURE_KEYS  # noqa: E402
 
-# Default pages granted to each role at approval / role-change time.
-# Admin is always full-access — handled separately in user_has_page().
-ROLE_PAGE_DEFAULTS = {
-    'viewer':  set(ALL_FEATURE_KEYS),
-    'viewer2': set(ALL_FEATURE_KEYS),
-    'tec':       {'scheduling', 'live_feed', 'hl7_orders'},
-    'finance':   {'financial'},
-    'secretary': {'scheduling', 'live_feed'},
-}
 
 def user_has_page(user, page_key):
-    if user.role == 'admin':
-        return True
-    perm = UserPagePermission.query.filter_by(user_id=user.id, page_key=page_key).first()
-    if perm is not None:
-        return perm.is_enabled
-    # No explicit record — fall back to the role's default so users approved
-    # before this table existed (or before a new key was added) aren't locked out.
-    return page_key in ROLE_PAGE_DEFAULTS.get(user.role, set())
+    """Super user, CHT and Administrator open every page; a User only the pages ticked for
+    it on the current site (utils/roles.py). No role default any more: migration 0152 wrote
+    each User's pages out explicitly, so nothing changed for anyone."""
+    from utils.roles import user_has_page as _has
+    return _has(user, page_key)
 
 class OruReport(db.Model):
     __tablename__ = 'hl7_oru_reports'

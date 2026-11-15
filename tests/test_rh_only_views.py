@@ -20,7 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DAY = '2026-10-15'
 OCTOBER = {'start_date': '2026-10-01', 'end_date': '2026-10-31'}
 ROUTER = 'LAUMCWFM1AR'
-ADMIN = {'X-Test-Role': 'admin', 'X-Test-Uid': '1'}
+ADMIN = {'X-Test-Role': 'administrator', 'X-Test-Uid': '1'}
 
 ALL_UIDS = set(range(1, 11))
 RH_UIDS = {1, 2, 3, 6, 8, 10}

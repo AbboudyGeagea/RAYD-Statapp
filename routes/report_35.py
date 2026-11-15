@@ -58,6 +58,7 @@ import numpy as np
 import pandas as pd
 from flask import Blueprint, render_template, request, send_file, jsonify, abort
 from flask_login import login_required, current_user
+from utils.roles import can, can_open_report
 from sqlalchemy import text
 
 from db import db, get_report_start_date
@@ -734,8 +735,8 @@ def save_jci_thresholds():
     tier. Stored as 'jci_threshold:<CODE>' settings rows -- same convention as
     'pacs_ris_diff_threshold:<MODALITY>' above. A tier with no value submitted (blank
     input) has its threshold removed, reverting that tier to distribution-only display."""
-    if current_user.role != 'admin':
-        return jsonify({"status": "error", "message": "Admin only"}), 403
+    if not can(current_user, 'settings'):
+        return jsonify({"status": "error", "message": "Administrators only"}), 403
     try:
         thresholds = request.get_json(force=True).get("thresholds", {})
         if not isinstance(thresholds, dict):
@@ -816,7 +817,7 @@ def export_report_35():
 @report_35_bp.route('/report/35/flag/acknowledge', methods=['POST'])
 @login_required
 def ack_tech_flag_35():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+    if not can_open_report(current_user, 35):
         abort(403)
     from db import TechFlagAck
     data      = request.get_json(silent=True) or {}
@@ -851,7 +852,7 @@ def ack_tech_flag_35():
 @report_35_bp.route('/report/35/flag/unacknowledge', methods=['POST'])
 @login_required
 def unack_tech_flag_35():
-    if current_user.role not in ('admin', 'viewer', 'viewer2'):
+    if not can_open_report(current_user, 35):
         abort(403)
     from db import TechFlagAck
     data      = request.get_json(silent=True) or {}

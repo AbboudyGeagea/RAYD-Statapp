@@ -56,9 +56,14 @@ def sql(statement, **params):
 
 
 def users():
+    """An Administrator, a former viewer and a former tec, as migration 0152 left them
+    (item 13f): every one granted RH; the viewer keeps Report Composer, the tec never had it."""
     sql(f"""INSERT INTO users (id, username, password_hash, role) VALUES
-            ({ADMIN}, 'wl-admin', 'x', 'admin'), ({VIEWER}, 'wl-viewer', 'x', 'viewer'),
-            ({TEC}, 'wl-tec', 'x', 'tec')""")
+            ({ADMIN}, 'wl-admin', 'x', 'administrator'), ({VIEWER}, 'wl-viewer', 'x', 'user'),
+            ({TEC}, 'wl-tec', 'x', 'user')""")
+    sql(f"""INSERT INTO user_sites (user_id, site_id)
+            SELECT u, rayd_default_site_id() FROM unnest(ARRAY[{ADMIN}, {VIEWER}, {TEC}]) AS u""")
+    sql(f"INSERT INTO user_page_permissions (user_id, page_key, is_enabled) VALUES ({VIEWER}, 'custom_reports', true)")
 
 
 def h(client, method, url, uid=ADMIN, **kw):
@@ -775,7 +780,8 @@ def test_page_permission(client, uid, code):
 def test_a_granted_or_revoked_page_wins(client):
     users()
     sql(f"INSERT INTO user_page_permissions (user_id, page_key, is_enabled) VALUES "
-        f"({TEC}, 'custom_reports', true), ({VIEWER}, 'custom_reports', false)")
+        f"({TEC}, 'custom_reports', true), ({VIEWER}, 'custom_reports', false) "
+        f"ON CONFLICT (user_id, site_id, page_key) DO UPDATE SET is_enabled = EXCLUDED.is_enabled")
     assert h(client, 'get', '/worklists/api/catalog', uid=TEC).status_code == 200
     assert h(client, 'get', '/worklists/api/catalog', uid=VIEWER).status_code == 403
 
@@ -786,7 +792,7 @@ def test_catalog(client):
         "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
     c = h(client, 'get', '/worklists/api/catalog').get_json()
     assert set(c['datasets']) == set(cat.DATASETS)
-    assert c['me'] == {'id': ADMIN, 'role': 'admin', 'can_write_sql': True, 'can_edit_shared': True,
+    assert c['me'] == {'id': ADMIN, 'role': 'administrator', 'can_write_sql': True, 'can_edit_shared': True,
                        'can_schedule': True}
     shift = next(f for f in c['fields'] if f['id'] == 'shift')
     assert 'Morning 6–15 h' in shift['hint']

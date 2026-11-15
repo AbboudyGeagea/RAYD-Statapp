@@ -23,7 +23,8 @@ from sqlalchemy import text
 from ETL_JOBS import etl_ris_modality
 
 RH_ORG, SJH_ORG = '3926', '5320'
-ADMIN = {'X-Test-Role': 'admin'}
+ADMIN = {'X-Test-Role': 'administrator'}
+CHT = {'X-Test-Role': 'cht'}          # Mapping edits are implementation (utils/roles.py)
 
 
 @pytest.fixture(autouse=True)
@@ -223,7 +224,7 @@ def test_report_composer_names_the_device_by_its_ris_room():
 
 def test_a_ris_device_cannot_be_renamed_in_rayd(client, monkeypatch):
     load(monkeypatch, ris(101, 'CTX1', 'CT Room 1'))
-    response = client.post('/mapping/ae/update', headers=ADMIN,
+    response = client.post('/mapping/ae/update', headers=CHT,
                            json={'aetitle': 'CTX1', 'description': 'typed in RAYD'})
     assert response.status_code == 409
     assert device_row('CTX1')['description'] == 'GE Revolution'
@@ -231,7 +232,7 @@ def test_a_ris_device_cannot_be_renamed_in_rayd(client, monkeypatch):
 
 def test_a_ris_devices_modality_can_still_be_corrected(client, monkeypatch):
     load(monkeypatch, ris(101, 'CTX1', 'CT Room 1', modality_type='PT'))
-    response = client.post('/mapping/ae/update', headers=ADMIN,
+    response = client.post('/mapping/ae/update', headers=CHT,
                            json={'aetitle': 'CTX1', 'modality': 'CT'})
     assert response.status_code == 200
     assert device_row('CTX1')['modality'] == 'CT'
@@ -239,7 +240,7 @@ def test_a_ris_devices_modality_can_still_be_corrected(client, monkeypatch):
 
 def test_a_device_the_ris_does_not_know_keeps_its_typed_room_name(client):
     existing('GWX1', modality='PACS', name=None, site_code='NONE')
-    response = client.post('/mapping/ae/update', headers=ADMIN,
+    response = client.post('/mapping/ae/update', headers=CHT,
                            json={'aetitle': 'GWX1', 'room_name': 'Gateway A',
                                  'display_aetitle': 'IGNORED'})
     assert response.status_code == 200

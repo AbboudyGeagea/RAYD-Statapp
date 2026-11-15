@@ -62,7 +62,7 @@ def order(key, study_uid, accession, status='CM', modality='MR'):
 
 def page(client, **filters):
     response = client.get('/report/22', query_string={**OCTOBER, **filters},
-                          headers={'X-Test-Role': 'admin'})
+                          headers={'X-Test-Role': 'administrator'})
     assert response.status_code == 200
     return response.get_data(as_text=True)
 
@@ -117,7 +117,7 @@ def test_only_the_date_range_applies_to_the_count_aside(client, scanner_and_rout
 
 
 def test_the_router_stays_out_of_the_study_export(client, scanner_and_router):
-    response = client.post('/report/22/export', data=OCTOBER, headers={'X-Test-Role': 'admin'})
+    response = client.post('/report/22/export', data=OCTOBER, headers={'X-Test-Role': 'administrator'})
     assert response.status_code == 200
     # the header line plus the one scanner study
     assert len(response.get_data(as_text=True).strip().splitlines()) == 2

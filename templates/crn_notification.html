@@ -45,7 +45,7 @@
                     'retry_requested': 'Retry requested',
                     'dry_run_link_opened': 'Link opened by an admin (dry-run test)',
                 } %}
-                {% set show_test_link = dry_run and current_user.role == 'admin' %}
+                {% set show_test_link = dry_run and can('settings') %}
 
                 <div class="flex items-center gap-3 mb-4">
                     <a href="{{ url_for('crn_admin.board_page') }}" class="muted text-xs font-bold"><i class="bi bi-arrow-left"></i> Board</a>
@@ -92,7 +92,7 @@
                     </div>
                 </div>
 
-                {% if current_user.role == 'admin' and (n.status in ('unroutable', 'send_failed') or not n.acknowledged_at) %}
+                {% if can('settings') and (n.status in ('unroutable', 'send_failed') or not n.acknowledged_at) %}
                 <div class="card mb-4">
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         {% if n.status in ('unroutable', 'send_failed') %}

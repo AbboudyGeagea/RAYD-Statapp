@@ -18,6 +18,7 @@ import logging
 
 from flask import Blueprint, abort, jsonify, render_template, request
 from flask_login import current_user, login_required
+from utils.roles import can
 
 from utils import worklist_email as mailer
 from utils.worklist_email import ScheduleError
@@ -30,7 +31,7 @@ email_server_bp = Blueprint('email_server', __name__, url_prefix='/admin/email-s
 def _require_admin():
     if not current_user.is_authenticated:
         abort(401)
-    if current_user.role != 'admin':
+    if not can(current_user, 'settings'):
         abort(403)
 
 

@@ -61,7 +61,7 @@ def test_device_lists_leave_out_other_sites(devices):
 
 
 def test_the_department_board_leaves_out_other_sites(client, devices):
-    r = client.get('/viewer/department/api/board', headers={'X-Test-Role': 'admin', 'X-Test-Uid': '1'})
+    r = client.get('/viewer/department/api/board', headers={'X-Test-Role': 'administrator', 'X-Test-Uid': '1'})
     assert r.status_code == 200
     body = r.get_data(as_text=True)
     assert 'RH_SCANNER' in body
@@ -73,7 +73,7 @@ def test_the_department_board_offers_no_other_site(client, devices):
            VALUES (:s, 'floor_plans/sjh.png', 1600, 900)""", s=site_id('SJH'))
     try:
         board = client.get('/viewer/department/api/board',
-                           headers={'X-Test-Role': 'admin', 'X-Test-Uid': '1'}).get_json()
+                           headers={'X-Test-Role': 'administrator', 'X-Test-Uid': '1'}).get_json()
         assert [s['code'] for s in board['sites']] == ['RH']
         assert board['plans'] == []
     finally:

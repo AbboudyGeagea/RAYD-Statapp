@@ -432,7 +432,7 @@
               <button onclick="exportCriticalCSV()" id="critical-csv-btn" class="export-btn" type="button" style="display:none;">
                 <i class="bi bi-download" aria-hidden="true"></i> CSV
               </button>
-              {% if current_user.role == 'admin' %}
+              {% if can('settings') %}
               <button onclick="toggleKeywordsPanel()" class="export-btn" type="button" aria-expanded="false" aria-controls="keywords-panel">
                 <i class="bi bi-tags-fill" aria-hidden="true"></i> Manage Keywords
               </button>
@@ -440,7 +440,7 @@
             </div>
           </div>
 
-          {% if current_user.role == 'admin' %}
+          {% if can('settings') %}
           <!-- Keywords management panel (admin only) -->
           <div id="keywords-panel" style="display:none;background:var(--well);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:16px;">
             <div style="font-size:10px;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Critical Keywords Dictionary</div>

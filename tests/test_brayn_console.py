@@ -10,7 +10,9 @@ from sqlalchemy import text
 
 import hl7kit as k
 
-OTHER_ROLES = ('viewer', 'viewer2', 'tec', 'finance', 'secretary')
+# The console is implementation (utils/roles.py, item 13f): Super user and CHT. An
+# Administrator, a User, and old role names (read as their new roles) are refused.
+OTHER_ROLES = ('administrator', 'user', 'admin', 'viewer', 'tec')
 # The HL7 branch's words, which are untrue on LAUMC: nothing is held, and the
 # reports never depended on BRAYN.
 HL7_ONLY = ('Not in reports', 'In reports', 'in the reports', 'Reprocess', 'held message',
@@ -18,11 +20,11 @@ HL7_ONLY = ('Not in reports', 'In reports', 'in the reports', 'Reprocess', 'held
 LAUMC_TABLES = ['hl7_orders', 'hl7_oru_reports', 'hl7_scn_studies', 'aetitle_modality_map']
 
 
-def get(client, url, role='admin'):
+def get(client, url, role='cht'):
     return client.get(url, headers={'X-Test-Role': role} if role else {})
 
 
-def post(client, url, body=None, role='admin'):
+def post(client, url, body=None, role='cht'):
     return client.post(url, json=body or {}, headers={'X-Test-Role': role} if role else {})
 
 
@@ -47,8 +49,9 @@ def traffic(pipe):
 
 # ── who may see it ────────────────────────────────────────────────────────────
 
-def test_only_an_administrator_opens_the_console(client, pipe):
+def test_only_super_user_and_cht_open_the_console(client, pipe):
     assert get(client, '/brayn').status_code == 200
+    assert get(client, '/brayn', 'superuser').status_code == 200
     for role in OTHER_ROLES:
         assert get(client, '/brayn', role).status_code == 403, role
         assert post(client, '/brayn/switch', {'enabled': True}, role).status_code == 403, role
@@ -196,7 +199,7 @@ def test_console_requests_run_on_hospital_time(app):
     from db import db
     from routes import brayn_console
     from utils.brayn_shadow import hospital_zone
-    with app.test_request_context('/brayn', headers={'X-Test-Role': 'admin'}):
+    with app.test_request_context('/brayn', headers={'X-Test-Role': 'cht'}):
         app.preprocess_request()
         assert db.session.execute(text('SHOW timezone')).scalar() == hospital_zone()
         now = brayn_console._now()

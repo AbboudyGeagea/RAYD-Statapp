@@ -34,6 +34,7 @@ import logging
 
 from flask import Blueprint, Response, abort, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
+from utils.roles import can, role_of
 from sqlalchemy import text
 
 from db import db, user_has_page
@@ -47,9 +48,6 @@ logger = logging.getLogger("WORKLISTS")
 
 worklists_bp = Blueprint('worklists', __name__)
 
-EDITOR_ROLES = ('admin',)
-SQL_ROLES = ('admin',)
-SCHEDULE_ROLES = ('admin',)
 
 
 def _require_access():
@@ -66,15 +64,15 @@ def _require_scheduling():
 
 
 def _can_write_sql():
-    return current_user.role in SQL_ROLES
+    return can(current_user, 'settings')
 
 
 def _can_schedule():
-    return current_user.role in SCHEDULE_ROLES
+    return can(current_user, 'settings')
 
 
 def _can_edit(row):
-    return current_user.role in EDITOR_ROLES or row['owner_id'] == current_user.id
+    return can(current_user, 'settings') or row['owner_id'] == current_user.id
 
 
 def _can_see(row):
@@ -147,9 +145,9 @@ def api_catalog():
     for f in out['fields']:
         if f['id'] == 'shift':
             f['hint'] = f"{f['hint']} Now: {shifts}."
-    out['me'] = {'id': current_user.id, 'role': current_user.role,
+    out['me'] = {'id': current_user.id, 'role': role_of(current_user),
                  'can_write_sql': _can_write_sql(),
-                 'can_edit_shared': current_user.role in EDITOR_ROLES,
+                 'can_edit_shared': can(current_user, 'settings'),
                  'can_schedule': _can_schedule()}
     # "Fixed dates" starts on the report start date (settings, migration 0149)
     from db import get_report_start_date
@@ -223,7 +221,7 @@ def api_save():
         return _error('a report needs a name')
     if visibility not in ('personal', 'shared'):
         return _error('visibility is personal or shared')
-    if visibility == 'shared' and current_user.role not in EDITOR_ROLES:
+    if visibility == 'shared' and not can(current_user, 'settings'):
         return _error('only an admin can share a report', 403)
     try:
         engine.validate_for_save(defn)

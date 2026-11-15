@@ -2,26 +2,15 @@
 from flask import Blueprint, render_template, request, abort, Response, jsonify, redirect, url_for
 from flask_login import login_required, current_user
 from sqlalchemy import text
-from db import ReportAccessControl, db
+from db import db
 from utils.permissions import permission_required
+from utils.roles import can, can_open_report, granted_report_ids
 from utils.site_resolver import default_site
 from utils.ae_display import ae_display_sql
 
 from routes.report_registry import get_report
 
 viewer_bp = Blueprint('viewer', __name__, url_prefix='/viewer')
-
-
-def seed_report_access(user_id):
-    """Grant access to every base ReportTemplate for a user. Single upsert, idempotent."""
-    db.session.execute(text("""
-        INSERT INTO report_access_control (user_id, report_template_id, is_enabled)
-        SELECT :uid, report_id, TRUE
-        FROM report_template
-        WHERE is_base = TRUE
-        ON CONFLICT (user_id, report_template_id) DO NOTHING
-    """), {"uid": user_id})
-    db.session.commit()
 
 
 @viewer_bp.route('/')
@@ -39,31 +28,16 @@ def welcome():
 @viewer_bp.route('/dashboard')
 @login_required
 def viewer_dashboard():
-    if current_user.role == 'tec':
-        return redirect(url_for('hl7_orders.hl7_orders_page'))
-
+    """The reports the account may open on the site served (utils/roles.py). Until item 13f
+    every visit granted every report to every non-admin; now a User sees what was ticked
+    for it (migration 0152 wrote out what each one had)."""
     from db import ReportTemplate
 
-    is_admin = current_user.role == 'admin'
-
-    if is_admin:
-        reports = ReportTemplate.query.filter_by(is_base=True).all()
-    else:
-        # Auto-seed any missing access rows so existing viewers aren't locked out.
-        seed_report_access(current_user.id)
-        reports = (
-            db.session.query(ReportTemplate)
-            .join(
-                ReportAccessControl,
-                ReportTemplate.report_id == ReportAccessControl.report_template_id
-            )
-            .filter(
-                ReportAccessControl.user_id == current_user.id,
-                ReportAccessControl.is_enabled == True,
-                ReportTemplate.is_base == True
-            )
-            .all()
-        )
+    is_admin = can(current_user, 'all_pages')
+    reports = ReportTemplate.query.filter_by(is_base=True).order_by(ReportTemplate.report_id).all()
+    granted = granted_report_ids(current_user)
+    if granted is not None:
+        reports = [r for r in reports if r.report_id in granted]
 
     return render_template('viewer_dashboard.html', reports=reports, is_admin=is_admin)
 
@@ -599,15 +573,8 @@ def yesterday_overview():
 @login_required
 def viewer_report(report_id):
     """Render report directly based on report_id"""
-    # Access control for non-admins
-    if current_user.role != 'admin':
-        access = ReportAccessControl.query.filter_by(
-            user_id=current_user.id,
-            report_template_id=report_id,
-            is_enabled=True
-        ).first()
-        if not access:
-            abort(403)
+    if not can_open_report(current_user, report_id):
+        abort(403)
 
     reg = get_report(report_id)
     if reg and reg['view']:
@@ -620,15 +587,8 @@ def viewer_report(report_id):
 @permission_required('can_export')
 def viewer_export_report(report_id):
     """Export report directly, no url_for needed"""
-    # Access control for non-admins
-    if current_user.role != 'admin':
-        access = ReportAccessControl.query.filter_by(
-            user_id=current_user.id,
-            report_template_id=report_id,
-            is_enabled=True
-        ).first()
-        if not access:
-            abort(403)
+    if not can_open_report(current_user, report_id):
+        abort(403)
 
     reg = get_report(report_id)
     if reg and reg['export']:

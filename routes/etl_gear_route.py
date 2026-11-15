@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, abort
 from flask_login import login_required, current_user
+from utils.roles import can
 from utils.permissions import permission_required
 import os, re
 
@@ -14,7 +15,7 @@ ETL_SETTINGS_PATH = os.path.join(
 @login_required
 @permission_required('can_view_etl')
 def save_etl_gear():
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         abort(403)
     try:
         data        = request.get_json()

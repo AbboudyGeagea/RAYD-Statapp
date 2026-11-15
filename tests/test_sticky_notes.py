@@ -13,9 +13,11 @@ import pytest
 from flask import render_template_string
 from sqlalchemy import text
 
+from conftest import as_before_0152, grant_report
+
 GRANTED, REFUSED, NO_ROW = 9371, 9372, 9373     # users with report 37 on, off, never set
-ADMIN = {'X-Test-Role': 'admin'}
-VIEWER = {'X-Test-Role': 'viewer', 'X-Test-Uid': str(GRANTED)}
+ADMIN = {'X-Test-Role': 'administrator'}
+VIEWER = {'X-Test-Role': 'user', 'X-Test-Uid': str(GRANTED)}
 
 T0 = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0) - timedelta(days=1)
 DAY = T0.date().isoformat()
@@ -42,7 +44,7 @@ def sql(app):
            VALUES ('CT_T', 'CT', (SELECT id FROM sites WHERE is_default LIMIT 1)),
                   ('MR_T', 'MR', (SELECT id FROM sites WHERE is_default LIMIT 1)),
                   ('SR_T', 'SR', (SELECT id FROM sites WHERE is_default LIMIT 1))""")
-    access(run, GRANTED, 'viewer', True)
+    access(run, GRANTED, 'user', True)
     yield run
     run("DELETE FROM etl_sticky_notes")
     run("DELETE FROM study_access_history")
@@ -51,14 +53,8 @@ def sql(app):
 
 
 def access(sql, uid, role, enabled):
-    """A real user (report access points at users) and, unless None, its report 37 access."""
-    sql("""INSERT INTO users (id, username, password_hash, role) VALUES (:u, :n, 'x', :r)
-           ON CONFLICT (id) DO NOTHING""", u=uid, n=f'r37-{uid}', r=role)
-    if enabled is not None:
-        sql("""INSERT INTO report_access_control (user_id, report_template_id, is_enabled)
-               VALUES (:u, 37, :e)
-               ON CONFLICT (user_id, report_template_id) DO UPDATE SET is_enabled = EXCLUDED.is_enabled""",
-            u=uid, e=enabled)
+    """A real user granted RH and, unless None, its report 37 access (conftest.grant_report)."""
+    grant_report(sql, uid, 37, enabled, role)
 
 
 def study(sql, uid, location='ER', full=None, ae='CT_T', site_label='0', arrived=None):
@@ -105,11 +101,11 @@ def by_accession(data):
 def test_report_access_decides_who_opens_it(client, sql, who, expected):
     """As /viewer/37 decides it: an admin, or a user whose access to report 37 is on. The
     data and the export check it too, so they cannot be reached around the page."""
-    access(sql, REFUSED, 'viewer', False)
-    access(sql, NO_ROW, 'finance', None)
+    access(sql, REFUSED, 'user', False)
+    access(sql, NO_ROW, 'user', None)
     headers = {'admin': ADMIN, 'granted': VIEWER,
-               'refused': {'X-Test-Role': 'viewer', 'X-Test-Uid': str(REFUSED)},
-               'no_row': {'X-Test-Role': 'finance', 'X-Test-Uid': str(NO_ROW)}}[who]
+               'refused': {'X-Test-Role': 'user', 'X-Test-Uid': str(REFUSED)},
+               'no_row': {'X-Test-Role': 'user', 'X-Test-Uid': str(NO_ROW)}}[who]
     assert client.get('/report/37', headers=headers).status_code == expected
     assert client.get('/report/37/data', headers=headers).status_code == expected
     assert client.get('/report/37/export.csv', headers=headers).status_code == expected
@@ -786,6 +782,7 @@ def test_access_carries_over_who_had_the_page(app, sql):
     grant = next(s for s in _statements() if s.startswith('INSERT INTO report_access_control'))
     people = {9381: ('viewer', None), 9382: ('tec', None), 9383: ('viewer', False), 9384: ('tec', True)}
     with app.app_context():
+        as_before_0152(db.session)
         for uid, (role, page) in people.items():
             db.session.execute(text("INSERT INTO users (id, username, password_hash, role) VALUES (:u, :n, 'x', :r)"),
                                {'u': uid, 'n': f'r37m-{uid}', 'r': role})

@@ -21,7 +21,7 @@ import pytest
 
 from test_report_22_volume import ctx, sql, device, study, report  # noqa: F401
 
-ADMIN = {'X-Test-Role': 'admin'}
+ADMIN = {'X-Test-Role': 'administrator'}
 OCTOBER = {'start_date': '2026-10-01', 'end_date': '2026-10-31'}
 TAB_AE = 'CT2\t'
 

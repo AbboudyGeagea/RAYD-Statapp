@@ -17,6 +17,7 @@ from flask_login import login_required, current_user
 from datetime import date
 import pandas as pd
 from sqlalchemy import text
+from utils.roles import can_open_report
 
 from db import (
     db,
@@ -122,15 +123,8 @@ def generate_report():
             return jsonify(error="Report not found"), 404
 
         # Access control
-        if current_user.role != "admin":
-            allowed = ReportAccessControl.query.filter_by(
-                user_id=current_user.id,
-                report_template_id=report_id,
-                is_enabled=True
-            ).first()
-
-            if not allowed:
-                return jsonify(error="Access denied"), 403
+        if not can_open_report(current_user, report_id):
+            return jsonify(error="Access denied"), 403
 
         # Dates
         start_date = parse_iso_date(payload.get("start_date")) or get_report_start_date()

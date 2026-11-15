@@ -17,8 +17,8 @@ from test_sticky_notes import GRANTED, access
 from test_worklist_email import Relay
 from utils import sticky_notes_monthly as monthly
 
-ADMIN = {'X-Test-Role': 'admin'}
-VIEWER = {'X-Test-Role': 'viewer', 'X-Test-Uid': str(GRANTED)}     # report 37 access on
+ADMIN = {'X-Test-Role': 'administrator'}
+VIEWER = {'X-Test-Role': 'user', 'X-Test-Uid': str(GRANTED)}     # report 37 access on
 
 OCT_1 = datetime(2026, 10, 1).date()
 NOV_2_MORNING = datetime(2026, 11, 2, 8, 0)
@@ -42,7 +42,7 @@ def sql(app):
     clear()
     run("""INSERT INTO aetitle_modality_map (aetitle, modality, site_id)
            VALUES ('CT_T', 'CT', (SELECT id FROM sites WHERE is_default LIMIT 1))""")
-    access(run, GRANTED, 'viewer', True)
+    access(run, GRANTED, 'user', True)
     yield run
     clear()
 
@@ -383,7 +383,7 @@ def test_the_page_lists_kept_months_and_they_download(app, client, sql):
     assert table(r.data)[2][0][0] == 'MRN00001'
     assert client.get('/report/37/monthly/2026-09.xlsx', headers=VIEWER).status_code == 404
     assert client.get('/report/37/monthly/nonsense.xlsx', headers=VIEWER).status_code == 404
-    assert client.get('/report/37/monthly/2026-10.xlsx', headers={'X-Test-Role': 'tec'}).status_code == 403
+    assert client.get('/report/37/monthly/2026-10.xlsx', headers={'X-Test-Role': 'user'}).status_code == 403
 
 
 def test_only_an_admin_sees_recipients_and_the_mail_state(client, sql):

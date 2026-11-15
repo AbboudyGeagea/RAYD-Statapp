@@ -303,7 +303,7 @@ def test_while_brayn_is_off_the_board_shows_the_devices_and_no_study(app, pipe):
 
 # ── page and API ──────────────────────────────────────────────────────────────
 
-def h(client, url, role='admin', uid=ADMIN):
+def h(client, url, role='administrator', uid=ADMIN):
     return client.get(url, headers={'X-Test-Role': role, 'X-Test-Uid': str(uid)})
 
 
@@ -316,9 +316,24 @@ def test_api_returns_the_board(client, devices):
     assert d['totals']['waiting'] == 1
 
 
-@pytest.mark.parametrize('role,code', [('admin', 200), ('viewer', 200),
-                                       ('tec', 200), ('finance', 403)])
-def test_access_follows_the_live_feed_permission(client, role, code):
+@pytest.mark.parametrize('role,live,code', [('administrator', None, 200), ('cht', None, 200),
+                                            ('user', True, 200), ('user', False, 403),
+                                            ('user', None, 403)])
+def test_access_follows_the_live_feed_permission(app, client, role, live, code):
+    """Administrator and CHT open every page; a User the live page only when it is ticked
+    for it on RH (item 13f: no role default any more, migration 0152 wrote them out)."""
+    from db import db
+    with app.app_context():
+        db.session.execute(text("DELETE FROM user_page_permissions WHERE user_id = 9101"))
+        db.session.execute(text("DELETE FROM user_sites WHERE user_id = 9101"))
+        db.session.execute(text("DELETE FROM users WHERE id = 9101"))
+        db.session.execute(text("INSERT INTO users (id, username, password_hash, role) VALUES (9101, 'db-9101', 'x', :r)"),
+                           {'r': role})
+        db.session.execute(text("INSERT INTO user_sites (user_id, site_id) VALUES (9101, rayd_default_site_id())"))
+        if live is not None:
+            db.session.execute(text("""INSERT INTO user_page_permissions (user_id, page_key, is_enabled)
+                                       VALUES (9101, 'live_feed', :on)"""), {'on': live})
+        db.session.commit()
     assert h(client, '/viewer/department/api/board', role=role, uid=9101).status_code == code
 
 

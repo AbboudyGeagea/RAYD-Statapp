@@ -7,14 +7,17 @@ import sys, os
 _etl_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ETL_JOBS')
 if _etl_path not in sys.path: sys.path.insert(0, _etl_path)
 from etl_settings import ETL_GEAR
+from utils.roles import (CAPABILITIES, PAGE_KEYS, PAGES, ROLE_HELP, ROLE_LABELS, ROLES, USER,
+                         all_sites, assignable_roles, can, can_manage, current_site_id,
+                         grantable_site_ids, granted_site_ids)
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
 @admin_bp.route('/dashboard', endpoint='admin_dashboard')
 @login_required
 def admin_dashboard():
-    if current_user.role != 'admin':
-        flash("Admin access required.", "danger")
+    if not can(current_user, 'implementation'):
+        flash("The ETL Control Room is for Super user and CHT accounts.", "danger")
         return redirect(url_for('viewer.viewer_dashboard'))
 
     # --- 1. User & Report Management ---
@@ -122,38 +125,63 @@ def admin_dashboard():
 # ── Scheduling module REMOVED at LAUMC (page + cancel/arrive/reschedule/suggest routes) ──
 
 
-def _get_user_page_columns():
-    return [
-        ('live_feed',       'Live Department View'),
-        ('hl7_orders',      'HL7 Orders'),
-        # scheduling / patient_portal: modules removed at LAUMC
-        ('cd_print',        'Patient CD Log'),
-        ('oru',             'Report Intelligence'),
-        ('referring_intel', 'Referring Intel'),
-        ('custom_reports',  'Report Composer'),
-        ('mapping',         'Modality / Procedures'),
-        ('report_ai',       'AI Reports'),
-        ('financial',       'Revenue Intelligence'),
-    ]
+# ── User Management (item 13f: roles, sites, pages per site; utils/roles.py) ──────────
+#
+# A Super user manages every other account; an Administrator the Users and Administrators
+# whose sites are all among its own, and gives only its own sites and the roles
+# Administrator and User. Nobody changes their own account here. Every change is audited.
+
+def _sites_by_user():
+    out = {}
+    for uid, sid in db.session.execute(text("SELECT user_id, site_id FROM user_sites")):
+        out.setdefault(uid, set()).add(sid)
+    return out
 
 
-def _apply_role_default_permissions(user, role):
-    from db import ALL_FEATURE_KEYS, ROLE_PAGE_DEFAULTS
-    defaults = ROLE_PAGE_DEFAULTS.get(role, set())
+def manageable_users(actor):
+    """The accounts actor may manage (utils.roles.can_manage), read in two queries."""
+    if not can(actor, 'users'):
+        return []
+    sites = _sites_by_user()
+    mine = granted_site_ids(actor)
+    return [u for u in User.query.order_by(User.username).all()
+            if can_manage(actor, u, sites.get(u.id, set()), mine)]
 
-    existing_perms = {p.page_key: p for p in UserPagePermission.query.filter_by(user_id=user.id).all()}
 
-    for page_key in ALL_FEATURE_KEYS:
-        desired = page_key in defaults
-        perm = existing_perms.get(page_key)
-        if perm:
-            perm.is_enabled = desired
-        else:
-            db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=desired))
+def _target(user_id):
+    """The account the request names, if the signed-in account may manage it; else None."""
+    try:
+        user = db.session.get(User, int(user_id))
+    except (TypeError, ValueError):
+        return None
+    return user if user is not None and can_manage(current_user, user) else None
 
-    if role == 'viewer':
-        from routes.viewer_controller import seed_report_access
-        seed_report_access(user.id)
+
+def _refused(message='User not found, or not yours to manage.', code=400):
+    return jsonify({'status': 'error', 'message': message}), code
+
+
+def _json():
+    return request.get_json(silent=True) or {}
+
+
+def _site_ids(raw):
+    """The site ids in a request, as ints; ValueError on anything else."""
+    if raw is None:
+        return []
+    if not isinstance(raw, (list, tuple)):
+        raw = [raw]
+    return [int(x) for x in raw]
+
+
+def _licensed_reports():
+    """Base reports in the catalogue that the licence covers (all of them with no licence)."""
+    from flask import current_app
+    lic = current_app.config.get('LICENSE')
+    licensed = set(lic.get('reports', [])) if isinstance(lic, dict) else None
+    return [(r.report_id, r.report_name or f'Report {r.report_id}')
+            for r in ReportTemplate.query.filter_by(is_base=True).order_by(ReportTemplate.report_id).all()
+            if licensed is None or r.report_id in licensed]
 
 
 def _admin_audit(action, target_user_id, detail=None, category='user_mgmt'):
@@ -170,117 +198,287 @@ def _admin_audit(action, target_user_id, detail=None, category='user_mgmt'):
         pass
 
 
+def _end_sessions(user_id):
+    """Sign the account out everywhere, so its next request reads its new access."""
+    active_sessions.query.filter_by(user_id=user_id).delete()
+
+
 @admin_bp.route('/users')
 @login_required
 def user_management():
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
-    active_users  = User.query.filter(User.role != 'admin', User.status != 'pending') \
-                              .order_by(User.role, User.username).all()
-    pending_users = User.query.filter_by(status='pending').order_by(User.created_at.desc()).all()
+    users = manageable_users(current_user)
+    ids = [u.id for u in users] or [0]
+    sites = _sites_by_user()
 
-    all_perms  = UserPagePermission.query.all()
-    page_perms = {}
-    for p in all_perms:
-        page_perms.setdefault(p.user_id, {})[p.page_key] = p.is_enabled
+    pages, reports = {}, {}
+    for uid, sid, key, on in db.session.execute(text(
+            "SELECT user_id, site_id, page_key, is_enabled FROM user_page_permissions "
+            "WHERE user_id = ANY(:ids)"), {'ids': ids}):
+        pages.setdefault(uid, {}).setdefault(sid, {})[key] = bool(on)
+    for uid, sid, rid, on in db.session.execute(text(
+            "SELECT user_id, site_id, report_template_id, is_enabled FROM report_access_control "
+            "WHERE user_id = ANY(:ids)"), {'ids': ids}):
+        reports.setdefault(uid, {}).setdefault(sid, {})[rid] = bool(on)
 
-    page_keys = _get_user_page_columns()
-
-    # Active sessions keyed by user_id
     sessions_by_user = {}
-    for s in active_sessions.query.all():
+    for s in active_sessions.query.filter(active_sessions.user_id.in_(ids)).all():
         sessions_by_user.setdefault(s.user_id, []).append(s)
 
+    grantable = grantable_site_ids(current_user)
+    site_rows = [{'id': sid, 'code': code, 'name': name, 'serves': sid == current_site_id()}
+                 for sid, code, name in all_sites() if sid in grantable]
+
     return render_template('user_management.html',
-        users=active_users,
-        pending_users=pending_users,
-        page_perms=page_perms,
-        page_keys=page_keys,
+        users=[u for u in users if u.status != 'pending'],
+        pending_users=[u for u in users if u.status == 'pending'],
+        user_sites={u.id: sorted(sites.get(u.id, set())) for u in users},
+        user_pages=pages,
+        user_reports=reports,
         sessions_by_user=sessions_by_user,
-        ui_theme=current_user.ui_theme or 'dark',
+        sites=site_rows,
+        page_catalogue=PAGES,
+        report_catalogue=_licensed_reports(),
+        roles=[{'key': r, 'label': ROLE_LABELS[r], 'help': ROLE_HELP[r]} for r in ROLES],
+        assignable=list(assignable_roles(current_user)),
+        full_access_roles=sorted(CAPABILITIES['all_pages']),
+        ui_theme=getattr(current_user, 'ui_theme', None) or 'dark',
     )
 
 
-@admin_bp.route('/users/permissions', methods=['POST'])
+@admin_bp.route('/users/create', methods=['POST'])
 @login_required
-def update_user_permissions():
-    if current_user.role != 'admin':
+def create_user():
+    """An account made directly by an administrator: active at once, with a temporary
+    password that must be changed at the first sign-in."""
+    if not can(current_user, 'users'):
         return abort(403)
+    data = _json()
+    username = str(data.get('username') or '').strip()
+    password = str(data.get('password') or '')
+    role = str(data.get('role') or '').strip()
+    try:
+        site_ids = _site_ids(data.get('site_ids'))
+    except (TypeError, ValueError):
+        return _refused('Pick the sites from the list.')
+    if not username or len(username) > 80:
+        return _refused('Give a username (80 characters at most).')
+    if len(password) < 6:
+        return _refused('The temporary password must be at least 6 characters.')
+    if role not in assignable_roles(current_user):
+        return _refused('You cannot give that role.')
+    if not site_ids or not set(site_ids) <= grantable_site_ids(current_user):
+        return _refused('Grant at least one of your sites.')
+    if User.query.filter(func.lower(User.username) == username.lower()).first():
+        return _refused('That username is taken.', 409)
+    from flask import current_app
+    from routes.registry import check_license_limit
+    ok, msg = check_license_limit(current_app, 'max_users')
+    if not ok:
+        return _refused(msg, 403)
 
-    from db import ALL_FEATURE_KEYS
-    data     = request.get_json()
-    user_id  = data.get('user_id')
-    page_key = data.get('page_key')
-    enabled  = bool(data.get('enabled'))
-
-    if not user_id or not page_key:
-        return jsonify({'status': 'error', 'message': 'Missing fields'}), 400
-
-    if page_key not in ALL_FEATURE_KEYS:
-        return jsonify({'status': 'error', 'message': 'Invalid page key'}), 400
-
-    perm = UserPagePermission.query.filter_by(user_id=user_id, page_key=page_key).first()
-    if perm:
-        perm.is_enabled = enabled
-    else:
-        db.session.add(UserPagePermission(user_id=user_id, page_key=page_key, is_enabled=enabled))
-
-    _admin_audit('perm_changed', user_id, {'page_key': page_key, 'enabled': enabled})
+    from werkzeug.security import generate_password_hash
+    user = User(username=username,
+                password_hash=generate_password_hash(password, method='pbkdf2:sha256'),
+                role=role, status='active', must_change_password=True,
+                full_name=(str(data.get('full_name') or '').strip() or None),
+                email=(str(data.get('email') or '').strip() or None),
+                created_by=current_user.id)
+    db.session.add(user)
+    db.session.flush()
+    for sid in site_ids:
+        db.session.execute(text(
+            "INSERT INTO user_sites (user_id, site_id, granted_by) VALUES (:u, :s, :by)"),
+            {'u': user.id, 's': sid, 'by': current_user.id})
+    _admin_audit('created', user.id, {'role': role, 'sites': site_ids})
     db.session.commit()
-    return jsonify({'status': 'ok'})
+    return jsonify({'status': 'ok', 'user_id': user.id})
 
 
 @admin_bp.route('/users/role', methods=['POST'])
 @login_required
 def update_user_role():
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
-    data     = request.get_json()
-    user_id  = data.get('user_id')
+    data     = _json()
     new_role = data.get('role')
-
-    if new_role not in ('viewer', 'viewer2', 'tec', 'finance', 'secretary'):
-        return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
-
-    user = User.query.get(user_id)
-    if not user or user.role == 'admin':
-        return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
+    if new_role not in assignable_roles(current_user):
+        return _refused('You cannot give that role.')
+    user = _target(data.get('user_id'))
+    if not user:
+        return _refused()
 
     old_role = user.role
     if old_role != new_role:
         user.role = new_role
-        _apply_role_default_permissions(user, new_role)
         _admin_audit('role_changed', user.id, {'from': old_role, 'to': new_role})
-        # Invalidate all existing sessions so the user re-logs in with the new role
-        active_sessions.query.filter_by(user_id=user.id).delete()
+        _end_sessions(user.id)
         db.session.commit()
 
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/sites', methods=['POST'])
+@login_required
+def update_user_site():
+    """Grant or take away one site. Taking a site away keeps the account's ticks for it,
+    unread, so granting it again brings them back."""
+    if not can(current_user, 'users'):
+        return abort(403)
+    data = _json()
+    try:
+        site_id = int(data.get('site_id'))
+    except (TypeError, ValueError):
+        return _refused('Pick a site.')
+    if site_id not in grantable_site_ids(current_user):
+        return _refused('You cannot grant that site.')
+    user = _target(data.get('user_id'))
+    if not user:
+        return _refused()
+    if data.get('granted'):
+        db.session.execute(text(
+            "INSERT INTO user_sites (user_id, site_id, granted_by) VALUES (:u, :s, :by) "
+            "ON CONFLICT (user_id, site_id) DO NOTHING"),
+            {'u': user.id, 's': site_id, 'by': current_user.id})
+    else:
+        db.session.execute(text("DELETE FROM user_sites WHERE user_id = :u AND site_id = :s"),
+                           {'u': user.id, 's': site_id})
+    _admin_audit('site_changed', user.id, {'site_id': site_id, 'granted': bool(data.get('granted'))})
+    _end_sessions(user.id)
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+def _grant_site(data):
+    """The site a page or report tick is for: the request's, else the site served now."""
+    raw = data.get('site_id')
+    try:
+        site_id = int(raw) if raw not in (None, '') else current_site_id()
+    except (TypeError, ValueError):
+        return None
+    return site_id if site_id in grantable_site_ids(current_user) else None
+
+
+@admin_bp.route('/users/permissions', methods=['POST'])
+@login_required
+def update_user_permissions():
+    if not can(current_user, 'users'):
+        return abort(403)
+
+    data     = _json()
+    page_key = data.get('page_key')
+    enabled  = bool(data.get('enabled'))
+    if page_key not in PAGE_KEYS:
+        return _refused('Invalid page key')
+    site_id = _grant_site(data)
+    if site_id is None:
+        return _refused('You cannot grant that site.')
+    user = _target(data.get('user_id'))
+    if not user:
+        return _refused()
+
+    db.session.execute(text("""
+        INSERT INTO user_page_permissions (user_id, site_id, page_key, is_enabled)
+        VALUES (:u, :s, :k, :on)
+        ON CONFLICT (user_id, site_id, page_key) DO UPDATE SET is_enabled = EXCLUDED.is_enabled
+    """), {'u': user.id, 's': site_id, 'k': page_key, 'on': enabled})
+    _admin_audit('perm_changed', user.id, {'page_key': page_key, 'site_id': site_id, 'enabled': enabled})
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/reports', methods=['POST'])
+@login_required
+def update_user_report():
+    if not can(current_user, 'users'):
+        return abort(403)
+    data = _json()
+    try:
+        report_id = int(data.get('report_id'))
+    except (TypeError, ValueError):
+        return _refused('Pick a report.')
+    if report_id not in {rid for rid, _ in _licensed_reports()}:
+        return _refused('No such report.')
+    site_id = _grant_site(data)
+    if site_id is None:
+        return _refused('You cannot grant that site.')
+    user = _target(data.get('user_id'))
+    if not user:
+        return _refused()
+    enabled = bool(data.get('enabled'))
+    db.session.execute(text("""
+        INSERT INTO report_access_control (user_id, site_id, report_template_id, is_enabled)
+        VALUES (:u, :s, :r, :on)
+        ON CONFLICT (user_id, site_id, report_template_id) DO UPDATE SET is_enabled = EXCLUDED.is_enabled
+    """), {'u': user.id, 's': site_id, 'r': report_id, 'on': enabled})
+    _admin_audit('report_access_changed', user.id,
+                 {'report_id': report_id, 'site_id': site_id, 'enabled': enabled})
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@admin_bp.route('/users/access-all', methods=['POST'])
+@login_required
+def update_user_access_all():
+    """Tick or untick every page and report of one site for one account."""
+    if not can(current_user, 'users'):
+        return abort(403)
+    data = _json()
+    site_id = _grant_site(data)
+    if site_id is None:
+        return _refused('You cannot grant that site.')
+    user = _target(data.get('user_id'))
+    if not user:
+        return _refused()
+    enabled = bool(data.get('enabled'))
+    for key in PAGE_KEYS:
+        db.session.execute(text("""
+            INSERT INTO user_page_permissions (user_id, site_id, page_key, is_enabled)
+            VALUES (:u, :s, :k, :on)
+            ON CONFLICT (user_id, site_id, page_key) DO UPDATE SET is_enabled = EXCLUDED.is_enabled
+        """), {'u': user.id, 's': site_id, 'k': key, 'on': enabled})
+    for rid, _ in _licensed_reports():
+        db.session.execute(text("""
+            INSERT INTO report_access_control (user_id, site_id, report_template_id, is_enabled)
+            VALUES (:u, :s, :r, :on)
+            ON CONFLICT (user_id, site_id, report_template_id) DO UPDATE SET is_enabled = EXCLUDED.is_enabled
+        """), {'u': user.id, 's': site_id, 'r': rid, 'on': enabled})
+    _admin_audit('access_all_changed', user.id, {'site_id': site_id, 'enabled': enabled})
+    db.session.commit()
     return jsonify({'status': 'ok'})
 
 
 @admin_bp.route('/users/approve', methods=['POST'])
 @login_required
 def approve_user():
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
-    data     = request.get_json()
-    user_id  = data.get('user_id')
-    new_role = data.get('role', 'viewer')
-
-    if new_role not in ('viewer', 'viewer2', 'tec', 'finance', 'secretary'):
-        return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
-
-    user = User.query.get(user_id)
+    data     = _json()
+    new_role = data.get('role') or USER
+    if new_role not in assignable_roles(current_user):
+        return _refused('You cannot give that role.')
+    try:
+        site_ids = _site_ids(data.get('site_ids'))
+    except (TypeError, ValueError):
+        return _refused('Pick the sites from the list.')
+    if not site_ids or not set(site_ids) <= grantable_site_ids(current_user):
+        return _refused('Grant at least one of your sites.')
+    user = _target(data.get('user_id'))
     if not user or user.status != 'pending':
-        return jsonify({'status': 'error', 'message': 'User not found or not pending'}), 400
+        return _refused('User not found or not pending')
 
     user.status = 'active'
     user.role   = new_role
-    _apply_role_default_permissions(user, new_role)
-    _admin_audit('approved', user.id, {'role': new_role})
+    for sid in site_ids:
+        db.session.execute(text(
+            "INSERT INTO user_sites (user_id, site_id, granted_by) VALUES (:u, :s, :by) "
+            "ON CONFLICT (user_id, site_id) DO NOTHING"),
+            {'u': user.id, 's': sid, 'by': current_user.id})
+    _admin_audit('approved', user.id, {'role': new_role, 'sites': site_ids})
     db.session.commit()
     return jsonify({'status': 'ok'})
 
@@ -288,18 +486,15 @@ def approve_user():
 @admin_bp.route('/users/reject', methods=['POST'])
 @login_required
 def reject_user():
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
-    data    = request.get_json()
-    user_id = data.get('user_id')
-
-    user = User.query.get(user_id)
+    user = _target(_json().get('user_id'))
     if not user or user.status != 'pending':
-        return jsonify({'status': 'error', 'message': 'User not found or not pending'}), 400
+        return _refused('User not found or not pending')
 
     _admin_audit('rejected', user.id)
-    UserPagePermission.query.filter_by(user_id=user_id).delete()
+    UserPagePermission.query.filter_by(user_id=user.id).delete()
     db.session.delete(user)
     db.session.commit()
     return jsonify({'status': 'ok'})
@@ -308,19 +503,15 @@ def reject_user():
 @admin_bp.route('/users/disable', methods=['POST'])
 @login_required
 def disable_user():
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
-    data    = request.get_json()
-    user_id = data.get('user_id')
-
-    user = User.query.get(user_id)
-    if not user or user.role == 'admin':
-        return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
+    user = _target(_json().get('user_id'))
+    if not user:
+        return _refused()
 
     user.status = 'disabled'
-    # Revoke all active sessions for this user
-    active_sessions.query.filter_by(user_id=user_id).delete()
+    _end_sessions(user.id)
     _admin_audit('disabled', user.id)
     db.session.commit()
     return jsonify({'status': 'ok'})
@@ -329,15 +520,12 @@ def disable_user():
 @admin_bp.route('/users/enable', methods=['POST'])
 @login_required
 def enable_user():
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
-    data    = request.get_json()
-    user_id = data.get('user_id')
-
-    user = User.query.get(user_id)
-    if not user or user.role == 'admin':
-        return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
+    user = _target(_json().get('user_id'))
+    if not user:
+        return _refused()
 
     user.status = 'active'
     _admin_audit('enabled', user.id)
@@ -348,15 +536,12 @@ def enable_user():
 @admin_bp.route('/users/force-reset', methods=['POST'])
 @login_required
 def force_password_reset():
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
-    data    = request.get_json()
-    user_id = data.get('user_id')
-
-    user = User.query.get(user_id)
-    if not user or user.role == 'admin':
-        return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
+    user = _target(_json().get('user_id'))
+    if not user:
+        return _refused()
 
     user.must_change_password = True
     _admin_audit('password_reset_forced', user.id)
@@ -367,19 +552,17 @@ def force_password_reset():
 @admin_bp.route('/users/set-password', methods=['POST'])
 @login_required
 def set_user_password():
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
-    data       = request.get_json()
-    user_id    = data.get('user_id')
-    new_pw     = data.get('password', '')
-
+    data   = _json()
+    new_pw = data.get('password', '') or ''
     if len(new_pw) < 6:
-        return jsonify({'status': 'error', 'message': 'Password must be at least 6 characters'}), 400
+        return _refused('Password must be at least 6 characters')
 
-    user = User.query.get(user_id)
-    if not user or user.role == 'admin':
-        return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
+    user = _target(data.get('user_id'))
+    if not user:
+        return _refused()
 
     from werkzeug.security import generate_password_hash
     user.password_hash               = generate_password_hash(new_pw, method='pbkdf2:sha256')
@@ -393,17 +576,14 @@ def set_user_password():
 @admin_bp.route('/users/session/revoke', methods=['POST'])
 @login_required
 def revoke_session():
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
-    data       = request.get_json()
-    session_id = data.get('session_id')
+    row = active_sessions.query.get(_json().get('session_id'))
+    if not row or not _target(row.user_id):
+        return _refused('Session not found', 404)
 
-    row = active_sessions.query.get(session_id)
-    if not row:
-        return jsonify({'status': 'error', 'message': 'Session not found'}), 404
-
-    _admin_audit('session_revoked', row.user_id, {'session_id': session_id})
+    _admin_audit('session_revoked', row.user_id, {'session_id': row.session_id})
     db.session.delete(row)
     db.session.commit()
     return jsonify({'status': 'ok'})
@@ -412,14 +592,15 @@ def revoke_session():
 @admin_bp.route('/users/session/revoke-all', methods=['POST'])
 @login_required
 def revoke_all_sessions():
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
-    data    = request.get_json()
-    user_id = data.get('user_id')
+    user = _target(_json().get('user_id'))
+    if not user:
+        return _refused()
 
-    count = active_sessions.query.filter_by(user_id=user_id).delete()
-    _admin_audit('all_sessions_revoked', user_id, {'count': count})
+    count = active_sessions.query.filter_by(user_id=user.id).delete()
+    _admin_audit('all_sessions_revoked', user.id, {'count': count})
     db.session.commit()
     return jsonify({'status': 'ok', 'revoked': count})
 
@@ -427,20 +608,17 @@ def revoke_all_sessions():
 @admin_bp.route('/users/delete', methods=['POST'])
 @login_required
 def delete_user():
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
-    data    = request.get_json()
-    user_id = data.get('user_id')
-
-    user = User.query.get(user_id)
-    if not user or user.role == 'admin':
-        return jsonify({'status': 'error', 'message': 'User not found or protected'}), 400
+    user = _target(_json().get('user_id'))
+    if not user:
+        return _refused()
 
     _admin_audit('deleted', user.id, {'username': user.username})
-    active_sessions.query.filter_by(user_id=user_id).delete()
-    UserPagePermission.query.filter_by(user_id=user_id).delete()
-    ReportAccessControl.query.filter_by(user_id=user_id).delete()
+    active_sessions.query.filter_by(user_id=user.id).delete()
+    UserPagePermission.query.filter_by(user_id=user.id).delete()
+    ReportAccessControl.query.filter_by(user_id=user.id).delete()
     db.session.delete(user)
     db.session.commit()
     return jsonify({'status': 'ok'})
@@ -449,7 +627,7 @@ def delete_user():
 @admin_bp.route('/audit')
 @login_required
 def audit_log():
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
     category = request.args.get('category', '')
@@ -480,7 +658,7 @@ def audit_log():
 @login_required
 def audit_log_export():
     import csv, io
-    if current_user.role != 'admin':
+    if not can(current_user, 'users'):
         return abort(403)
 
     category = request.args.get('category', '')
@@ -527,7 +705,7 @@ def oracle_config():
 @admin_bp.route('/hl7-forward', methods=['GET', 'POST'], endpoint='hl7_forward_config')
 @login_required
 def hl7_forward_config():
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         return abort(403)
 
     from utils.hl7_forward import test_forward, invalidate_cache
@@ -592,7 +770,7 @@ def hl7_forward_config():
 @admin_bp.route('/sync-mappings', methods=['POST'])
 @login_required
 def sync_mappings():
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         return abort(403)
     try:
         from ETL_JOBS.etl_runner import _sync_lookup_tables
@@ -607,7 +785,7 @@ def sync_mappings():
 def set_report_start_date():
     """The date every report's date filter starts on (meeting of 2026-11-13, item 11;
     db.get_report_start_date). Users can still pick earlier dates in each report."""
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         return abort(403)
     from db import REPORT_START_DATE_KEY
     raw = str((request.get_json(silent=True) or {}).get('date') or '').strip()
@@ -630,7 +808,7 @@ def set_report_start_date():
 @admin_bp.route('/demo-mode', methods=['POST'])
 @login_required
 def set_demo_mode():
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         return abort(403)
     data           = request.get_json()
     enabled        = 'true' if data.get('enabled') else 'false'
@@ -654,17 +832,22 @@ def set_demo_mode():
         if user:
             user.password_hash = generate_password_hash(demo_password, method='pbkdf2:sha256')
         else:
-            # Create the demo user as a viewer if they don't exist yet
+            # Create the demo user as a User of the site served if they don't exist yet
             user = User(
                 username=demo_username,
                 password_hash=generate_password_hash(demo_password, method='pbkdf2:sha256'),
-                role='viewer'
+                role=USER
             )
             db.session.add(user)
             db.session.flush()
+            site_id = current_site_id()
+            db.session.execute(text(
+                "INSERT INTO user_sites (user_id, site_id) VALUES (:u, :s) ON CONFLICT DO NOTHING"),
+                {'u': user.id, 's': site_id})
             # Grant all page permissions to the new demo account
             for page_key in ['live_feed', 'hl7_orders', 'report_ai', 'oru', 'mapping']:
-                db.session.add(UserPagePermission(user_id=user.id, page_key=page_key, is_enabled=True))
+                db.session.add(UserPagePermission(user_id=user.id, site_id=site_id,
+                                                  page_key=page_key, is_enabled=True))
         # (patient_portal strip removed — module absent at LAUMC)
 
     db.session.commit()
@@ -674,7 +857,7 @@ def set_demo_mode():
 @admin_bp.route('/etl/trigger-phase9', methods=['POST'])
 @login_required
 def trigger_phase9():
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         return abort(403)
     try:
         import logging, io
@@ -702,7 +885,7 @@ def trigger_phase9():
 @admin_bp.route('/etl/trigger', methods=['POST'])
 @login_required
 def trigger_etl():
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         return abort(403)
 
     # Block ETL when demo mode is active

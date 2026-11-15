@@ -18,6 +18,7 @@ from flask import Blueprint, render_template, request, jsonify, abort, redirect
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import ReportAccessControl, db
+from utils.roles import can_open_report
 from datetime import date, timedelta
 from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql
 from utils.report_filters import panel_filters, picked, picked_sql
@@ -90,12 +91,9 @@ def _cluster_tat_histogram(vals, k=10):
 
 
 def _require_access():
-    """As /viewer/<id> checks it: an admin, or a user whose access to report 38 is on."""
-    if current_user.role == 'admin':
-        return
-    allowed = ReportAccessControl.query.filter_by(
-        user_id=current_user.id, report_template_id=REPORT_ID, is_enabled=True).first()
-    if not allowed:
+    """As /viewer/<id> checks it (utils/roles.can_open_report): Super user, CHT and
+    Administrator open every report; a User the reports ticked for it on this site."""
+    if not can_open_report(current_user, REPORT_ID):
         abort(403)
 
 

@@ -165,11 +165,13 @@ def create_app():
 
         pending_approvals_count   = 0
         reset_requests_count      = 0
-        if current_user.is_authenticated and current_user.role == 'admin':
+        from utils.roles import can as _can
+        if current_user.is_authenticated and _can(current_user, 'users'):
             try:
-                from db import User as _User
-                pending_approvals_count  = _User.query.filter_by(status='pending').count()
-                reset_requests_count     = _User.query.filter_by(password_reset_requested=True).count()
+                from routes.admin_controller import manageable_users
+                mine = manageable_users(current_user)
+                pending_approvals_count  = sum(1 for u in mine if u.status == 'pending')
+                reset_requests_count     = sum(1 for u in mine if u.password_reset_requested)
             except Exception:
                 pass
 
@@ -185,6 +187,10 @@ def create_app():
             "pending_approvals_count":  pending_approvals_count,
             "reset_requests_count":     reset_requests_count,
         }
+
+    # --- TEMPLATE HELPERS: can('implementation'), role_label(...) (utils/roles.py) ---
+    from utils.roles import init_app as _init_roles
+    _init_roles(app)
 
     # --- JINJA FILTER: user_has_page ---
     from db import user_has_page as _user_has_page
@@ -343,8 +349,19 @@ def create_app():
         if current_user.must_change_password and ep != 'auth.profile_password':
             return redirect(url_for('auth.profile_password'))
 
-        # License expiry — admins can still log in to update the license
-        if current_user.role != 'admin':
+        # One site at a time (item 13f): until the SJH database exists this database serves
+        # RH only, so an account not granted RH holds nothing here and is signed out.
+        from utils.roles import can as _can, current_site_id, has_site
+        _site = current_site_id()      # None only on an install with no sites configured
+        if _site is not None and not has_site(current_user, _site):
+            logout_user()
+            flask_session.clear()
+            from flask import flash as _flash
+            _flash('Your account has no access to this site. Ask your administrator.', 'warning')
+            return redirect(url_for('auth.login'))
+
+        # License expiry — Super user and CHT can still sign in (they renew the licence)
+        if not _can(current_user, 'implementation'):
             from routes.registry import check_license_limit
             ok, msg = check_license_limit(app, 'expired')
             if not ok:
@@ -358,8 +375,6 @@ def create_app():
     def index():
         if not current_user.is_authenticated:
             return redirect(url_for('auth.login'))
-        if current_user.role == 'tec':
-            return redirect(url_for('live_feed.live_page'))
         return redirect(url_for('viewer.welcome'))
 
     # --- MIGRATE: add new columns / tables if missing ---

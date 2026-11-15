@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 import pytest
 from sqlalchemy import text
 
-ADMIN = {'X-Test-Role': 'admin'}
+ADMIN = {'X-Test-Role': 'administrator'}
 
 
 @pytest.fixture

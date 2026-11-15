@@ -180,7 +180,7 @@ def _collect(start: str, end: str) -> dict:
 @login_required
 @permission_required('can_view_finance')
 def financial_dashboard_page():
-    if current_user.role != 'admin' and not user_has_page(current_user, 'financial'):
+    if not user_has_page(current_user, 'financial'):
         abort(403)
     today = date.today()
     start = request.args.get('start', today.replace(day=1).isoformat())
@@ -194,7 +194,7 @@ def financial_dashboard_page():
 @financial_dashboard_bp.route('/api/financial/dashboard')
 @login_required
 def api_financial_dashboard():
-    if current_user.role != 'admin' and not user_has_page(current_user, 'financial'):
+    if not user_has_page(current_user, 'financial'):
         abort(403)
     today = date.today()
     start = request.args.get('start', today.replace(day=1).isoformat())

@@ -17,6 +17,7 @@ import os
 import logging
 from flask import Blueprint, render_template, request, jsonify, current_app, abort
 from flask_login import login_required, current_user
+from utils.roles import can
 from sqlalchemy import text
 from db import db
 from utils.ae_display import ae_display_sql
@@ -37,7 +38,7 @@ def _upload_dir():
 @floor_plan_bp.route('/')
 @login_required
 def floor_plan_page():
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         abort(403)
     sites = db.session.execute(text(
         "SELECT s.id, s.code, s.name FROM sites s WHERE s.active "
@@ -49,7 +50,7 @@ def floor_plan_page():
 @floor_plan_bp.route('/api/state')
 @login_required
 def api_state():
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         abort(403)
     site_id = request.args.get('site_id', type=int)
     if not site_id:
@@ -79,7 +80,7 @@ def api_state():
 @floor_plan_bp.route('/api/upload', methods=['POST'])
 @login_required
 def api_upload():
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         abort(403)
     site_id = request.form.get('site_id', type=int)
     file = request.files.get('image')
@@ -117,7 +118,7 @@ def api_upload():
 @floor_plan_bp.route('/api/position', methods=['POST'])
 @login_required
 def api_position():
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         abort(403)
     data = request.get_json(force=True) or {}
     aetitle = (data.get('aetitle') or '').strip()
@@ -146,7 +147,7 @@ def api_position():
 @floor_plan_bp.route('/api/unplace', methods=['POST'])
 @login_required
 def api_unplace():
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         abort(403)
     data = request.get_json(force=True) or {}
     aetitle = (data.get('aetitle') or '').strip()

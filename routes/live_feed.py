@@ -551,7 +551,6 @@ def _log_status_change(order_id, message_id, from_status, to_status, username, s
         logger.error(f"Status log write failed: {e}")
 
 
-_REVERT_ROLES  = {"admin", "viewer", "tec"}
 _PREV_STATUS   = {"CM": "IP", "IP": "AR", "AR": "SC"}
 _REVERT_CLEAR  = {
     "CM": "done_at    = NULL, done_by    = NULL",
@@ -663,8 +662,6 @@ def dismiss_order():
 def revert_order():
     if not user_has_page(current_user, 'live_feed'):
         abort(403)
-    if current_user.role not in _REVERT_ROLES:
-        return jsonify({"error": "Insufficient permissions to revert"}), 403
     data       = request.get_json(force=True)
     message_id = data.get("message_id")
     if not message_id:

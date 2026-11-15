@@ -16,6 +16,7 @@ GET  /admin/users/<uid>/overrides      — get current overrides for a user
 
 from flask import Blueprint, render_template, jsonify, request, abort
 from flask_login import login_required, current_user
+from utils.roles import can, role_label
 from db import db, PermissionGroup, User
 from utils.permissions import ALL_PERMISSIONS, ALL_PERMISSION_KEYS
 
@@ -23,7 +24,7 @@ groups_bp = Blueprint('groups', __name__)
 
 
 def _admin_only():
-    if not current_user.is_authenticated or current_user.role != 'admin':
+    if not current_user.is_authenticated or not can(current_user, 'users'):
         abort(403)
 
 
@@ -176,7 +177,7 @@ def _user_dict(u):
         'id':        u.id,
         'username':  u.username,
         'full_name': u.full_name or '',
-        'role':      u.role,
+        'role':      role_label(u.role),
         'group_id':  u.group_id,
         'group_name': u.group.name if u.group else None,
         'overrides': u.permission_overrides or {},

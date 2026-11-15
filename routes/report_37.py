@@ -29,6 +29,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import text
 
 from db import ReportAccessControl, db
+from utils.roles import can, can_open_report
 from utils import sticky_notes as report
 from utils import sticky_notes_monthly as monthly
 from utils import worklist_email
@@ -51,12 +52,9 @@ FILTERS = (
 
 
 def _require_access():
-    """As /viewer/<id> checks it: an admin, or a user whose access to report 37 is on."""
-    if current_user.role == 'admin':
-        return
-    allowed = ReportAccessControl.query.filter_by(
-        user_id=current_user.id, report_template_id=REPORT_ID, is_enabled=True).first()
-    if not allowed:
+    """As /viewer/<id> checks it (utils/roles.can_open_report): Super user, CHT and
+    Administrator open every report; a User the reports ticked for it on this site."""
+    if not can_open_report(current_user, REPORT_ID):
         abort(403)
 
 
@@ -101,7 +99,7 @@ def report_37():
                            start=start.isoformat(), end=end.isoformat(), filters=_panel_filters(),
                            monthly_reports=monthly.list_reports(),
                            clock_label=report.CLOCK_LABEL, open_seen_note=report.OPEN_SEEN_NOTE,
-                           is_admin=current_user.role == 'admin')
+                           is_admin=can(current_user, 'settings'))
 
 
 @report_37_bp.route('/sticky-notes')
@@ -125,7 +123,7 @@ def data():
         summary['cases'] = [report.case_row(c) for c in kept[:MAX_CASES_ON_PAGE]]
         summary['cases_total'] = len(kept)
         summary['monthly_reports'] = monthly.list_reports()
-        if current_user.role == 'admin':
+        if can(current_user, 'settings'):
             summary['department_options'] = report.department_options()
             summary['monthly_recipients'] = monthly.get_recipients()
             summary['mail_ready'] = worklist_email.is_ready(worklist_email.mail_config())
@@ -186,8 +184,8 @@ def monthly_workbook(month):
 @login_required
 def monthly_generate():
     """Admin only. Replaces what was kept for that month, on purpose, and sends it again."""
-    if current_user.role != 'admin':
-        return jsonify({'status': 'error', 'message': 'Admin only'}), 403
+    if not can(current_user, 'settings'):
+        return jsonify({'status': 'error', 'message': 'Administrators only'}), 403
     payload = request.get_json(force=True, silent=True) or {}
     try:
         first, kpi = monthly.generate_on_request(payload.get('month'))
@@ -204,8 +202,8 @@ def monthly_generate():
 @login_required
 def save_settings():
     """Admin only: the people being measured must not be able to change the measure."""
-    if current_user.role != 'admin':
-        return jsonify({'status': 'error', 'message': 'Admin only'}), 403
+    if not can(current_user, 'settings'):
+        return jsonify({'status': 'error', 'message': 'Administrators only'}), 403
     payload = request.get_json(force=True, silent=True) or {}
     departments = payload.get('departments', [])
     if not isinstance(departments, list) or not all(isinstance(d, str) for d in departments):

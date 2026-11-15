@@ -2,6 +2,8 @@ from functools import wraps
 from flask import redirect, url_for, flash, abort
 from flask_login import current_user
 
+from utils.roles import can, role_of
+
 
 def auth_required(f):
     @wraps(f)
@@ -14,12 +16,12 @@ def auth_required(f):
 
 
 def admin_required(f):
-    # Checks DB role via flask-login — immune to session cookie forgery.
+    # Checks the DB role via flask-login (utils/roles.py) — immune to session cookie forgery.
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated or current_user.role != 'admin':
-            flash('Access denied. Admin privileges required.', 'danger')
-            return redirect(url_for('dashboard.index'))
+        if not current_user.is_authenticated or not can(current_user, 'settings'):
+            flash('Access denied. Administrator privileges required.', 'danger')
+            return redirect(url_for('viewer.viewer_dashboard'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -27,8 +29,8 @@ def admin_required(f):
 def viewer_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated or current_user.role not in ('viewer', 'viewer2', 'admin'):
-            flash('Access denied. Viewer privileges required.', 'danger')
+        if not current_user.is_authenticated or role_of(current_user) is None:
+            flash('Access denied.', 'danger')
             return redirect(url_for('auth.login'))
         return f(*args, **kwargs)
     return decorated_function

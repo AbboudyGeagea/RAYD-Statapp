@@ -87,7 +87,7 @@ only at weekends, which can add calendar time.
 | 10 | Modality "PACS" samples | Low | 0.25 | 0–1 | 0.25 | 0.5–1.5 | operator’s review |
 | 11 | Report start date setting — **done** | Low | 0.1 | 1 | 0.25 | 1–1.5 | — |
 | 12 | Chart explanations (~150 notes, 16 pages) — **done** | Low–Medium | 0.5 | 2.5–3.5 | 0.5 | 3.5–4.5 | — |
-| 13 | SJH database, all parts | High | 3–4 | 14–18 | 2–3 | 19–25 | BRAYN on; site-ID walkthrough |
+| 13 | SJH database, all parts (13f roles and access **built**) | High | 3–4 | 14–18 | 2–3 | 19–25 | BRAYN on; site-ID walkthrough |
 | 14 | Radiologist TAT and report counts on PACS | High | 2 | 4–5 | 1–2 | 7–9 | shares item 8’s PACS copy |
 
 Item 13 splits into: second database, per-request switch, migrations and SJH ETL (6–8);
@@ -313,6 +313,41 @@ read; radiologists approve or finalise (check both).
        viewer/viewer2/tec become Users keeping their pages.
     g. One licence covering both sites. Two mail servers, one per site, each with its own
        domain.
+
+    **13f built 2026-11-15** (roles and access, no server needed; migration 0152,
+    `utils/roles.py`, `tests/test_roles_access.py`), not deployed:
+    - The four roles replace the old ones. Code asks `can(user, capability)`, never a role
+      name (CLAUDE.md rule 9); who holds what is one table in `utils/roles.py`:
+
+      | Capability | Super user | CHT | Administrator | User |
+      |---|---|---|---|---|
+      | Every page and report of its sites | yes | yes | yes | only what is ticked |
+      | Implementation: ETL Control Room (report start date, demo mode, triggers), DB Manager, Mapping edits, BRAYN console, HL7 Forward and field map, Floor Plan, resource monitor, NLP runs | yes | yes | no | no |
+      | Settings: Email Server, CRN set-up and actions, financial config, report targets (Reports 35, 37), Report Composer SQL, schedules and shared reports, ORU keywords and vocabulary, AI storage capacity | yes | yes | yes | no |
+      | Users: User Management, permission groups, Activity Log | every account | no | Users and Administrators of its own sites | no |
+      | Sites | all | granted | granted | granted |
+    - Sites, then pages and reports per site: `user_sites`, and a `site_id` on
+      `user_page_permissions` and `report_access_control`. Until the SJH database exists the
+      site served is RH: an account without RH cannot sign in. Grants for SJH can be
+      ticked already; they take effect with item 13a.
+    - Migration 0152: admin → Administrator; viewer, viewer2, tec, finance, secretary → User
+      with their pages written out as they were in effect (role defaults, plus Mapping and
+      the CRN board that viewer/viewer2 had by role, AI Reports for viewer) and every report
+      the Viewer Dashboard would have granted them (tec: none, as before). Every account gets
+      RH. The built-in **admin** account becomes the Super user, so the ETL Control Room,
+      Mapping and the BRAYN console stay reachable after deploy.
+    - The Viewer Dashboard no longer grants every report to everyone on each visit: a new
+      report is granted by its migration or ticked by an administrator.
+    - User Management: role, sites, and pages and reports per site in the drawer (Tick all /
+      Untick all); "Add user" creates an active account with a temporary password; approving a
+      registration needs a role and a site. An Administrator cannot touch CHT or Super user
+      accounts, nor give those roles, nor grant a site it does not hold. Nobody changes their
+      own account there. Every change is audited and signs the account out.
+    - Dropped: the tec landing on HL7 Orders (every User lands on the Viewer Dashboard), the
+      hidden Help for tec. Small widenings, each tied to a page now: live-feed revert for
+      whoever opens the live page.
+    **After deploy:** sign in as `admin` (Super user), set CHT accounts for CHT staff (they
+    are Administrators after the migration), check one former viewer and one former tec.
 14. **Radiologists TAT and radiologists' number of reports: revamp and validate thoroughly;
     this is the selling point.** Source is PACS Oracle (rule above). Show both start clocks,
     RIS exam done and PACS insert time (`DIDB_STUDIES.INSERT_TIME`), because they disagree.
@@ -396,8 +431,9 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     (the `rh.etl_orders` view). "Orders Placed" is now "RIS Exams Done"; the panel has its
     info icon.
 24. **Deploy the 2026-11-14 and 2026-11-15 work** (items 3, 4, 6, 11, 12, 16, 19, 22, 23,
-    25; migrations 0148–0151) after item 4's Monday room-name check. Then add Monday's test
-    patients on the BRAYN console and check each placeholder record's "Reaches" count.
+    25, 13f; migrations 0148–0152) after item 4's Monday room-name check. Then add Monday's
+    test patients on the BRAYN console and check each placeholder record's "Reaches" count,
+    and do item 13f's after-deploy steps (CHT accounts, one former viewer and tec).
 25. **ER dashboard onto the one report UI** (CLAUDE.md rule 8). The ORU tab was taken out of
     scope (operator, 2026-11-14) and stays the standalone page `/oru`.
     **Done 2026-11-14**, not deployed: the ER dashboard is Report 38 (`routes/report_38.py`,

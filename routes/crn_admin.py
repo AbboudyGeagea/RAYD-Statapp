@@ -25,6 +25,7 @@ from datetime import date, timedelta
 
 from flask import Blueprint, Response, render_template, request, redirect, url_for, abort, flash
 from flask_login import login_required, current_user
+from utils.roles import can, user_has_page
 from sqlalchemy import text
 
 from db import db
@@ -37,16 +38,15 @@ crn_admin_bp = Blueprint('crn_admin', __name__, url_prefix='/admin/crn')
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024
 
 
-BOARD_ROLES = ('admin', 'viewer', 'viewer2')
-
-
 def _admin_only():
-    if current_user.role != 'admin':
+    """CRN set-up and actions on a notification: Super user, CHT, Administrator."""
+    if not can(current_user, 'settings'):
         abort(403)
 
 
 def _board_roles():
-    if current_user.role not in BOARD_ROLES:
+    """The CRN board, timeline and report: whoever holds the 'crn' page."""
+    if not user_has_page(current_user, 'crn'):
         abort(403)
 
 

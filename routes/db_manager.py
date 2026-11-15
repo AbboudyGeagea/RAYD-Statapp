@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 from flask import Blueprint, render_template, request, jsonify, abort, flash, redirect, url_for, send_file
 from flask_login import login_required, current_user
+from utils.roles import can
 from sqlalchemy import text
 from db import db
 
@@ -23,7 +24,7 @@ PRIMARY_CONN = 'oracle_PACS'   # protected — cannot be deleted
 
 
 def _guard():
-    if current_user.role != 'admin':
+    if not can(current_user, 'implementation'):
         abort(403)
 
 

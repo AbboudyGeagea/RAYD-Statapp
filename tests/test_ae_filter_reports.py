@@ -57,7 +57,7 @@ def form(*aes):
 
 
 def test_the_dropdown_offers_the_device_once_in_its_mapped_spelling(client, one_unread_ct):
-    response = client.get('/api/filter-options', headers={'X-Test-Role': 'admin'})
+    response = client.get('/api/filter-options', headers={'X-Test-Role': 'administrator'})
     assert response.get_json()['aetitles'] == [MAPPED]
 
 

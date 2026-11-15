@@ -17,7 +17,7 @@ How the security model fits together
 Effective scope = (sites the user is granted, via user_sites)
                 ∩ (the site the user picked in the header picker)
 
-An admin with no user_sites rows is treated as all-sites.
+A Super user (utils/roles "all_sites") with no user_sites rows is treated as all-sites.
 
 Activation (next session — needs a live DB to verify):
   1. Configure a second SQLAlchemy engine bound to the `rayd_app` role and route
@@ -34,7 +34,7 @@ SESSION_KEY = "site_selection"   # flask session key holding the picker value
 
 
 def granted_site_ids(user):
-    """Canonical site ids this user may see. Admin with no explicit grants = all sites."""
+    """Canonical site ids this user may see. A Super user with no explicit grants = all sites."""
     from sqlalchemy import text
     from db import db
     try:
@@ -45,7 +45,8 @@ def granted_site_ids(user):
         ids = [r[0] for r in rows]
         if ids:
             return ids
-        if getattr(user, "role", None) == "admin":
+        from utils.roles import can
+        if can(user, "all_sites"):
             from utils.site_resolver import all_site_ids
             return all_site_ids()
         return []

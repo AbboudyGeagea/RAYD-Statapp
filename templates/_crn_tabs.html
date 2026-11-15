@@ -5,7 +5,7 @@
 <nav class="crn-tabs">
     <a href="{{ url_for('crn_admin.board_page') }}" class="{{ 'on' if crn_tab == 'board' }}"><i class="bi bi-broadcast"></i> Board</a>
     <a href="{{ url_for('crn_admin.report_page') }}" class="{{ 'on' if crn_tab == 'report' }}"><i class="bi bi-clipboard-data"></i> Report</a>
-    {% if current_user.role == 'admin' %}
+    {% if can('settings') %}
     <a href="{{ url_for('crn_admin.settings_page') }}" class="{{ 'on' if crn_tab == 'settings' }}"><i class="bi bi-gear"></i> Settings</a>
     <a href="{{ url_for('crn_admin.contacts') }}" class="{{ 'on' if crn_tab == 'contacts' }}"><i class="bi bi-person-lines-fill"></i> Contacts</a>
     {% endif %}

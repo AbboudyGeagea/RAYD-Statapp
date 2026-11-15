@@ -1,5 +1,6 @@
 from flask import Blueprint, request, render_template, flash, redirect, url_for, jsonify, abort, Response
 from flask_login import login_required, current_user
+from utils.roles import can
 # Import the CLASS names from your db file
 from db import db, AETitleModalityMap, ProcedureDurationMap, DeviceException, DeviceWeeklySchedule, user_has_page
 from utils.permissions import permission_required
@@ -26,7 +27,7 @@ def get_or_create(model, **kwargs):
 @login_required
 @permission_required('can_export')
 def export_modality_csv():
-    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
+    if not user_has_page(current_user, 'mapping'): return abort(403)
     from flask import current_app, jsonify
     from routes.registry import check_license_limit
     ok, msg = check_license_limit(current_app, 'export')
@@ -55,7 +56,7 @@ def export_modality_csv():
 @login_required
 @permission_required('can_export')
 def export_procedure_csv():
-    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
+    if not user_has_page(current_user, 'mapping'): return abort(403)
     from flask import current_app, jsonify
     from routes.registry import check_license_limit
     ok, msg = check_license_limit(current_app, 'export')
@@ -80,7 +81,7 @@ def export_procedure_csv():
 @login_required
 @permission_required('can_configure')
 def mapping_page():
-    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
+    if not user_has_page(current_user, 'mapping'): return abort(403)
 
     modality_mappings = AETitleModalityMap.query.order_by(AETitleModalityMap.aetitle).all()
 
@@ -120,7 +121,7 @@ def mapping_page():
 @login_required
 def procedures_tab():
     """Lazy-loaded HTML fragment for the Procedures tab."""
-    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
+    if not user_has_page(current_user, 'mapping'): return abort(403)
 
     from sqlalchemy import text as _t
     import json as _json
@@ -242,7 +243,7 @@ def procedures_tab():
 @mapping_bp.route('/upload/modality', methods=['POST'])
 @login_required
 def upload_modality_map():
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     file = request.files.get('file')
     if not file: return redirect(url_for('mapping.mapping_page'))
 
@@ -318,7 +319,7 @@ def upload_modality_map():
 @mapping_bp.route('/upload/procedure', methods=['POST'])
 @login_required
 def upload_procedure_map():
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     file = request.files.get('file')
     if not file: return redirect(url_for('mapping.mapping_page'))
 
@@ -384,7 +385,7 @@ def upload_procedure_map():
 @mapping_bp.route('/device/grid/save', methods=['POST'])
 @login_required
 def save_grid_changes():
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     data = request.get_json(force=True)
     updates = data.get('updates', [])
     try:
@@ -420,7 +421,7 @@ def save_grid_changes():
 @mapping_bp.route('/procedure/update', methods=['POST'])
 @login_required
 def update_single_procedure():
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import func as _f
     data = request.get_json(force=True)
     try:
@@ -454,7 +455,7 @@ def update_single_procedure():
 @login_required
 def delete_procedure():
     """Delete a procedure from the catalog (admin only)."""
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t, func as _f
     data = request.get_json(force=True)
     try:
@@ -483,7 +484,7 @@ def delete_procedure():
 @mapping_bp.route('/canonical/approve', methods=['POST'])
 @login_required
 def approve_canonical_group():
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -509,7 +510,7 @@ def approve_canonical_group():
 @mapping_bp.route('/canonical/delete', methods=['POST'])
 @login_required
 def delete_canonical_group():
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -526,7 +527,7 @@ def delete_canonical_group():
 @login_required
 def set_canonical_modality():
     """Apply a modality to all procedure codes in a canonical group."""
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -561,7 +562,7 @@ def set_canonical_modality():
 @login_required
 def confirm_pair():
     """Mark a candidate pair as confirmed and add both codes to a canonical group."""
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -625,7 +626,7 @@ def confirm_pair():
 @login_required
 def reject_pair():
     """Mark a candidate pair as rejected (different procedures)."""
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -644,7 +645,7 @@ def reject_pair():
 @mapping_bp.route('/canonical/approve-member', methods=['POST'])
 @login_required
 def approve_member():
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -663,7 +664,7 @@ def approve_member():
 @login_required
 def move_member():
     """Move a code to a different cluster, or delete from all clusters (unclustered)."""
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -689,7 +690,7 @@ def move_member():
 @mapping_bp.route('/canonical/add-to-cluster', methods=['POST'])
 @login_required
 def add_to_cluster():
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -710,7 +711,7 @@ def add_to_cluster():
 @mapping_bp.route('/canonical/add-cluster', methods=['POST'])
 @login_required
 def add_cluster():
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:
@@ -731,7 +732,7 @@ def add_cluster():
 @login_required
 def delete_ae_entry():
     """Delete an AE title and its associated schedule / exceptions (CASCADE)."""
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     data = request.get_json(force=True)
     ae = str(data.get('aetitle', '')).strip().upper()
     if not ae:
@@ -758,7 +759,7 @@ def delete_ae_entry():
 @login_required
 def update_ae_entry():
     """Inline update for an AE title row (modality, room_name, description)."""
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     data = request.get_json(force=True)
     try:
         ae = str(data['aetitle']).strip().upper()
@@ -875,7 +876,7 @@ def reader_roles_tab():
     listed regardless of whether they've signed anything recently, so a row can never
     become uneditable by going quiet.
     """
-    if current_user.role not in ('admin', 'viewer', 'viewer2') and not user_has_page(current_user, 'mapping'): return abort(403)
+    if not user_has_page(current_user, 'mapping'): return abort(403)
 
     from sqlalchemy import text as _t
     from utils.pacs_roles import role_lookup_cte
@@ -910,7 +911,7 @@ def set_reader_role():
     Both report 25's and report 36's bundles are cached for 5 minutes (report_cache),
     so invalidate them or the operator sees no change and assumes the save failed.
     """
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     from routes.report_cache import cache_invalidate
 
@@ -957,7 +958,7 @@ def set_reader_role():
 @mapping_bp.route('/canonical/rename-cluster', methods=['POST'])
 @login_required
 def rename_cluster():
-    if current_user.role != 'admin': return abort(403)
+    if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
     data = request.get_json(force=True)
     try:

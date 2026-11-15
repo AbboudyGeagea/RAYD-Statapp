@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import text
 from werkzeug.datastructures import MultiDict
 
-ADMIN = {'X-Test-Role': 'admin'}
+ADMIN = {'X-Test-Role': 'administrator'}
 
 
 @pytest.fixture(autouse=True)
@@ -79,12 +79,13 @@ def test_report_composer_gets_it_for_fixed_dates(client):
 
 # ── the ETL Control Room ────────────────────────────────────────────────────────
 
-def save(client, value, role='admin'):
+def save(client, value, role='cht'):
+    """The ETL Control Room is implementation (utils/roles.py): Super user and CHT."""
     return client.post('/admin/report-start-date', json={'date': value},
                        headers={'X-Test-Role': role})
 
 
-def test_an_admin_changes_it_and_every_report_follows(client):
+def test_cht_changes_it_and_every_report_follows(client):
     from db import get_report_start_date
     response = save(client, '2025-07-01')
     assert response.status_code == 200 and response.get_json()['date'] == '2025-07-01'
@@ -104,7 +105,8 @@ def test_a_date_in_the_future_is_refused(client):
     assert save(client, (date.today() + timedelta(days=1)).isoformat()).status_code == 400
 
 
-def test_only_an_admin_can_change_it(client):
+def test_only_super_user_and_cht_can_change_it(client):
     from db import get_report_start_date
-    assert save(client, '2025-07-01', role='viewer').status_code == 403
+    assert save(client, '2025-07-01', role='administrator').status_code == 403
+    assert save(client, '2025-07-01', role='user').status_code == 403
     assert get_report_start_date() == date(2026, 1, 1)

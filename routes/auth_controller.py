@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 from db import User, UserPagePermission, UserAuditLog, active_sessions, db
 from utils.rate_limit import limiter
+from utils.roles import USER, can, current_site_id, has_site, is_superuser
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -55,6 +56,13 @@ def _open_session(user):
     ))
 
 
+def _landing(user):
+    """Where an account lands after signing in: the ETL Control Room for Super user and
+    CHT, the Viewer Dashboard for everyone else (the old tec landing on HL7 Orders is gone:
+    a former tec is a User and lands where every User does)."""
+    return 'admin.admin_dashboard' if can(user, 'implementation') else 'viewer.viewer_dashboard'
+
+
 def _close_session():
     """Remove the current session row from active_sessions."""
     sid = session.pop('sid', None)
@@ -98,7 +106,7 @@ def register():
             new_user = User(
                 username=username,
                 password_hash=generate_password_hash(password, method='pbkdf2:sha256'),
-                role='viewer',          # role assigned by admin at approval time
+                role=USER,              # role and sites given by an administrator at approval
                 status='pending',
                 full_name=full_name,
                 email=email,
@@ -130,8 +138,7 @@ def register():
 @limiter.limit("5 per minute", methods=["POST"])
 def login():
     if current_user.is_authenticated:
-        dest = 'admin.admin_dashboard' if current_user.role == 'admin' else 'viewer.viewer_dashboard'
-        return redirect(url_for(dest))
+        return redirect(url_for(_landing(current_user)))
 
     if request.method == 'POST':
         username = request.form.get('username', '')
@@ -152,14 +159,20 @@ def login():
             flash('Your account has been disabled. Contact your administrator.', 'danger')
             return render_template('login.html')
 
-        # Demo mode: only admin and the designated demo user
+        # Demo mode: only Super user, CHT and the designated demo user
         demo_mode, demo_user = _get_demo_settings()
-        if demo_mode and user.role != 'admin' and user.username != demo_user:
+        if demo_mode and not can(user, 'implementation') and user.username != demo_user:
             flash('Access is restricted during demo mode.', 'warning')
             return render_template('login.html')
 
-        # License checks (skip for admin)
-        if user.role != 'admin':
+        # One site at a time (item 13f): this database serves RH only until SJH has its own.
+        site = current_site_id()      # None only on an install with no sites configured
+        if site is not None and not has_site(user, site):
+            flash('Your account has no access to this site. Ask your administrator.', 'warning')
+            return render_template('login.html')
+
+        # License checks (Super user and CHT skip them: they renew the licence)
+        if not can(user, 'implementation'):
             from routes.registry import check_license_limit
             ok, msg = check_license_limit(current_app, 'expired')
             if not ok:
@@ -186,12 +199,7 @@ def login():
         if user.must_change_password:
             return redirect(url_for('auth.profile_password'))
 
-        if user.role == 'admin':
-            return redirect(url_for('admin.admin_dashboard'))
-        if user.role == 'tec':
-            return redirect(url_for('hl7_orders.hl7_orders_page'))
-        # (scheduling module removed at LAUMC — secretaries land on the dashboard)
-        return redirect(url_for('viewer.viewer_dashboard'))
+        return redirect(url_for(_landing(user)))
 
     return render_template('login.html')
 
@@ -201,9 +209,9 @@ def login():
 @auth_bp.route('/user/request-password-reset', methods=['POST'])
 @login_required
 def request_password_reset():
-    if current_user.role == 'admin':
+    if is_superuser(current_user):
         from flask import jsonify
-        return jsonify({'status': 'error', 'message': 'Admins cannot request a reset this way.'}), 400
+        return jsonify({'status': 'error', 'message': 'A Super user cannot request a reset this way.'}), 400
     current_user.password_reset_requested = True
     _audit('password_reset_requested', current_user.id)
     db.session.commit()

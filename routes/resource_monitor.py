@@ -12,6 +12,7 @@ import json
 import logging
 from flask import Blueprint, render_template, jsonify, abort
 from flask_login import login_required, current_user
+from utils.roles import can
 from sqlalchemy import text
 from db import db
 
@@ -23,7 +24,7 @@ resource_monitor_bp = Blueprint("resource_monitor", __name__)
 @resource_monitor_bp.route("/admin/resource-monitor")
 @login_required
 def resource_monitor_page():
-    if current_user.role != "admin":
+    if not can(current_user, 'implementation'):
         abort(403)
     return render_template("resource_monitor.html")
 
@@ -31,7 +32,7 @@ def resource_monitor_page():
 @resource_monitor_bp.route("/admin/resource-monitor/data")
 @login_required
 def resource_monitor_data():
-    if current_user.role != "admin":
+    if not can(current_user, 'implementation'):
         abort(403)
 
     try:
@@ -125,7 +126,7 @@ def resource_monitor_data():
 @resource_monitor_bp.route("/admin/resource-monitor/row/<int:row_id>")
 @login_required
 def resource_monitor_row(row_id):
-    if current_user.role != "admin":
+    if not can(current_user, 'implementation'):
         abort(403)
 
     try:

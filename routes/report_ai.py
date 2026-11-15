@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import date, timedelta
 from flask import Blueprint, render_template, request, abort, jsonify
 from flask_login import login_required, current_user
+from utils.roles import can
 from sqlalchemy import text
 from db import db, get_report_start_date, user_has_page
 from routes.report_cache import cache_get, cache_put
@@ -641,7 +642,7 @@ def _resolve_date_range(values):
 @report_ai_bp.route("/report/ai", methods=["GET", "POST"])
 @login_required
 def report_ai():
-    if current_user.role not in ('admin', 'viewer') and not user_has_page(current_user, 'report_ai'):
+    if not user_has_page(current_user, 'report_ai'):
         abort(403)
     start, end = _resolve_date_range(request.values)
     active_tab = request.values.get("tab", "storage")
@@ -685,7 +686,7 @@ def report_ai_panel(section):
     in report_ai.html the first time a user opens that tab. Returns the same
     partial markup the main route would have inlined had that tab been the
     active one, plus the raw section data (for chart init on the client)."""
-    if current_user.role not in ('admin', 'viewer') and not user_has_page(current_user, 'report_ai'):
+    if not user_has_page(current_user, 'report_ai'):
         abort(403)
     if section not in _SECTION_CONFIG:
         abort(404)
@@ -700,7 +701,7 @@ def report_ai_panel(section):
 @report_ai_bp.route("/report/ai/storage-capacity", methods=["POST"])
 @login_required
 def save_storage_capacity():
-    if current_user.role != 'admin':
+    if not can(current_user, 'settings'):
         return jsonify({"status": "error", "message": "Admin only"}), 403
     try:
         val = float(request.get_json(force=True).get("capacity_gb", 0))
