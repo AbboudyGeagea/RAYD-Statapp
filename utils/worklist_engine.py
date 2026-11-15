@@ -342,7 +342,7 @@ def display_params(params):
 
 # ── Executor ──────────────────────────────────────────────────────────────────
 
-_engine = {'key': None, 'engine': None}
+_engines = {}   # (database URL, role, password) -> engine: one per site database (item 13a)
 
 
 def hospital_timezone():
@@ -364,22 +364,25 @@ def _credentials():
 
 
 def _report_engine():
+    """The read-only reporting role's engine on the database of the site the request reads
+    (each site database has its own rpt_<db> role, migration 0136)."""
+    from utils.site_db import current_engine
     role, password = _credentials()
-    key = (str(db.engine.url), role, password)
-    if _engine['key'] != key:
-        if _engine['engine'] is not None:
-            _engine['engine'].dispose()
+    base = current_engine().url
+    key = (base.render_as_string(hide_password=False), role, password)
+    if key not in _engines:
+        for old in [k for k in _engines if k[0] == key[0]]:     # the role's password changed
+            _engines.pop(old).dispose()
         tz = hospital_timezone()
         options = ' '.join(filter(None, [
             f'-c timezone={tz}' if tz else '',
             '-c default_transaction_read_only=on',
             f'-c statement_timeout={STATEMENT_TIMEOUT_MS}',
         ]))
-        url = db.engine.url.set(username=role, password=password)
-        _engine['engine'] = create_engine(url, pool_size=3, max_overflow=3, pool_pre_ping=True,
-                                          connect_args={'options': options})
-        _engine['key'] = key
-    return _engine['engine']
+        url = base.set(username=role, password=password)
+        _engines[key] = create_engine(url, pool_size=3, max_overflow=3, pool_pre_ping=True,
+                                      connect_args={'options': options})
+    return _engines[key]
 
 
 def _jsonable(v):

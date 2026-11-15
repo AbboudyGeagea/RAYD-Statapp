@@ -47,7 +47,7 @@ from db import db
 from utils import tat_sla
 from utils.pacs_roles import role_lookup_cte
 from utils.report_filters import REPORTS_WITHOUT_IMAGES_AES, study_site_sql
-from utils.site_resolver import default_site
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 
 URGENT_KEY = 'sticky_notes_urgent_departments'
 LIMIT_KEY = 'sticky_notes_limit_minutes'
@@ -225,7 +225,7 @@ def load_settings():
 
 def _site_scope():
     """RH only (operator, 2026-11-05): the SQL condition and its parameter."""
-    site = default_site()
+    site = served_site_id()
     return (study_site_sql('site'), {'site': site}) if site is not None else ('TRUE', {})
 
 

@@ -10,7 +10,7 @@ insert_time/site-scope bugs fixed earlier that session.
 """
 from datetime import date
 from db import get_report_start_date
-from utils.site_resolver import default_site
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 
 # AE titles that carry reports with no images attached (operator, 2026-09-18).
 # Real PACS rows and worth knowing about, but not imaging studies — mixing them
@@ -71,7 +71,7 @@ def rh_device_sql(alias='m'):
     operator 2026-11-05). A device with no site stays, as does every device on an install
     with no default site.
     """
-    return f"COALESCE({alias}.site_id = (SELECT id FROM sites WHERE is_default), TRUE)"
+    return f"COALESCE({alias}.site_id = rayd_served_site_id(), TRUE)"
 
 
 # The standard dropdowns of the shared left panel (templates/_report_filter_panel.html):
@@ -142,7 +142,7 @@ def sidebar_filters(form_data):
             params[bind] = picked(form_data, field)
             clause += f" AND UPPER(TRIM({column})) IN {picked_sql(bind)}"
 
-    rh_site_id = default_site()
+    rh_site_id = served_site_id()
     if rh_site_id is not None:
         params["rh_site_id"] = rh_site_id
         clause += " AND m.site_id = :rh_site_id"

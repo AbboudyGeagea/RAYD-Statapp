@@ -24,12 +24,13 @@ import logging
 from datetime import date
 
 import pandas as pd
-from flask import Blueprint, Response, render_template, request
+from flask import Blueprint, Response, render_template, request, stream_with_context
 from flask_login import login_required
 from sqlalchemy import text
 
 from db import db, get_report_start_date
-from utils.site_resolver import default_site
+from utils.site_db import current_engine
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 from utils import tat_sla
 
 logger = logging.getLogger("report_31")
@@ -95,10 +96,10 @@ def get_report_config(form):
     # report_25.py's get_gold_standard_data()): reports show RH (main site)
     # only, SJH (satellite) excluded, resolved via the device
     # (storing_ae -> aetitle_modality_map.site_id) since etl_didb_studies.site_id
-    # is never populated. default_site() resolves to None (filter skipped,
+    # is never populated. served_site_id() resolves to None (filter skipped,
     # not applied) on a non-LAUMC/single-site install, or on an install where
     # the sites table/site_id column hasn't been migrated in yet.
-    rh_site_id = default_site()
+    rh_site_id = served_site_id()
     if rh_site_id is not None:
         params["rh_site_id"] = rh_site_id
         extra.append(
@@ -329,7 +330,7 @@ def export_report_31():
         yield output.getvalue()
         output.seek(0)
         output.truncate(0)
-        with db.engine.connect() as conn:
+        with current_engine().connect() as conn:
             result = conn.execution_options(stream_results=True).execute(sql, params)
             for row in result:
                 writer.writerow(row)
@@ -338,7 +339,7 @@ def export_report_31():
                 output.truncate(0)
 
     filename = f"operations_{start_date}_to_{end_date}.csv"
-    return Response(generate(), mimetype="text/csv",
+    return Response(stream_with_context(generate()), mimetype="text/csv",
                      headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 

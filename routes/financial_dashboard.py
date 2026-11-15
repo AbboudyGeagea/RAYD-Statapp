@@ -6,7 +6,7 @@ from db import db, user_has_page
 from utils.financial import _get_config, effective_rate
 from utils.permissions import permission_required
 from utils.report_filters import study_site_sql
-from utils.site_resolver import default_site
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 
 financial_dashboard_bp = Blueprint('financial_dashboard', __name__)
 
@@ -29,7 +29,7 @@ def _site_scope():
     """RH only (operator, 2026-11-05), the same LAUMC rule as the reports. Returns the
     SQL to append after a WHERE and its binds. No default site, as on a single-site
     install, means no filter rather than an empty dashboard."""
-    rh_site_id = default_site()
+    rh_site_id = served_site_id()
     if rh_site_id is None:
         return "", {}
     return f" AND {study_site_sql('rh_site_id')}", {"rh_site_id": rh_site_id}

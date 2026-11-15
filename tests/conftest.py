@@ -50,6 +50,8 @@ except ImportError:
     sys.modules['oracledb'] = types.ModuleType('oracledb')
 
 TEST_DB = os.environ.get('RAYD_TEST_DB', 'rayd_pytest_laumc')
+# SJH's own database (item 13a), made by utils/site_db.py as the app makes it
+TEST_DB_SJH = TEST_DB + '_sjh'
 
 # Data the listener (and anything built on it) writes. Cleared before every test.
 # Missing tables are skipped, so the list can name tables later migrations add.
@@ -89,26 +91,6 @@ CONFIG_TABLES = [
     'physician_alias_map',
 ]
 
-# The bootstrap app.py runs before migrations (inline in create_app()).
-_BOOTSTRAP_SQL = """
-CREATE TABLE IF NOT EXISTS hl7_oru_reports (
-    id               SERIAL PRIMARY KEY,
-    procedure_code   VARCHAR(100),
-    procedure_name   TEXT,
-    modality         VARCHAR(20),
-    physician_id     VARCHAR(100),
-    patient_id       VARCHAR(100),
-    accession_number VARCHAR(100),
-    report_text      TEXT,
-    impression_text  TEXT,
-    result_datetime  TIMESTAMP,
-    received_at      TIMESTAMP DEFAULT NOW()
-);
--- create_app() adds these after the migrations (app.py, "MIGRATE"); db.User reads them
-ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_theme VARCHAR DEFAULT 'dark';
-ALTER TABLE users ADD COLUMN IF NOT EXISTS favorites TEXT DEFAULT '[]'
-"""
-
 
 def _admin_url():
     url = os.environ.get('RAYD_TEST_ADMIN_URL')
@@ -126,48 +108,10 @@ def _with_db(url, dbname):
 
 
 def _load_schema(dsn):
-    """
-    init-db/schema.sql through psycopg2, doing what psql would: skip meta-commands
-    (\\restrict from pg_dump 14.19+) and feed each `COPY ... FROM stdin` block its
-    data through copy_expert.
-    """
-    import io
-    import psycopg2
-    with open(os.path.join(ROOT, 'init-db', 'schema.sql'), encoding='utf-8') as f:
-        lines = f.read().splitlines()
-
-    def clean(sql):
-        sql = sql.replace("set_config('search_path', '', false)",
-                          "set_config('search_path', 'public', false)")
-        return re.sub(r'^ALTER [^;]* OWNER TO [^;]*;$', '', sql, flags=re.M)
-
-    conn = psycopg2.connect(dsn)
-    conn.autocommit = True
-
-    def run(chunk):
-        sql = clean('\n'.join(chunk))
-        if any(l.strip() and not l.strip().startswith('--') for l in sql.splitlines()):
-            cur.execute(sql)
-
-    with conn.cursor() as cur:
-        pending, i = [], 0
-        while i < len(lines):
-            line = lines[i]
-            if line.startswith('COPY ') and line.rstrip().endswith('FROM stdin;'):
-                run(pending)
-                pending, data = [], []
-                i += 1
-                while i < len(lines) and lines[i] != '\\.':
-                    data.append(lines[i])
-                    i += 1
-                cur.copy_expert(line.rstrip()[:-1],
-                                io.StringIO('\n'.join(data) + '\n' if data else ''))
-            elif not line.startswith('\\'):
-                pending.append(line)
-            i += 1
-        run(pending)
-        cur.execute(_BOOTSTRAP_SQL)
-    conn.close()
+    """init-db/schema.sql, as a fresh install loads it (db_bootstrap, shared with the app,
+    which loads it into a site's own database the same way, item 13a)."""
+    import db_bootstrap
+    db_bootstrap.load_schema(dsn)
 
 
 @pytest.fixture(scope='session')
@@ -184,6 +128,7 @@ def database_url():
     conn.autocommit = True
     with conn.cursor() as cur:
         cur.execute(f'DROP DATABASE IF EXISTS "{TEST_DB}" WITH (FORCE)')
+        cur.execute(f'DROP DATABASE IF EXISTS "{TEST_DB_SJH}" WITH (FORCE)')
         cur.execute(f'CREATE DATABASE "{TEST_DB}"')
     conn.close()
     url = _with_db(admin, TEST_DB)
@@ -194,6 +139,7 @@ def database_url():
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute(f'DROP DATABASE IF EXISTS "{TEST_DB}" WITH (FORCE)')
+            cur.execute(f'DROP DATABASE IF EXISTS "{TEST_DB_SJH}" WITH (FORCE)')
         conn.close()
 
 
@@ -264,6 +210,13 @@ def app(database_url):
         g.pop('_login_user', None)
 
     run_migrations(flask_app)
+    # SJH in its own database (item 13a): created, loaded and migrated by utils/site_db.py,
+    # as create_app() does when POSTGRES_DB_SJH is set. Requests read it only when SJH is
+    # picked in the site switch, so every other test reads the main database as before.
+    from sqlalchemy.engine import make_url
+    from utils import site_db
+    sjh_url = make_url(flask_app.config['SQLALCHEMY_DATABASE_URI']).set(database=TEST_DB_SJH)
+    assert site_db.init_app(flask_app, {'SJH': sjh_url}), 'the SJH test database was not set up'
 
     # Full pages include the real _header/_sidebar, which link to every blueprint;
     # only those under test are registered, so other links render as '#'.
@@ -296,6 +249,9 @@ def app(database_url):
     flask_app.register_blueprint(report_37_bp)
     from routes.email_server import email_server_bp
     flask_app.register_blueprint(email_server_bp)
+    # the site switch in the header (item 13a)
+    from routes.site_controller import site_bp
+    flask_app.register_blueprint(site_bp)
     # /api/filter-options: the values the report sidebars offer
     from routes.api_controller import api_bp
     flask_app.register_blueprint(api_bp)

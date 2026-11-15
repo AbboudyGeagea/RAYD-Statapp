@@ -30,6 +30,10 @@ app.py                          — app factory, blueprint registration, APSched
 db.py                           — SQLAlchemy setup, ORM models, permission helpers
 utils/roles.py                  — the four roles (Super user, CHT, Administrator, User), their
                                    capabilities, sites and per-site access (item 13f, rule 9)
+utils/site_db.py                — SJH in its own database (item 13a, rule 10): POSTGRES_DB_SJH,
+                                   per-request routing (db.SiteSession), site switch, user copy
+db_bootstrap.py                 — loads init-db/schema.sql into an empty database (site DBs, tests)
+routes/site_controller.py       — POST /site/switch, the header's site dropdown
 routes/
   report_22.py                  — main radiology stats (date/modality/physician filters)
   super_report.py               — aggregated multi-section report
@@ -299,11 +303,24 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    `utils.roles.can(user, 'implementation' | 'settings' | 'users' | 'all_pages' | 'all_sites')`,
    `user_has_page()` and `can_open_report()`; templates `can('...')`. Who holds what is the
    CAPABILITIES table in `utils/roles.py`, nowhere else. A User's access is per site and needs
-   the site granted; until the SJH database exists the site served is the default one (RH)
-   and an account without it is signed out. A migration that grants a new report writes
+   the site granted; the site a request reads is the one picked in the header among the
+   account's sites that have a database, and an account holding none of them is signed out. A migration that grants a new report writes
    `(user_id, site_id, report_template_id)` and ON CONFLICT on those three columns; nothing
    grants reports automatically any more. `tests/test_roles_access.py` fails on any
    comparison with an old role name (admin, viewer, viewer2, tec, finance, secretary).
+10. **Site databases** (item 13a, 2026-11-15; `utils/site_db.py`, migration 0153). With
+   `POSTGRES_DB_SJH` set, SJH has its own database on the same server, created, loaded and
+   migrated at startup (every migration runs on every site database; `_startup_schema()` in
+   app.py too). A request's `db.session` statements go to the picked site's database; logins
+   and access (`site_db.MAIN_TABLES`) stay on the main one. In request code: open your own
+   connection with `site_db.current_engine()`, never `db.engine` (always the main database);
+   "this site" in SQL is `rayd_served_site_id()` and in Python `site_db.served_site_id()`,
+   never `sites WHERE is_default`; an in-process cache of site data keys on
+   `site_db.current_site_id()`; a streamed response uses `stream_with_context`. A new login
+   or access table goes in MAIN_TABLES and its raw SQL on the main engine. Each site database
+   keeps a password-less copy of `users` (`site_db.mirror_users()`), so its tables can point at
+   users. The RH-only views (rule 0) apply to the main database only. Outside a request
+   everything reads the main database unless inside `site_db.use_site(site_id)`.
 
 ## Dev Workflow
 
@@ -331,8 +348,13 @@ docker compose build rayd-app && docker compose up -d rayd-app
 # Check NLP worker health
 docker compose logs rayd-nlp --tail 20
 
-# Test suite (any reachable Postgres; creates and drops rayd_pytest_laumc, never etl_db)
+# Test suite (any reachable Postgres; creates and drops rayd_pytest_laumc and
+# rayd_pytest_laumc_sjh, never etl_db)
 python -m pytest tests
+
+# SJH in its own database (item 13a): set in .env, then restart rayd-app; the app creates
+# and migrates it. Leave unset until SJH's data is moved (item 13b).
+POSTGRES_DB_SJH=etl_db_sjh
 ```
 
 ## MCP Servers (for Claude Code agents)

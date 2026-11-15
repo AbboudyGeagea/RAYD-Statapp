@@ -28,10 +28,11 @@ Code never compares role names. It asks for a capability:
 so a change of who may do what is a change of CAPABILITIES below, nowhere else.
 
 Sites (table sites, RH and SJH). Each account is granted sites (user_sites), then pages and
-reports per site (user_page_permissions.site_id, report_access_control.site_id). Until the
-SJH database exists (item 13a) the app serves RH only, so the current site is always the
-default site, and an account not granted it is signed out (app.py). A Super user holds
-every site.
+reports per site (user_page_permissions.site_id, report_access_control.site_id), all read
+from the main database whatever site the request reads. The site a request reads is picked
+in the header dropdown among the sites the account holds that have a database
+(utils/site_db.py, item 13a); an account holding none of them is signed out (app.py). A
+Super user holds every site.
 
 Legacy role names still found on an account (a migration that did not run, an old row) are
 read as their new role, so nobody is locked out the way the HL7 branch was (db4ce865). An
@@ -129,16 +130,23 @@ def assignable_roles(actor):
 
 # ── sites ─────────────────────────────────────────────────────────────────────
 
-def all_sites():
-    """[(id, code, name)] of the active sites, the default one first."""
+def _main_rows(sql, params=None):
+    """Rows from the main database, where logins and access live whatever site the request
+    reads (utils/site_db.py), on a connection of their own so a failed read never poisons
+    the request's transaction."""
     from sqlalchemy import text
     from db import db
+    with db.engine.connect() as conn:
+        return conn.execute(text(sql), params or {}).fetchall()
+
+
+def all_sites():
+    """[(id, code, name)] of the active sites, the default one first."""
     try:
-        return [tuple(r) for r in db.session.execute(text(
-            "SELECT id, code, name FROM sites WHERE active ORDER BY is_default DESC, id")).fetchall()]
+        return [tuple(r) for r in _main_rows(
+            "SELECT id, code, name FROM sites WHERE active ORDER BY is_default DESC, id")]
     except Exception as e:
         logger.error(f"sites not read: {e}")
-        db.session.rollback()
         return []
 
 
@@ -148,9 +156,10 @@ def default_site_id():
 
 
 def current_site_id():
-    """The site this request reads. Always the default site (RH) until the site switch
-    of item 13a exists: only RH's data is in this database."""
-    return default_site_id()
+    """The site this request reads: the one picked in the header dropdown when the account
+    may open it, else the default site (utils/site_db.py, item 13a)."""
+    from utils.site_db import current_site_id as _current
+    return _current()
 
 
 def granted_site_ids(user):
@@ -159,7 +168,7 @@ def granted_site_ids(user):
         return set()
     if can(user, 'all_sites'):
         return {s[0] for s in all_sites()}
-    return set(_access(user)['sites'])
+    return set(_sites_of(getattr(user, 'id', None)))
 
 
 def has_site(user, site_id):
@@ -196,47 +205,60 @@ def granted_report_ids(user):
     return set(_access(user)['reports'])
 
 
-def _access(user):
-    """The account's sites, and its pages and reports on the current site, read once per
-    request (kept in the request's environ, which no later request shares). Fail-closed: if
-    anything cannot be read the account holds nothing."""
+def _cache():
+    """This request's cache (in its environ, which no later request shares); None outside
+    a request."""
     from flask import has_request_context, request
-    uid = getattr(user, 'id', None)
-    cache = None
-    if has_request_context():
-        cache = request.environ.setdefault('rayd.access', {})
-        if uid in cache:
-            return cache[uid]
-    out = _load_access(uid)
+    return request.environ.setdefault('rayd.access', {}) if has_request_context() else None
+
+
+def _sites_of(uid):
+    """The sites granted to an account, read once per request. Fail-closed."""
+    if uid is None:
+        return frozenset()
+    cache = _cache()
+    key = ('sites', uid)
+    if cache is not None and key in cache:
+        return cache[key]
+    try:
+        out = frozenset(r[0] for r in _main_rows(
+            "SELECT site_id FROM user_sites WHERE user_id = :u", {'u': uid}))
+    except Exception as e:
+        logger.error(f"sites of user {uid} not read: {e}")
+        out = frozenset()
     if cache is not None:
-        cache[uid] = out
+        cache[key] = out
     return out
 
 
-def _load_access(uid):
-    from sqlalchemy import text
-    from db import db
-    empty = {'sites': frozenset(), 'pages': frozenset(), 'reports': frozenset()}
+def _access(user):
+    """The account's pages and reports on the current site, read once per request and
+    site. Nothing unless the site is granted to it. Fail-closed."""
+    uid = getattr(user, 'id', None)
+    empty = {'pages': frozenset(), 'reports': frozenset()}
     if uid is None:
         return empty
     site = current_site_id()
-    try:
-        # A savepoint, so a failed read never poisons the request's transaction.
-        with db.session.begin_nested():
-            sites = {r[0] for r in db.session.execute(text(
-                "SELECT site_id FROM user_sites WHERE user_id = :u"), {'u': uid})}
-            pages, reports = set(), set()
-            if site in sites:
-                pages = {r[0] for r in db.session.execute(text("""
+    cache = _cache()
+    key = ('access', uid, site)
+    if cache is not None and key in cache:
+        return cache[key]
+    out = empty
+    if site in _sites_of(uid):
+        try:
+            out = {
+                'pages': frozenset(r[0] for r in _main_rows("""
                     SELECT page_key FROM user_page_permissions
-                    WHERE user_id = :u AND site_id = :s AND is_enabled"""), {'u': uid, 's': site})}
-                reports = {r[0] for r in db.session.execute(text("""
+                    WHERE user_id = :u AND site_id = :s AND is_enabled""", {'u': uid, 's': site})),
+                'reports': frozenset(r[0] for r in _main_rows("""
                     SELECT report_template_id FROM report_access_control
-                    WHERE user_id = :u AND site_id = :s AND is_enabled"""), {'u': uid, 's': site})}
-        return {'sites': frozenset(sites), 'pages': frozenset(pages), 'reports': frozenset(reports)}
-    except Exception as e:
-        logger.error(f"access of user {uid} not read: {e}")
-        return empty
+                    WHERE user_id = :u AND site_id = :s AND is_enabled""", {'u': uid, 's': site})),
+            }
+        except Exception as e:
+            logger.error(f"access of user {uid} not read: {e}")
+    if cache is not None:
+        cache[key] = out
+    return out
 
 
 def forget_access():
@@ -285,10 +307,8 @@ def _role_of_row(user):
 
 
 def _target_sites(target):
-    from sqlalchemy import text
-    from db import db
-    return {r[0] for r in db.session.execute(text(
-        "SELECT site_id FROM user_sites WHERE user_id = :u"), {'u': target.id})}
+    return {r[0] for r in _main_rows("SELECT site_id FROM user_sites WHERE user_id = :u",
+                                     {'u': target.id})}
 
 
 # ── Flask wiring ──────────────────────────────────────────────────────────────
@@ -297,10 +317,24 @@ def init_app(app):
     """Template helpers: {% if can('implementation') %}, {{ role_label(u.role) }}."""
     from flask_login import current_user
 
+    def site_switch():
+        """The header's site dropdown (item 13a): None unless the account may open two or
+        more sites that have a database."""
+        from utils.site_db import current_site_id as _current, selectable_site_ids
+        if not getattr(current_user, 'is_authenticated', False):
+            return None
+        choices = selectable_site_ids(current_user)
+        if len(choices) < 2:
+            return None
+        return {'current': _current(),
+                'choices': [{'id': sid, 'code': code, 'name': name}
+                            for sid, code, name in all_sites() if sid in choices]}
+
     @app.context_processor
     def _roles_context():
         return {
             'can': lambda capability: can(current_user, capability),
             'role_label': role_label,
             'is_superuser': lambda: is_superuser(current_user),
+            'site_switch': site_switch,
         }

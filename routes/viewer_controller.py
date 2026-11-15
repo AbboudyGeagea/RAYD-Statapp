@@ -5,7 +5,7 @@ from sqlalchemy import text
 from db import db
 from utils.permissions import permission_required
 from utils.roles import can, can_open_report, granted_report_ids
-from utils.site_resolver import default_site
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 from utils.ae_display import ae_display_sql
 
 from routes.report_registry import get_report
@@ -54,7 +54,7 @@ def daily_briefing():
         # device instead: storing_ae -> aetitle_modality_map.site_id (same
         # pattern as report_25 / utils/report_filters.py). Resolves to None
         # (filter skipped) on a non-LAUMC/single-site install.
-        rh_site_id = default_site()
+        rh_site_id = served_site_id()
         site_clause   = " AND m.site_id = :rh_site_id"  if rh_site_id is not None else ""
         site_clause_o = " AND m2.site_id = :rh_site_id" if rh_site_id is not None else ""
 
@@ -306,7 +306,7 @@ def yesterday_overview():
         # LAUMC site rule (operator instruction, 2026-07-26): reports show RH
         # (main site) only, SJH excluded, for now. See daily_briefing() above
         # for the full rationale; same pattern applied here.
-        rh_site_id = default_site()
+        rh_site_id = served_site_id()
         site_clause = " AND m.site_id = :rh_site_id" if rh_site_id is not None else ""
         site_params = {"rh_site_id": rh_site_id}
 

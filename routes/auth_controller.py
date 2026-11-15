@@ -8,7 +8,7 @@ from sqlalchemy import text
 
 from db import User, UserPagePermission, UserAuditLog, active_sessions, db
 from utils.rate_limit import limiter
-from utils.roles import USER, can, current_site_id, has_site, is_superuser
+from utils.roles import USER, can, is_superuser
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -165,9 +165,10 @@ def login():
             flash('Access is restricted during demo mode.', 'warning')
             return render_template('login.html')
 
-        # One site at a time (item 13f): this database serves RH only until SJH has its own.
-        site = current_site_id()      # None only on an install with no sites configured
-        if site is not None and not has_site(user, site):
+        # Sites (items 13f, 13a): the account must hold a site RAYD can serve (RH, and SJH
+        # once its database is set up). None configured at all: a single-site install.
+        from utils.site_db import default_site_id, selectable_site_ids
+        if default_site_id() is not None and not selectable_site_ids(user):
             flash('Your account has no access to this site. Ask your administrator.', 'warning')
             return render_template('login.html')
 
@@ -186,6 +187,7 @@ def login():
 
         login_user(user)
         session.permanent = True
+        session.pop('site_id', None)    # each sign-in starts on the default site (item 13a)
 
         # Track session in DB
         _open_session(user)

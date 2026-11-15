@@ -2,12 +2,13 @@ import io
 import csv
 import logging
 from datetime import date, timedelta
-from flask import Blueprint, render_template, request, Response
+from flask import Blueprint, render_template, request, Response, stream_with_context
 from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_report_start_date
+from utils.site_db import current_engine
 from utils.report_filters import REPORTS_WITHOUT_IMAGES_AES, panel_filters, picked, picked_sql
-from utils.site_resolver import default_site
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 from utils.ae_display import ae_display_sql
 
 report_22_bp = Blueprint("report_22", __name__)
@@ -85,7 +86,7 @@ def get_where_params(form):
     # base_data CTE's WHERE, where the `m` (aetitle_modality_map) alias is in
     # scope -- the outer `where` string here runs against base_data's already
     # de-aliased column list, which doesn't carry site_id.
-    rh_site_id = default_site()
+    rh_site_id = served_site_id()
     site_clause = ""
     if rh_site_id is not None:
         params["rh_site_id"] = rh_site_id
@@ -677,7 +678,7 @@ def status_drilldown_22():
                 w.writerow([r[0], r[1], r[2], r[3], r[4], r[9], r[5], r[6], r[8], r[7]])
                 yield out.getvalue(); out.seek(0); out.truncate(0)
         filename = f"{status}_studies_{params['start']}_to_{params['end']}.csv"
-        return Response(generate(), mimetype="text/csv",
+        return Response(stream_with_context(generate()), mimetype="text/csv",
                         headers={"Content-Disposition": f"attachment; filename={filename}"})
 
     studies = [
@@ -725,7 +726,7 @@ def export_report_22():
         writer.writerow(['Date', 'Class', 'Modality', 'Sex', 'Status', 'Location', 'Physician', 'PatientID'])
         yield output.getvalue()
         output.seek(0); output.truncate(0)
-        with db.engine.connect() as conn:
+        with current_engine().connect() as conn:
             result = conn.execution_options(stream_results=True).execute(sql, params)
             for row in result:
                 writer.writerow(row)
@@ -733,7 +734,7 @@ def export_report_22():
                 output.seek(0); output.truncate(0)
     
     mod_suffix = f"_{export_mod}" if export_mod else ""
-    return Response(generate(), mimetype="text/csv",
+    return Response(stream_with_context(generate()), mimetype="text/csv",
                     headers={"Content-disposition": f"attachment; filename=raw_data{mod_suffix}.csv"})
 
 # ── Self-register ─────────────────────────────────────────────

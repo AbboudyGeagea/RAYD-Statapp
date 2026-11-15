@@ -3,7 +3,8 @@ routes/report_cache.py
 ──────────────────────
 Thread-safe in-memory TTL cache for report query results.
 
-Keyed on (report_id, MD5 of form params). Avoids redundant DB hits
+Keyed on (report_id, site, MD5 of form params): the site, because RH and SJH read
+different databases (utils/site_db.py, item 13a). Avoids redundant DB hits
 when the same report is run twice with identical settings within TTL.
 
 A background daemon thread runs every 5 minutes to evict entries whose
@@ -48,7 +49,16 @@ def _make_key(report_id: int, form_data) -> str:
     except Exception:
         serialized = str(form_data)
     h = hashlib.md5(serialized.encode()).hexdigest()
-    return f"r{report_id}:{h}"
+    return f"r{report_id}:s{_site()}:{h}"
+
+
+def _site():
+    """The site the request reads (item 13a): a figure cached for RH is never served for SJH."""
+    try:
+        from utils.site_db import current_site_id
+        return current_site_id()
+    except Exception:
+        return None
 
 
 def _evict_expired() -> int:
@@ -131,7 +141,7 @@ _eviction_thread.start()
 # Shared across all report pages. Keyed by a fixed string; TTL = 5 minutes.
 # Avoids running SELECT DISTINCT on etl_didb_studies on every page load.
 
-_FILTER_KEY = "__filter_options__"
+_FILTER_KEY = "__filter_options__"        # + ':s<site>' (item 13a)
 _FILTER_TTL = 300  # seconds
 
 
@@ -144,8 +154,9 @@ def get_filter_options(db) -> dict:
     from sqlalchemy import text
     from utils.report_filters import rh_device_sql
 
+    key = f"{_FILTER_KEY}:s{_site()}"
     with _lock:
-        entry = _store.get(_FILTER_KEY)
+        entry = _store.get(key)
 
     if entry and (time.time() - entry["ts"]) < _FILTER_TTL:
         return entry["data"]
@@ -179,12 +190,12 @@ def get_filter_options(db) -> dict:
                              JOIN (SELECT DISTINCT UPPER(TRIM(storing_ae)) AS k FROM etl_didb_studies
                                    WHERE storing_ae IS NOT NULL AND TRIM(storing_ae) != '') s
                                ON s.k = UPPER(TRIM(m.aetitle))
-                             WHERE m.site_id = (SELECT id FROM sites WHERE is_default LIMIT 1)
+                             WHERE m.site_id = rayd_served_site_id()
                              GROUP BY UPPER(TRIM(m.aetitle))
                              UNION ALL
                              SELECT DISTINCT TRIM(storing_ae) FROM etl_didb_studies
                              WHERE storing_ae IS NOT NULL AND TRIM(storing_ae) != ''
-                               AND NOT EXISTS (SELECT 1 FROM sites WHERE is_default)
+                               AND rayd_served_site_id() IS NULL
                          ) x""",
         # Modalities of RH devices only (CLAUDE.md rule 0: lists read from the map use
         # rh_device_sql), so a modality only the other site has is no longer offered.
@@ -224,5 +235,5 @@ def get_filter_options(db) -> dict:
         db.session.rollback()
 
     with _lock:
-        _store[_FILTER_KEY] = {"data": data, "ts": time.time()}
+        _store[key] = {"data": data, "ts": time.time()}
     return data

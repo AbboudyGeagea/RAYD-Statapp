@@ -41,7 +41,7 @@ from flask import Blueprint, render_template, request
 from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_report_start_date
-from utils.site_resolver import default_site
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 from utils.report_filters import panel_filters, sidebar_filters as _sidebar_filters
 from utils.pacs_roles import role_lookup_cte, role_precedence
 from routes.report_25 import get_gold_standard_data

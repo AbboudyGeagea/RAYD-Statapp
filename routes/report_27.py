@@ -7,7 +7,7 @@ from sqlalchemy import text
 from db import db, get_report_start_date
 from utils.report_filters import study_site_sql
 from utils.ae_display import ae_label_join_sql
-from utils.site_resolver import default_site
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 
 report_27_bp = Blueprint("report_27", __name__)
 
@@ -127,7 +127,7 @@ def _build_system_agreement(start, end):
     Returns rows oldest-first; each carries `maturing` so the template can grey out
     months that have not had time to be read yet.
     """
-    site_id = default_site()
+    site_id = served_site_id()
     params = {"start": start, "end": end}
 
     ris_site  = ""

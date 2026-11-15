@@ -19,7 +19,7 @@ from db import db
 from routes.insights_engine import run_dept_insights
 from routes.report_cache import cache_get, cache_put
 from utils.stats import _pct, _fmt
-from utils.site_resolver import default_site
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 from utils.ae_display import ae_display_sql
 from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql, rad_ok_sql
 
@@ -220,10 +220,10 @@ def super_report_filters():
             "storing_ae":          distinct("""
                 SELECT x.ae FROM (SELECT DISTINCT storing_ae AS ae FROM etl_didb_studies
                                   WHERE storing_ae IS NOT NULL) x
-                WHERE NOT EXISTS (SELECT 1 FROM sites WHERE is_default)
+                WHERE rayd_served_site_id() IS NULL
                    OR EXISTS (SELECT 1 FROM aetitle_modality_map m
                               WHERE UPPER(TRIM(m.aetitle)) = UPPER(TRIM(x.ae))
-                                AND m.site_id = (SELECT id FROM sites WHERE is_default LIMIT 1))"""),
+                                AND m.site_id = rayd_served_site_id())"""),
             "study_status":        distinct("SELECT DISTINCT study_status FROM etl_didb_studies WHERE study_status IS NOT NULL"),
             "report_status":       distinct("SELECT DISTINCT report_status FROM etl_didb_studies WHERE report_status IS NOT NULL"),
             "order_status":        distinct("SELECT DISTINCT order_status FROM etl_didb_studies WHERE order_status IS NOT NULL"),
@@ -312,7 +312,7 @@ def super_report():
     # site) only, SJH excluded, for now. Resolved once per request and threaded
     # through both periods rather than re-resolved inside _collect_data (which
     # runs twice per request, current + comparison period).
-    rh_site_id = default_site()
+    rh_site_id = served_site_id()
     cache_key["rh_site_id"] = rh_site_id
 
     cached = cache_get("super_report", cache_key)
@@ -358,7 +358,7 @@ def _build_where(start, end, filters, rh_site_id=None):
     params  = {"start": start, "end": end}
 
     # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main
-    # site) only, SJH excluded, for now. Same default_site()/aetitle_modality_map
+    # site) only, SJH excluded, for now. Same served_site_id()/aetitle_modality_map
     # pattern used throughout (report_25, report_34, viewer_controller, etc.) --
     # `m` (aetitle_modality_map) is already joined into every query built on this
     # WHERE clause. Resolves to None (filter skipped) on a non-LAUMC/single-site

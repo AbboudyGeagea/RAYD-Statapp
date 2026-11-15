@@ -132,7 +132,7 @@ def live_status():
             SELECT aetitle, modality, {ae_display_sql('m', 'm.aetitle')} AS label,
                    floor_x, floor_y
             FROM aetitle_modality_map m
-            WHERE COALESCE(m.site_id = (SELECT id FROM sites WHERE is_default), TRUE)
+            WHERE COALESCE(m.site_id = rayd_served_site_id(), TRUE)
             ORDER BY modality, aetitle
         """)).mappings().fetchall()
         devices = [dict(r) for r in device_rows]

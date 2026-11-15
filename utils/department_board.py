@@ -170,7 +170,7 @@ SELECT m.aetitle, upper(btrim(m.aetitle)) AS ae_key, m.modality,
          ON upper(btrim(ws.aetitle)) = upper(btrim(m.aetitle)) AND ws.day_of_week = :dow
  WHERE m.active IS NOT FALSE
    AND COALESCE(m.modality, '') NOT IN ('SR', 'PR', 'KO', 'PACS')
-   AND COALESCE(m.site_id = (SELECT id FROM sites WHERE is_default), TRUE)
+   AND COALESCE(m.site_id = rayd_served_site_id(), TRUE)
  ORDER BY m.modality, m.aetitle
 """
 
@@ -363,7 +363,7 @@ def build_board(site=None, now=None):
     sites = db.session.execute(text("""
         SELECT s.code, s.name FROM sites s
          WHERE s.active IS NOT FALSE
-           AND COALESCE(s.id = (SELECT id FROM sites WHERE is_default), TRUE)
+           AND COALESCE(s.id = rayd_served_site_id(), TRUE)
          ORDER BY s.name
     """)).mappings().all()
     # The floor plan of each site (Admin > Floor plan): the image, under static/.
@@ -372,7 +372,7 @@ def build_board(site=None, now=None):
                fp.image_width AS width, fp.image_height AS height
           FROM floor_plans fp JOIN sites si ON si.id = fp.site_id
          WHERE fp.image_path IS NOT NULL AND si.active IS NOT FALSE
-           AND COALESCE(si.id = (SELECT id FROM sites WHERE is_default), TRUE)
+           AND COALESCE(si.id = rayd_served_site_id(), TRUE)
          ORDER BY si.name
     """)).mappings().all()
     return {

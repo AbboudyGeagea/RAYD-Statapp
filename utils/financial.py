@@ -3,7 +3,7 @@ import time
 from typing import Optional
 import pandas as pd
 
-_cache: dict = {'data': None, 'ts': 0.0}
+_caches: dict = {}   # site -> {'data', 'ts'}: each site database has its own rates (item 13a)
 _TTL = 300  # 5 minutes
 
 
@@ -29,6 +29,8 @@ def _load() -> dict:
 
 
 def _get_config() -> dict:
+    from utils.site_db import current_site_id
+    _cache = _caches.setdefault(current_site_id(), {'data': None, 'ts': 0.0})
     now = time.monotonic()
     if _cache['data'] is not None and (now - _cache['ts']) < _TTL:
         return _cache['data']
@@ -38,8 +40,7 @@ def _get_config() -> dict:
 
 
 def invalidate_cache() -> None:
-    _cache['data'] = None
-    _cache['ts'] = 0.0
+    _caches.clear()
 
 
 def effective_rate(modality: Optional[str] = None, procedure_code: Optional[str] = None) -> float:

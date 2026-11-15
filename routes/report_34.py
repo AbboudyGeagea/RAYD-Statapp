@@ -35,7 +35,7 @@ from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_report_start_date
 from routes.report_cache import cache_get, cache_put
-from utils.site_resolver import default_site
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 from utils.report_filters import panel_filters, picked, picked_sql
 from utils.ae_display import ae_label_map, ae_label
 
@@ -94,11 +94,11 @@ def get_device_utilization_data(form_data):
     # (the enrichment pass was designed — migration 0051 — but never built), and raw PACS
     # SITE_ID has a known mislabeling bug (SJH mammo shows as RH), so this resolves site via
     # the device instead: storing_ae -> aetitle_modality_map.site_id, which IS populated
-    # (RIS-authoritative, via ORG_STRUCTURE_KEY -> site_org_map, Phase 10). default_site() =
-    # the sites row flagged is_default (RH). Resolves to None (filter skipped, not applied)
+    # (RIS-authoritative, via ORG_STRUCTURE_KEY -> site_org_map, Phase 10). served_site_id() =
+    # the site this database serves (RH; SJH in its own database). Resolves to None (filter skipped, not applied)
     # on a non-LAUMC/single-site install rather than zeroing every report. Ported verbatim
     # from report_25.get_gold_standard_data() — see that function for the full history.
-    rh_site_id = default_site()
+    rh_site_id = served_site_id()
     if rh_site_id is not None:
         params["rh_site_id"] = rh_site_id
         where_clauses.append(

@@ -87,7 +87,7 @@ only at weekends, which can add calendar time.
 | 10 | Modality "PACS" samples | Low | 0.25 | 0–1 | 0.25 | 0.5–1.5 | operator’s review |
 | 11 | Report start date setting — **done** | Low | 0.1 | 1 | 0.25 | 1–1.5 | — |
 | 12 | Chart explanations (~150 notes, 16 pages) — **done** | Low–Medium | 0.5 | 2.5–3.5 | 0.5 | 3.5–4.5 | — |
-| 13 | SJH database, all parts (13f roles and access **built**) | High | 3–4 | 14–18 | 2–3 | 19–25 | BRAYN on; site-ID walkthrough |
+| 13 | SJH database, all parts (13f roles and access **built**; 13a database and switch **built**, scheduling, shared procedures, comparisons left) | High | 3–4 | 14–18 | 2–3 | 19–25 | BRAYN on; site-ID walkthrough |
 | 14 | Radiologist TAT and report counts on PACS | High | 2 | 4–5 | 1–2 | 7–9 | shares item 8’s PACS copy |
 
 Item 13 splits into: second database, per-request switch, migrations and SJH ETL (6–8);
@@ -348,6 +348,37 @@ read; radiologists approve or finalise (check both).
       whoever opens the live page.
     **After deploy:** sign in as `admin` (Super user), set CHT accounts for CHT staff (they
     are Administrators after the migration), check one former viewer and one former tec.
+
+    **13a, first part built 2026-11-15** (no server needed; `utils/site_db.py`, migration
+    0153, `tests/test_site_databases.py`), not deployed. Off until `POSTGRES_DB_SJH` is set:
+    - SJH's own database on the same Postgres server (`POSTGRES_DB_SJH=etl_db_sjh` in .env,
+      passed by docker-compose). At startup the app creates it, loads the schema, runs every
+      migration and the startup columns, records that it serves SJH, and copies the user
+      list into it (no passwords). Checked by starting the real app on two scratch databases.
+    - Per request: the header shows a site dropdown to accounts holding RH and SJH; every
+      page and report then reads the picked site's database. Logins, sites, page and report
+      grants, sessions and the audit log always stay on RH's database. An account with SJH
+      only lands on SJH.
+    - Reports keep "this site's devices" with `rayd_served_site_id()` (each database knows
+      the site it serves) instead of the default site, so the same reports work on both;
+      Report 23's '%SJH%' name guards apply on RH's database only.
+    - Cached figures and dropdown values are kept per site. Report Composer runs as each
+      database's own reporting role.
+    - Found and fixed on the way: Reports 22, 23 and 31's CSV exports streamed outside their
+      request, so they skipped the RH-only views (SJH rows could reach an RH export).
+    - Per site by construction (each database has its own): AE mapping, settings (the Email
+      Server page edits the picked site's mail server), Report Composer's saved reports,
+      BRAYN tables, CRN set-up.
+    **Left in 13a:**
+    - Scheduled sending per site: Report Composer schedules and Report 37's monthly
+      workbook still run on RH's database only (the scheduler runs no SJH pass).
+    - Procedure codes shared (e.): today each database has its own copy.
+    - RH vs SJH side by side per modality in the Super Report and the Live Department board
+      (b.).
+    - On SJH the ETL Control Room shows SJH's (empty) job history, but its triggers still run
+      RH's ETL: SJH's own ETL comes with 13b.
+    - BRAYN routing each HL7 message to its site's database (d.): needs the operator's
+      walkthrough of where the site ID sits in each message.
 14. **Radiologists TAT and radiologists' number of reports: revamp and validate thoroughly;
     this is the selling point.** Source is PACS Oracle (rule above). Show both start clocks,
     RIS exam done and PACS insert time (`DIDB_STUDIES.INSERT_TIME`), because they disagree.
@@ -431,7 +462,8 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     (the `rh.etl_orders` view). "Orders Placed" is now "RIS Exams Done"; the panel has its
     info icon.
 24. **Deploy the 2026-11-14 and 2026-11-15 work** (items 3, 4, 6, 11, 12, 16, 19, 22, 23,
-    25, 13f; migrations 0148–0152) after item 4's Monday room-name check. Then add Monday's
+    25, 13f, 13a's first part; migrations 0148–0153) after item 4's Monday room-name check.
+    Leave `POSTGRES_DB_SJH` unset until SJH's data is moved (13b). Then add Monday's
     test patients on the BRAYN console and check each placeholder record's "Reaches" count,
     and do item 13f's after-deploy steps (CHT accounts, one former viewer and tec).
 25. **ER dashboard onto the one report UI** (CLAUDE.md rule 8). The ORU tab was taken out of

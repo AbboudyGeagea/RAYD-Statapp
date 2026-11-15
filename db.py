@@ -116,7 +116,23 @@ def init_oracle_thick_mode():
 # client never blocks application startup.
 init_oracle_thick_mode()
 
-db = SQLAlchemy()
+from flask_sqlalchemy.session import Session as _FlaskSession  # noqa: E402
+
+
+class SiteSession(_FlaskSession):
+    """Routes each statement to the database of the site the request reads (item 13a,
+    utils/site_db.py). Logins and access stay on the main database; with no site database
+    set up this is the plain Flask-SQLAlchemy session."""
+
+    def get_bind(self, mapper=None, clause=None, bind=None, **kwargs):
+        if bind is not None:
+            return bind
+        engine = super().get_bind(mapper=mapper, clause=clause, **kwargs)
+        from utils import site_db
+        return site_db.route(engine, mapper, clause)
+
+
+db = SQLAlchemy(session_options={'class_': SiteSession})
 
 # ----------------------------------------------------------------
 # 2. UTILITIES & ETL HELPERS

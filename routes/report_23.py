@@ -3,12 +3,13 @@ import io
 import csv
 import pandas as pd
 from datetime import date
-from flask import Blueprint, render_template, request, Response
+from flask import Blueprint, render_template, request, Response, stream_with_context
 from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_report_start_date
+from utils.site_db import current_engine
 from utils.report_filters import REPORTS_WITHOUT_IMAGES_AES, study_site_sql
-from utils.site_resolver import default_site
+from utils.site_db import default_site_id, served_site_id   # item 13a
 
 report_23_bp = Blueprint('report_23', __name__)
 
@@ -102,9 +103,9 @@ def get_report_config(form):
         # SJH (satellite) excluded — for Report 23 specifically: "exclude everything that
         # contains SJH, modalities, aetitles, radiologists." Primary mechanism is the SAME
         # one report_25.py/report_31.py already use — aetitle_modality_map.site_id via
-        # default_site() — NOT a hardcoded 'SJH' string match, so the whole block below
+        # served_site_id() — NOT a hardcoded 'SJH' string match, so the whole block below
         # skips cleanly (no filter applied at all) on a non-LAUMC/single-site install where
-        # default_site() returns None. `m` is already joined above (the modality-fallback
+        # served_site_id() returns None. `m` is already joined above (the modality-fallback
         # fix, UPPER(TRIM(storing_ae)) = UPPER(TRIM(aetitle))), so no new join is introduced
         # here — just extra ANDs on the existing WHERE clause.
         #
@@ -157,22 +158,27 @@ def get_report_config(form):
         # The five NOT LIKE '%SJH%' guards stay as defence in depth. They are
         # NULL-safe by construction (COALESCE to '' before comparing), so unlike the
         # old site_id check they never drop an unmapped device.
-        rh_site_id = default_site()
+        rh_site_id = served_site_id()
         if rh_site_id is not None:
             no_image_aes = ", ".join(f"'{ae}'" for ae in REPORTS_WITHOUT_IMAGES_AES)
-            base_sql = base_sql.replace(
-                "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')",
-                "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')"
-                f" AND {study_site_sql('rh_site_id')}"
-                f" AND UPPER(TRIM(COALESCE(s.storing_ae, ''))) NOT IN ({no_image_aes})"
+            # The '%SJH%' name guards only where the database serves RH: in SJH's own
+            # database (item 13a) they would drop every SJH device.
+            sjh_guards = (
                 " AND UPPER(COALESCE(s.storing_ae, '')) NOT LIKE '%SJH%'"
                 " AND UPPER(COALESCE(m.description, '')) NOT LIKE '%SJH%'"
                 " AND UPPER(COALESCE(m.station_name, '')) NOT LIKE '%SJH%'"
                 " AND UPPER(COALESCE(m.room_name, '')) NOT LIKE '%SJH%'"
                 " AND UPPER(COALESCE(m.display_aetitle, '')) NOT LIKE '%SJH%'"
+            ) if rh_site_id == default_site_id() else ""
+            base_sql = base_sql.replace(
+                "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')",
+                "WHERE 1=1 AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT', 'BMD')"
+                f" AND {study_site_sql('rh_site_id')}"
+                f" AND UPPER(TRIM(COALESCE(s.storing_ae, ''))) NOT IN ({no_image_aes})"
+                + sjh_guards
             )
     else:
-        rh_site_id = default_site()
+        rh_site_id = served_site_id()
 
     # every report starts on the report start date (settings, migration 0149)
     db_gl = get_report_start_date()
@@ -493,7 +499,7 @@ def export_report_23():
         yield output.getvalue()
         output.seek(0); output.truncate(0)
 
-        with db.engine.connect() as conn:
+        with current_engine().connect() as conn:
             result = conn.execution_options(stream_results=True).execute(
                 sql, params
             )
@@ -504,7 +510,7 @@ def export_report_23():
 
     filename = f"population_{start_date}_to_{end_date}.csv"
     return Response(
-        generate(),
+        stream_with_context(generate()),
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
@@ -548,7 +554,7 @@ def conflict_count():
 @login_required
 def conflict_export():
     # Fetch all rows and close the DB transaction before streaming the CSV.
-    with db.engine.connect() as conn:
+    with current_engine().connect() as conn:
         rows = conn.execute(text(_CONFLICT_SQL)).mappings().fetchall()
         rows = [dict(r) for r in rows]
 

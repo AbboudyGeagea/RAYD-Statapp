@@ -349,11 +349,11 @@ def create_app():
         if current_user.must_change_password and ep != 'auth.profile_password':
             return redirect(url_for('auth.profile_password'))
 
-        # One site at a time (item 13f): until the SJH database exists this database serves
-        # RH only, so an account not granted RH holds nothing here and is signed out.
-        from utils.roles import can as _can, current_site_id, has_site
-        _site = current_site_id()      # None only on an install with no sites configured
-        if _site is not None and not has_site(current_user, _site):
+        # Sites (items 13f, 13a): an account holding no site RAYD can serve (RH, and SJH once
+        # its database is set up) holds nothing here and is signed out.
+        from utils.roles import can as _can
+        from utils.site_db import default_site_id, selectable_site_ids
+        if default_site_id() is not None and not selectable_site_ids(current_user):
             logout_user()
             flask_session.clear()
             from flask import flash as _flash
@@ -377,323 +377,336 @@ def create_app():
             return redirect(url_for('auth.login'))
         return redirect(url_for('viewer.welcome'))
 
-    # --- MIGRATE: add new columns / tables if missing ---
-    with app.app_context():
-        try:
-            db.session.execute(text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_theme VARCHAR DEFAULT 'dark'"
-            ))
-            db.session.execute(text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS favorites TEXT DEFAULT '[]'"
-            ))
-            db.session.execute(text(
-                "ALTER TABLE aetitle_modality_map ADD COLUMN IF NOT EXISTS room_name VARCHAR(100)"
-            ))
-            db.session.execute(text(
-                "ALTER TABLE procedure_duration_map ADD COLUMN IF NOT EXISTS modality VARCHAR(20)"
-            ))
-            db.session.execute(text(
-                "ALTER TABLE procedure_duration_map ADD COLUMN IF NOT EXISTS clinical_rvu NUMERIC(10,2) DEFAULT 1.0"
-            ))
-            db.session.execute(text(
-                "ALTER TABLE procedure_duration_map ADD COLUMN IF NOT EXISTS technical_rvu NUMERIC(10,2) DEFAULT 1.0"
-            ))
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS procedure_modality_conflicts (
-                    id              SERIAL PRIMARY KEY,
-                    procedure_code  VARCHAR UNIQUE,
-                    modalities      TEXT,
-                    sample_count    INTEGER,
-                    detected_at     TIMESTAMP DEFAULT NOW()
-                )
-            """))
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS procedure_fuzzy_candidates (
-                    id              SERIAL PRIMARY KEY,
-                    procedure_code  VARCHAR UNIQUE,
-                    suggested_modality VARCHAR(20),
-                    match_score     NUMERIC(4,3),
-                    matched_via     VARCHAR(20),
-                    detected_at     TIMESTAMP DEFAULT NOW()
-                )
-            """))
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS procedure_canonical_groups (
-                    id                 SERIAL PRIMARY KEY,
-                    canonical_name     VARCHAR(300),
-                    approved           BOOLEAN DEFAULT FALSE,
-                    approved_by        VARCHAR(100),
-                    approved_at        TIMESTAMP,
-                    detected_at        TIMESTAMP DEFAULT NOW(),
-                    source             VARCHAR(20) DEFAULT 'human',
-                    cluster_confidence NUMERIC(4,3)
-                )
-            """))
-            db.session.execute(text(
-                "ALTER TABLE procedure_canonical_groups "
-                "ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'human'"
-            ))
-            db.session.execute(text(
-                "ALTER TABLE procedure_canonical_groups "
-                "ADD COLUMN IF NOT EXISTS cluster_confidence NUMERIC(4,3)"
-            ))
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS procedure_canonical_members (
-                    procedure_code  VARCHAR PRIMARY KEY,
-                    group_id        INTEGER REFERENCES procedure_canonical_groups(id) ON DELETE CASCADE,
-                    similarity_score NUMERIC(4,3),
-                    member_approved BOOLEAN DEFAULT NULL,
-                    added_at        TIMESTAMP DEFAULT NOW()
-                )
-            """))
-            db.session.execute(text(
-                "ALTER TABLE procedure_canonical_members "
-                "ADD COLUMN IF NOT EXISTS member_approved BOOLEAN DEFAULT NULL"
-            ))
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS procedure_duplicate_candidates (
-                    id              SERIAL PRIMARY KEY,
-                    code_a          VARCHAR,
-                    code_b          VARCHAR,
-                    code_similarity NUMERIC(4,3),
-                    desc_similarity NUMERIC(4,3),
-                    desc_a          TEXT,
-                    desc_b          TEXT,
-                    status          VARCHAR(10) DEFAULT 'pending',
-                    group_id        INTEGER REFERENCES procedure_canonical_groups(id) ON DELETE SET NULL,
-                    reviewed_at     TIMESTAMP,
-                    detected_at     TIMESTAMP DEFAULT NOW(),
-                    UNIQUE(code_a, code_b)
-                )
-            """))
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"[Migration] columns: {e}")
-
-    with app.app_context():
-        try:
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS hl7_oru_reports (
-                    id               SERIAL PRIMARY KEY,
-                    procedure_code   VARCHAR(100),
-                    procedure_name   TEXT,
-                    modality         VARCHAR(20),
-                    physician_id     VARCHAR(100),
-                    patient_id       VARCHAR(100),
-                    accession_number VARCHAR(100),
-                    report_text      TEXT,
-                    impression_text  TEXT,
-                    result_datetime  TIMESTAMP,
-                    received_at      TIMESTAMP DEFAULT NOW()
-                )
-            """))
-            db.session.execute(text(
-                "ALTER TABLE hl7_oru_reports ADD COLUMN IF NOT EXISTS patient_id VARCHAR(100)"
-            ))
-            db.session.execute(text(
-                "ALTER TABLE hl7_oru_reports ADD COLUMN IF NOT EXISTS accession_number VARCHAR(100)"
-            ))
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"[Migration] hl7_oru_reports: {e}")
-
-    with app.app_context():
-        try:
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS ai_nlp_cache (
-                    id              SERIAL PRIMARY KEY,
-                    source_id       INTEGER NOT NULL REFERENCES hl7_oru_reports(id) ON DELETE CASCADE,
-                    classification  VARCHAR(20),
-                    keywords        JSONB,
-                    cluster_id      INTEGER,
-                    cluster_label   TEXT,
-                    severity_score  NUMERIC(3,1),
-                    processed_at    TIMESTAMP DEFAULT NOW(),
-                    UNIQUE (source_id)
-                )
-            """))
-            db.session.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_nlp_classification ON ai_nlp_cache (classification)"
-            ))
-            db.session.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_nlp_cluster ON ai_nlp_cache (cluster_id)"
-            ))
-            db.session.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_oru_received ON hl7_oru_reports (received_at DESC)"
-            ))
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"[Migration] ai_nlp_cache: {e}")
-
-    # --- MIGRATION: hl7_scn_studies (real-time completed studies) ---
-    with app.app_context():
-        try:
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS hl7_scn_studies (
-                    id               SERIAL PRIMARY KEY,
-                    accession_number VARCHAR(100),
-                    patient_id       VARCHAR(100),
-                    patient_name     TEXT,
-                    procedure_code   VARCHAR(100),
-                    procedure_text   TEXT,
-                    modality         VARCHAR(20),
-                    storing_ae       VARCHAR(100),
-                    patient_class    VARCHAR(50),
-                    study_datetime   TIMESTAMP,
-                    order_status     VARCHAR(20) DEFAULT 'CM',
-                    received_at      TIMESTAMP DEFAULT NOW(),
-                    UNIQUE (accession_number)
-                )
-            """))
-            db.session.execute(text(
-                "ALTER TABLE hl7_scn_studies ADD COLUMN IF NOT EXISTS patient_class VARCHAR(50)"
-            ))
-            db.session.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_scn_study_dt ON hl7_scn_studies (study_datetime DESC)"
-            ))
-            db.session.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_scn_modality ON hl7_scn_studies (modality)"
-            ))
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"[Migration] hl7_scn_studies: {e}")
-
-    # --- MIGRATION: pacs_done_at on hl7_orders ---
-    with app.app_context():
-        try:
-            db.session.execute(text(
-                "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS pacs_done_at TIMESTAMP"
-            ))
-            db.session.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_hl7_orders_pacs_done_at ON hl7_orders (pacs_done_at)"
-            ))
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"[Migration] hl7_orders.pacs_done_at: {e}")
-
-    # --- MIGRATION: patient_class + patient_location on hl7_orders ---
-    with app.app_context():
-        try:
-            db.session.execute(text(
-                "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS patient_class VARCHAR(50)"
-            ))
-            db.session.execute(text(
-                "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS patient_location VARCHAR(100)"
-            ))
-            db.session.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_hl7_orders_patient_class ON hl7_orders (patient_class)"
-            ))
-            db.session.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_hl7_orders_patient_location ON hl7_orders (patient_location)"
-            ))
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"[Migration] hl7_orders.patient_class/location: {e}")
-
-    # (patient_portal_users migration removed — portal module absent at LAUMC)
-
-    # --- MIGRATION: encrypt db_params passwords ---
-    with app.app_context():
-        try:
-            from utils.crypto import encrypt, decrypt
-            from cryptography.fernet import InvalidToken
-            rows = db.session.execute(
-                text("SELECT id, password FROM db_params WHERE password IS NOT NULL AND password != ''")
-            ).fetchall()
-            for row_id, pwd in rows:
-                # Test if already encrypted by trying to decrypt
-                try:
-                    from cryptography.fernet import Fernet
-                    import base64, hashlib
-                    secret = os.environ.get('SECRET_KEY', '')
-                    key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest())
-                    Fernet(key).decrypt(pwd.encode())
-                    # Already encrypted — skip
-                except Exception:
-                    # Not encrypted — encrypt it now
-                    db.session.execute(
-                        text("UPDATE db_params SET password = :p WHERE id = :id"),
-                        {"p": encrypt(pwd), "id": row_id}
-                    )
-                    logger.info(f"[Migration] Encrypted password for db_params id={row_id}")
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"[Migration] db_params encryption: {e}")
-
-    # --- MIGRATION: permission_groups + user columns ---
-    with app.app_context():
-        try:
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS permission_groups (
-                    id          SERIAL PRIMARY KEY,
-                    name        VARCHAR(100) UNIQUE NOT NULL,
-                    description TEXT DEFAULT '',
-                    permissions JSONB NOT NULL DEFAULT '{}',
-                    created_at  TIMESTAMP DEFAULT NOW()
-                )
-            """))
-            db.session.execute(text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES permission_groups(id) ON DELETE SET NULL"
-            ))
-            db.session.execute(text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS permission_overrides JSONB DEFAULT '{}'"
-            ))
-            db.session.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_users_group_id ON users (group_id)"
-            ))
-            # Seed default groups if missing.
-            # NOTE: the permissions JSON used to be embedded as a raw string literal
-            # ('{"can_export":true,...}') inside the text() SQL. SQLAlchemy's text()
-            # bind-param parser scans for ':identifier' anywhere in the string — including
-            # inside JSON values like ":true" / ":false" — and tried to treat them as bind
-            # parameters, failing every startup with "A value is required for bind
-            # parameter 'true'" (the seed never actually ran). Passing the JSON as a real
-            # bound parameter (CAST(:permissions AS jsonb)) avoids embedding a raw colon
-            # anywhere near ':' in the SQL text, so nothing looks like a bind param.
-            import json
-            groups = [
-                ("Administrators", "Full system access", {
-                    "can_export": True, "can_configure": True, "can_manage_users": True,
-                    "can_view_finance": True, "can_use_ai": True, "can_view_etl": True,
-                    "can_view_reports": ["*"],
-                }),
-                ("Radiologists", "Reading physicians", {
-                    "can_export": True, "can_configure": False, "can_manage_users": False,
-                    "can_view_finance": False, "can_use_ai": True, "can_view_etl": False,
-                    "can_view_reports": ["*"],
-                }),
-                ("Technicians", "Imaging technicians", {
-                    "can_export": False, "can_configure": False, "can_manage_users": False,
-                    "can_view_finance": False, "can_use_ai": False, "can_view_etl": False,
-                    "can_view_reports": ["*"],
-                }),
-                ("Finance", "Finance team", {
-                    "can_export": True, "can_configure": False, "can_manage_users": False,
-                    "can_view_finance": True, "can_use_ai": False, "can_view_etl": False,
-                    "can_view_reports": ["*"],
-                }),
-            ]
-            for name, description, permissions in groups:
+    # --- STARTUP SCHEMA: columns and tables create_app() adds after the migrations ---
+    # A function, so a site's own database gets them too (utils/site_db.py, item 13a):
+    # inside use_site(site_id) every db.session statement goes to that database.
+    def _startup_schema():
+        # --- MIGRATE: add new columns / tables if missing ---
+        with app.app_context():
+            try:
+                db.session.execute(text(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_theme VARCHAR DEFAULT 'dark'"
+                ))
+                db.session.execute(text(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS favorites TEXT DEFAULT '[]'"
+                ))
+                db.session.execute(text(
+                    "ALTER TABLE aetitle_modality_map ADD COLUMN IF NOT EXISTS room_name VARCHAR(100)"
+                ))
+                db.session.execute(text(
+                    "ALTER TABLE procedure_duration_map ADD COLUMN IF NOT EXISTS modality VARCHAR(20)"
+                ))
+                db.session.execute(text(
+                    "ALTER TABLE procedure_duration_map ADD COLUMN IF NOT EXISTS clinical_rvu NUMERIC(10,2) DEFAULT 1.0"
+                ))
+                db.session.execute(text(
+                    "ALTER TABLE procedure_duration_map ADD COLUMN IF NOT EXISTS technical_rvu NUMERIC(10,2) DEFAULT 1.0"
+                ))
                 db.session.execute(text("""
-                    INSERT INTO permission_groups (name, description, permissions)
-                    VALUES (:name, :description, CAST(:permissions AS jsonb))
-                    ON CONFLICT (name) DO NOTHING
-                """), {
-                    "name": name,
-                    "description": description,
-                    "permissions": json.dumps(permissions),
-                })
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            logger.warning(f"[Migration] permission_groups: {e}")
+                    CREATE TABLE IF NOT EXISTS procedure_modality_conflicts (
+                        id              SERIAL PRIMARY KEY,
+                        procedure_code  VARCHAR UNIQUE,
+                        modalities      TEXT,
+                        sample_count    INTEGER,
+                        detected_at     TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+                db.session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS procedure_fuzzy_candidates (
+                        id              SERIAL PRIMARY KEY,
+                        procedure_code  VARCHAR UNIQUE,
+                        suggested_modality VARCHAR(20),
+                        match_score     NUMERIC(4,3),
+                        matched_via     VARCHAR(20),
+                        detected_at     TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+                db.session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS procedure_canonical_groups (
+                        id                 SERIAL PRIMARY KEY,
+                        canonical_name     VARCHAR(300),
+                        approved           BOOLEAN DEFAULT FALSE,
+                        approved_by        VARCHAR(100),
+                        approved_at        TIMESTAMP,
+                        detected_at        TIMESTAMP DEFAULT NOW(),
+                        source             VARCHAR(20) DEFAULT 'human',
+                        cluster_confidence NUMERIC(4,3)
+                    )
+                """))
+                db.session.execute(text(
+                    "ALTER TABLE procedure_canonical_groups "
+                    "ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'human'"
+                ))
+                db.session.execute(text(
+                    "ALTER TABLE procedure_canonical_groups "
+                    "ADD COLUMN IF NOT EXISTS cluster_confidence NUMERIC(4,3)"
+                ))
+                db.session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS procedure_canonical_members (
+                        procedure_code  VARCHAR PRIMARY KEY,
+                        group_id        INTEGER REFERENCES procedure_canonical_groups(id) ON DELETE CASCADE,
+                        similarity_score NUMERIC(4,3),
+                        member_approved BOOLEAN DEFAULT NULL,
+                        added_at        TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+                db.session.execute(text(
+                    "ALTER TABLE procedure_canonical_members "
+                    "ADD COLUMN IF NOT EXISTS member_approved BOOLEAN DEFAULT NULL"
+                ))
+                db.session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS procedure_duplicate_candidates (
+                        id              SERIAL PRIMARY KEY,
+                        code_a          VARCHAR,
+                        code_b          VARCHAR,
+                        code_similarity NUMERIC(4,3),
+                        desc_similarity NUMERIC(4,3),
+                        desc_a          TEXT,
+                        desc_b          TEXT,
+                        status          VARCHAR(10) DEFAULT 'pending',
+                        group_id        INTEGER REFERENCES procedure_canonical_groups(id) ON DELETE SET NULL,
+                        reviewed_at     TIMESTAMP,
+                        detected_at     TIMESTAMP DEFAULT NOW(),
+                        UNIQUE(code_a, code_b)
+                    )
+                """))
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.warning(f"[Migration] columns: {e}")
+
+        with app.app_context():
+            try:
+                db.session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS hl7_oru_reports (
+                        id               SERIAL PRIMARY KEY,
+                        procedure_code   VARCHAR(100),
+                        procedure_name   TEXT,
+                        modality         VARCHAR(20),
+                        physician_id     VARCHAR(100),
+                        patient_id       VARCHAR(100),
+                        accession_number VARCHAR(100),
+                        report_text      TEXT,
+                        impression_text  TEXT,
+                        result_datetime  TIMESTAMP,
+                        received_at      TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+                db.session.execute(text(
+                    "ALTER TABLE hl7_oru_reports ADD COLUMN IF NOT EXISTS patient_id VARCHAR(100)"
+                ))
+                db.session.execute(text(
+                    "ALTER TABLE hl7_oru_reports ADD COLUMN IF NOT EXISTS accession_number VARCHAR(100)"
+                ))
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.warning(f"[Migration] hl7_oru_reports: {e}")
+
+        with app.app_context():
+            try:
+                db.session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS ai_nlp_cache (
+                        id              SERIAL PRIMARY KEY,
+                        source_id       INTEGER NOT NULL REFERENCES hl7_oru_reports(id) ON DELETE CASCADE,
+                        classification  VARCHAR(20),
+                        keywords        JSONB,
+                        cluster_id      INTEGER,
+                        cluster_label   TEXT,
+                        severity_score  NUMERIC(3,1),
+                        processed_at    TIMESTAMP DEFAULT NOW(),
+                        UNIQUE (source_id)
+                    )
+                """))
+                db.session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_nlp_classification ON ai_nlp_cache (classification)"
+                ))
+                db.session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_nlp_cluster ON ai_nlp_cache (cluster_id)"
+                ))
+                db.session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_oru_received ON hl7_oru_reports (received_at DESC)"
+                ))
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.warning(f"[Migration] ai_nlp_cache: {e}")
+
+        # --- MIGRATION: hl7_scn_studies (real-time completed studies) ---
+        with app.app_context():
+            try:
+                db.session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS hl7_scn_studies (
+                        id               SERIAL PRIMARY KEY,
+                        accession_number VARCHAR(100),
+                        patient_id       VARCHAR(100),
+                        patient_name     TEXT,
+                        procedure_code   VARCHAR(100),
+                        procedure_text   TEXT,
+                        modality         VARCHAR(20),
+                        storing_ae       VARCHAR(100),
+                        patient_class    VARCHAR(50),
+                        study_datetime   TIMESTAMP,
+                        order_status     VARCHAR(20) DEFAULT 'CM',
+                        received_at      TIMESTAMP DEFAULT NOW(),
+                        UNIQUE (accession_number)
+                    )
+                """))
+                db.session.execute(text(
+                    "ALTER TABLE hl7_scn_studies ADD COLUMN IF NOT EXISTS patient_class VARCHAR(50)"
+                ))
+                db.session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_scn_study_dt ON hl7_scn_studies (study_datetime DESC)"
+                ))
+                db.session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_scn_modality ON hl7_scn_studies (modality)"
+                ))
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.warning(f"[Migration] hl7_scn_studies: {e}")
+
+        # --- MIGRATION: pacs_done_at on hl7_orders ---
+        with app.app_context():
+            try:
+                db.session.execute(text(
+                    "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS pacs_done_at TIMESTAMP"
+                ))
+                db.session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_hl7_orders_pacs_done_at ON hl7_orders (pacs_done_at)"
+                ))
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.warning(f"[Migration] hl7_orders.pacs_done_at: {e}")
+
+        # --- MIGRATION: patient_class + patient_location on hl7_orders ---
+        with app.app_context():
+            try:
+                db.session.execute(text(
+                    "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS patient_class VARCHAR(50)"
+                ))
+                db.session.execute(text(
+                    "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS patient_location VARCHAR(100)"
+                ))
+                db.session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_hl7_orders_patient_class ON hl7_orders (patient_class)"
+                ))
+                db.session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_hl7_orders_patient_location ON hl7_orders (patient_location)"
+                ))
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.warning(f"[Migration] hl7_orders.patient_class/location: {e}")
+
+        # (patient_portal_users migration removed — portal module absent at LAUMC)
+
+        # --- MIGRATION: encrypt db_params passwords ---
+        with app.app_context():
+            try:
+                from utils.crypto import encrypt, decrypt
+                from cryptography.fernet import InvalidToken
+                rows = db.session.execute(
+                    text("SELECT id, password FROM db_params WHERE password IS NOT NULL AND password != ''")
+                ).fetchall()
+                for row_id, pwd in rows:
+                    # Test if already encrypted by trying to decrypt
+                    try:
+                        from cryptography.fernet import Fernet
+                        import base64, hashlib
+                        secret = os.environ.get('SECRET_KEY', '')
+                        key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest())
+                        Fernet(key).decrypt(pwd.encode())
+                        # Already encrypted — skip
+                    except Exception:
+                        # Not encrypted — encrypt it now
+                        db.session.execute(
+                            text("UPDATE db_params SET password = :p WHERE id = :id"),
+                            {"p": encrypt(pwd), "id": row_id}
+                        )
+                        logger.info(f"[Migration] Encrypted password for db_params id={row_id}")
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.warning(f"[Migration] db_params encryption: {e}")
+
+        # --- MIGRATION: permission_groups + user columns ---
+        with app.app_context():
+            try:
+                db.session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS permission_groups (
+                        id          SERIAL PRIMARY KEY,
+                        name        VARCHAR(100) UNIQUE NOT NULL,
+                        description TEXT DEFAULT '',
+                        permissions JSONB NOT NULL DEFAULT '{}',
+                        created_at  TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+                db.session.execute(text(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES permission_groups(id) ON DELETE SET NULL"
+                ))
+                db.session.execute(text(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS permission_overrides JSONB DEFAULT '{}'"
+                ))
+                db.session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_users_group_id ON users (group_id)"
+                ))
+                # Seed default groups if missing.
+                # NOTE: the permissions JSON used to be embedded as a raw string literal
+                # ('{"can_export":true,...}') inside the text() SQL. SQLAlchemy's text()
+                # bind-param parser scans for ':identifier' anywhere in the string — including
+                # inside JSON values like ":true" / ":false" — and tried to treat them as bind
+                # parameters, failing every startup with "A value is required for bind
+                # parameter 'true'" (the seed never actually ran). Passing the JSON as a real
+                # bound parameter (CAST(:permissions AS jsonb)) avoids embedding a raw colon
+                # anywhere near ':' in the SQL text, so nothing looks like a bind param.
+                import json
+                groups = [
+                    ("Administrators", "Full system access", {
+                        "can_export": True, "can_configure": True, "can_manage_users": True,
+                        "can_view_finance": True, "can_use_ai": True, "can_view_etl": True,
+                        "can_view_reports": ["*"],
+                    }),
+                    ("Radiologists", "Reading physicians", {
+                        "can_export": True, "can_configure": False, "can_manage_users": False,
+                        "can_view_finance": False, "can_use_ai": True, "can_view_etl": False,
+                        "can_view_reports": ["*"],
+                    }),
+                    ("Technicians", "Imaging technicians", {
+                        "can_export": False, "can_configure": False, "can_manage_users": False,
+                        "can_view_finance": False, "can_use_ai": False, "can_view_etl": False,
+                        "can_view_reports": ["*"],
+                    }),
+                    ("Finance", "Finance team", {
+                        "can_export": True, "can_configure": False, "can_manage_users": False,
+                        "can_view_finance": True, "can_use_ai": False, "can_view_etl": False,
+                        "can_view_reports": ["*"],
+                    }),
+                ]
+                for name, description, permissions in groups:
+                    db.session.execute(text("""
+                        INSERT INTO permission_groups (name, description, permissions)
+                        VALUES (:name, :description, CAST(:permissions AS jsonb))
+                        ON CONFLICT (name) DO NOTHING
+                    """), {
+                        "name": name,
+                        "description": description,
+                        "permissions": json.dumps(permissions),
+                    })
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.warning(f"[Migration] permission_groups: {e}")
+
+    _startup_schema()
+
+    # --- SITE DATABASES (item 13a): SJH in its own database when POSTGRES_DB_SJH is set ---
+    from utils import site_db
+    for _site_id in site_db.init_app(app).values():
+        with site_db.use_site(_site_id):
+            _startup_schema()
+
 
     # --- STARTUP: AUTO-TRIGGER ETL IF DB IS EMPTY ---
     # Skipped entirely in manual CLI mode ('python app.py -m') — the explicit MANUAL

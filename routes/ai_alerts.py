@@ -13,6 +13,7 @@ from flask import Blueprint, jsonify
 from flask_login import login_required
 from sqlalchemy import text
 from db import db
+from utils.site_db import current_engine
 from utils.ae_display import ae_label_join_sql
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ ai_alerts_bp = Blueprint("ai_alerts", __name__)
 def alerts():
     findings = []
     try:
-        with db.engine.connect() as conn:
+        with current_engine().connect() as conn:
 
             # TAT spike: this week vs prior 4-week rolling average.
             # rep_final_timestamp (PACS) is sparse/unreliable on this install (operator,

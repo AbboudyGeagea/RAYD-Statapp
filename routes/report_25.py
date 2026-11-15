@@ -29,7 +29,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, get_report_start_date
 from routes.report_cache import cache_get, cache_put
-from utils.site_resolver import default_site
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 from utils.report_filters import (panel_filters, rh_device_sql, sidebar_filters as _sidebar_filters,
                                   picked, picked_sql)
 from utils.radiologist_resolve import rad_alias_join_sql, rad_display_sql
@@ -362,9 +362,10 @@ def get_gold_standard_data(form_data):
     # SITE_ID has a known mislabeling bug (SJH mammo shows as RH — see 0051's comment), so this
     # resolves site via the device instead: storing_ae -> aetitle_modality_map.site_id, which
     # IS populated (RIS-authoritative, via ORG_STRUCTURE_KEY -> site_org_map, Phase 10).
-    # default_site() = the sites row flagged is_default, which is RH. Resolves to None (filter
+    # served_site_id() = the site this database serves (RH; SJH in SJH's own database, item
+    # 13a). Resolves to None (filter
     # skipped, not applied) on a non-LAUMC/single-site install rather than zeroing every report.
-    rh_site_id = default_site()
+    rh_site_id = served_site_id()
     if rh_site_id is not None:
         params["rh_site_id"] = rh_site_id
         where_clauses.append(

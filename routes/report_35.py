@@ -63,7 +63,7 @@ from sqlalchemy import text
 
 from db import db, get_report_start_date
 from routes.report_cache import cache_get, cache_put, cache_invalidate
-from utils.site_resolver import default_site
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 from utils.report_filters import panel_filters, picked, picked_sql
 from utils import tat_sla
 
@@ -141,9 +141,9 @@ def get_technician_tat_data(form_data):
 
     # LAUMC site rule (see report_25.py's get_gold_standard_data for full rationale):
     # reports show RH (main site) only, SJH (satellite) excluded, for now.
-    # default_site() resolves to None (filter skipped) on a non-LAUMC/single-site
+    # served_site_id() resolves to None (filter skipped) on a non-LAUMC/single-site
     # install rather than zeroing every report.
-    rh_site_id = default_site()
+    rh_site_id = served_site_id()
     if rh_site_id is not None:
         params["rh_site_id"] = rh_site_id
 

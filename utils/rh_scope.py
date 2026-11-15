@@ -75,7 +75,11 @@ def install(engine):
     @event.listens_for(engine, 'begin')
     def _apply(conn):
         if _applies():
-            conn.exec_driver_sql("SET LOCAL search_path TO rh, public")
+            # Never through a server-side cursor: a streamed export (stream_results on the
+            # connection, kept inside its request since item 13a) would wrap the SET in
+            # DECLARE ... CURSOR, which Postgres refuses.
+            conn.exec_driver_sql("SET LOCAL search_path TO rh, public",
+                                 execution_options={'stream_results': False})
 
     logger.info("RH only: web requests read schema rh")
     return True

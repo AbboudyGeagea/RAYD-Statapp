@@ -592,7 +592,7 @@ PLACEHOLDER_KINDS = {
     'referring': ('Referring doctor', 'exams counted, referrer left blank'),
     'staff':     ('Service account', 'left out of staff lists'),
 }
-_RH_STUDY = "COALESCE(s.site_id = (SELECT id FROM public.sites WHERE is_default LIMIT 1), TRUE)"
+_RH_STUDY = "COALESCE(s.site_id = rayd_served_site_id(), TRUE)"   # the site this database serves
 _NAME_OF = "UPPER(CONCAT_WS(', ', BTRIM({0}last_name), BTRIM({0}first_name)))"
 
 

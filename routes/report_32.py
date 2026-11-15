@@ -53,7 +53,7 @@ from flask_login import login_required
 from sqlalchemy import text
 from db import db, get_report_start_date
 from routes.report_cache import cache_get, cache_put
-from utils.site_resolver import default_site
+from utils.site_db import served_site_id   # the site this database serves (item 13a)
 from utils.ae_display import ae_label_join_sql
 from utils import tat_sla
 
@@ -93,9 +93,9 @@ def get_report_config(form_data):
     # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main
     # site) only, SJH (satellite) excluded. Resolved via storing_ae ->
     # aetitle_modality_map.site_id (RIS-authoritative), same as
-    # get_gold_standard_data() in routes/report_25.py. default_site() resolves
+    # get_gold_standard_data() in routes/report_25.py. served_site_id() resolves
     # to None (filter skipped) on a non-LAUMC/single-site install.
-    rh_site_id = default_site()
+    rh_site_id = served_site_id()
     if rh_site_id is not None:
         params["rh_site_id"] = rh_site_id
         extra_where += (

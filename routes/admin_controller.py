@@ -10,6 +10,7 @@ from etl_settings import ETL_GEAR
 from utils.roles import (CAPABILITIES, PAGE_KEYS, PAGES, ROLE_HELP, ROLE_LABELS, ROLES, USER,
                          all_sites, assignable_roles, can, can_manage, current_site_id,
                          grantable_site_ids, granted_site_ids)
+from utils.site_db import database_site_ids, default_site_id, main_only, mirror_users, use_site
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -142,10 +143,11 @@ def manageable_users(actor):
     """The accounts actor may manage (utils.roles.can_manage), read in two queries."""
     if not can(actor, 'users'):
         return []
-    sites = _sites_by_user()
-    mine = granted_site_ids(actor)
-    return [u for u in User.query.order_by(User.username).all()
-            if can_manage(actor, u, sites.get(u.id, set()), mine)]
+    with use_site(default_site_id()):        # accounts live on the main database
+        sites = _sites_by_user()
+        mine = granted_site_ids(actor)
+        return [u for u in User.query.order_by(User.username).all()
+                if can_manage(actor, u, sites.get(u.id, set()), mine)]
 
 
 def _target(user_id):
@@ -205,6 +207,7 @@ def _end_sessions(user_id):
 
 @admin_bp.route('/users')
 @login_required
+@main_only
 def user_management():
     if not can(current_user, 'users'):
         return abort(403)
@@ -228,7 +231,8 @@ def user_management():
         sessions_by_user.setdefault(s.user_id, []).append(s)
 
     grantable = grantable_site_ids(current_user)
-    site_rows = [{'id': sid, 'code': code, 'name': name, 'serves': sid == current_site_id()}
+    served = database_site_ids()      # sites with a database RAYD can open now (item 13a)
+    site_rows = [{'id': sid, 'code': code, 'name': name, 'serves': sid in served}
                  for sid, code, name in all_sites() if sid in grantable]
 
     return render_template('user_management.html',
@@ -250,6 +254,7 @@ def user_management():
 
 @admin_bp.route('/users/create', methods=['POST'])
 @login_required
+@main_only
 def create_user():
     """An account made directly by an administrator: active at once, with a temporary
     password that must be changed at the first sign-in."""
@@ -294,11 +299,13 @@ def create_user():
             {'u': user.id, 's': sid, 'by': current_user.id})
     _admin_audit('created', user.id, {'role': role, 'sites': site_ids})
     db.session.commit()
+    mirror_users()          # the copy of users in each site database (item 13a)
     return jsonify({'status': 'ok', 'user_id': user.id})
 
 
 @admin_bp.route('/users/role', methods=['POST'])
 @login_required
+@main_only
 def update_user_role():
     if not can(current_user, 'users'):
         return abort(403)
@@ -318,11 +325,13 @@ def update_user_role():
         _end_sessions(user.id)
         db.session.commit()
 
+    mirror_users()          # the copy of users in each site database (item 13a)
     return jsonify({'status': 'ok'})
 
 
 @admin_bp.route('/users/sites', methods=['POST'])
 @login_required
+@main_only
 def update_user_site():
     """Grant or take away one site. Taking a site away keeps the account's ticks for it,
     unread, so granting it again brings them back."""
@@ -364,6 +373,7 @@ def _grant_site(data):
 
 @admin_bp.route('/users/permissions', methods=['POST'])
 @login_required
+@main_only
 def update_user_permissions():
     if not can(current_user, 'users'):
         return abort(403)
@@ -392,6 +402,7 @@ def update_user_permissions():
 
 @admin_bp.route('/users/reports', methods=['POST'])
 @login_required
+@main_only
 def update_user_report():
     if not can(current_user, 'users'):
         return abort(403)
@@ -422,6 +433,7 @@ def update_user_report():
 
 @admin_bp.route('/users/access-all', methods=['POST'])
 @login_required
+@main_only
 def update_user_access_all():
     """Tick or untick every page and report of one site for one account."""
     if not can(current_user, 'users'):
@@ -453,6 +465,7 @@ def update_user_access_all():
 
 @admin_bp.route('/users/approve', methods=['POST'])
 @login_required
+@main_only
 def approve_user():
     if not can(current_user, 'users'):
         return abort(403)
@@ -480,11 +493,13 @@ def approve_user():
             {'u': user.id, 's': sid, 'by': current_user.id})
     _admin_audit('approved', user.id, {'role': new_role, 'sites': site_ids})
     db.session.commit()
+    mirror_users()          # the copy of users in each site database (item 13a)
     return jsonify({'status': 'ok'})
 
 
 @admin_bp.route('/users/reject', methods=['POST'])
 @login_required
+@main_only
 def reject_user():
     if not can(current_user, 'users'):
         return abort(403)
@@ -497,11 +512,13 @@ def reject_user():
     UserPagePermission.query.filter_by(user_id=user.id).delete()
     db.session.delete(user)
     db.session.commit()
+    mirror_users()          # the copy of users in each site database (item 13a)
     return jsonify({'status': 'ok'})
 
 
 @admin_bp.route('/users/disable', methods=['POST'])
 @login_required
+@main_only
 def disable_user():
     if not can(current_user, 'users'):
         return abort(403)
@@ -514,11 +531,13 @@ def disable_user():
     _end_sessions(user.id)
     _admin_audit('disabled', user.id)
     db.session.commit()
+    mirror_users()          # the copy of users in each site database (item 13a)
     return jsonify({'status': 'ok'})
 
 
 @admin_bp.route('/users/enable', methods=['POST'])
 @login_required
+@main_only
 def enable_user():
     if not can(current_user, 'users'):
         return abort(403)
@@ -530,11 +549,13 @@ def enable_user():
     user.status = 'active'
     _admin_audit('enabled', user.id)
     db.session.commit()
+    mirror_users()          # the copy of users in each site database (item 13a)
     return jsonify({'status': 'ok'})
 
 
 @admin_bp.route('/users/force-reset', methods=['POST'])
 @login_required
+@main_only
 def force_password_reset():
     if not can(current_user, 'users'):
         return abort(403)
@@ -551,6 +572,7 @@ def force_password_reset():
 
 @admin_bp.route('/users/set-password', methods=['POST'])
 @login_required
+@main_only
 def set_user_password():
     if not can(current_user, 'users'):
         return abort(403)
@@ -575,6 +597,7 @@ def set_user_password():
 
 @admin_bp.route('/users/session/revoke', methods=['POST'])
 @login_required
+@main_only
 def revoke_session():
     if not can(current_user, 'users'):
         return abort(403)
@@ -591,6 +614,7 @@ def revoke_session():
 
 @admin_bp.route('/users/session/revoke-all', methods=['POST'])
 @login_required
+@main_only
 def revoke_all_sessions():
     if not can(current_user, 'users'):
         return abort(403)
@@ -607,6 +631,7 @@ def revoke_all_sessions():
 
 @admin_bp.route('/users/delete', methods=['POST'])
 @login_required
+@main_only
 def delete_user():
     if not can(current_user, 'users'):
         return abort(403)
@@ -621,11 +646,13 @@ def delete_user():
     ReportAccessControl.query.filter_by(user_id=user.id).delete()
     db.session.delete(user)
     db.session.commit()
+    mirror_users()          # the copy of users in each site database (item 13a)
     return jsonify({'status': 'ok'})
 
 
 @admin_bp.route('/audit')
 @login_required
+@main_only
 def audit_log():
     if not can(current_user, 'users'):
         return abort(403)
@@ -656,6 +683,7 @@ def audit_log():
 
 @admin_bp.route('/audit/export')
 @login_required
+@main_only
 def audit_log_export():
     import csv, io
     if not can(current_user, 'users'):
@@ -807,6 +835,7 @@ def set_report_start_date():
 
 @admin_bp.route('/demo-mode', methods=['POST'])
 @login_required
+@main_only
 def set_demo_mode():
     if not can(current_user, 'implementation'):
         return abort(403)
@@ -840,7 +869,7 @@ def set_demo_mode():
             )
             db.session.add(user)
             db.session.flush()
-            site_id = current_site_id()
+            site_id = default_site_id()
             db.session.execute(text(
                 "INSERT INTO user_sites (user_id, site_id) VALUES (:u, :s) ON CONFLICT DO NOTHING"),
                 {'u': user.id, 's': site_id})

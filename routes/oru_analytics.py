@@ -181,11 +181,14 @@ def _any_unnegated(t, keyword):
 # itself (not a manually-bumped constant), so hl7_oru_rule_cache rows are
 # automatically treated as stale whenever the vocabulary changes.
 
-_diag_cache = {'rows': None, 'benign': None, 'automaton': None, 'version': None, 'loaded_at': 0}
+_diag_caches = {}   # site -> cache: each site database has its own vocabulary (item 13a)
 _DIAG_TTL = 300  # seconds
 
 def _get_diagnoses():
     """Returns (diagnoses, benign_labels, automaton, rule_version)."""
+    from utils.site_db import current_site_id
+    _diag_cache = _diag_caches.setdefault(current_site_id(), {
+        'rows': None, 'benign': None, 'automaton': None, 'version': None, 'loaded_at': 0})
     now = time.time()
     if _diag_cache['rows'] is None or now - _diag_cache['loaded_at'] > _DIAG_TTL:
         try:
@@ -212,7 +215,8 @@ def _get_diagnoses():
 
 
 def _invalidate_diagnoses_cache():
-    _diag_cache['loaded_at'] = 0
+    for cache in _diag_caches.values():
+        cache['loaded_at'] = 0
 
 
 def _affirmed_phrases_rule_based(t, automaton):

@@ -54,39 +54,43 @@ def run_migrations(app):
         # for the first to finish, not skip — once it acquires the lock, it re-checks
         # schema_migrations and finds nothing pending (the first caller already did
         # it), so it's a fast no-op rather than a race.
-        lock_conn = db.engine.connect()
-        lock_conn.execute(text("SELECT pg_advisory_lock(:id)"), {"id": _MIGRATION_LOCK_ID})
-        logger.info("[migrations] Acquired migration lock.")
-        try:
-            _run_pending_migrations(db)
-        finally:
-            lock_conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": _MIGRATION_LOCK_ID})
-            lock_conn.close()
+        run_migrations_on(db.engine)
 
 
-def _run_pending_migrations(db):
-    # Ensure tracking table exists
-    db.session.execute(text("""
-        CREATE TABLE IF NOT EXISTS schema_migrations (
-            name        VARCHAR(255) PRIMARY KEY,
-            applied_at  TIMESTAMP DEFAULT NOW()
-        )
-    """))
-    db.session.commit()
+def run_migrations_on(engine):
+    """Run every pending migration on the database behind engine: the main database, or
+    a site's own database (utils/site_db.py, item 13a: each site database carries the same
+    schema). The advisory lock is per database."""
+    lock_conn = engine.connect()
+    lock_conn.execute(text("SELECT pg_advisory_lock(:id)"), {"id": _MIGRATION_LOCK_ID})
+    logger.info(f"[migrations] Acquired migration lock ({engine.url.database}).")
+    try:
+        _run_pending_migrations(engine)
+    finally:
+        lock_conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": _MIGRATION_LOCK_ID})
+        lock_conn.close()
 
-    for old, new in _RENAMED_MIGRATIONS:
-        db.session.execute(text("""
-            UPDATE schema_migrations SET name = :new
-             WHERE name LIKE :old
-               AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE name = :new)
-        """), {"old": old, "new": new})
-    db.session.commit()
 
-    # Get already-applied migrations
-    applied = {
-        row[0]
-        for row in db.session.execute(text("SELECT name FROM schema_migrations")).fetchall()
-    }
+def _run_pending_migrations(engine):
+    with engine.begin() as conn:
+        # Ensure tracking table exists
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                name        VARCHAR(255) PRIMARY KEY,
+                applied_at  TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        for old, new in _RENAMED_MIGRATIONS:
+            conn.execute(text("""
+                UPDATE schema_migrations SET name = :new
+                 WHERE name LIKE :old
+                   AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE name = :new)
+            """), {"old": old, "new": new})
+        # Get already-applied migrations
+        applied = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM schema_migrations")).fetchall()
+        }
 
     # Find and sort pending migration files
     try:
@@ -108,9 +112,9 @@ def _run_pending_migrations(db):
                 raw = f.read()
 
             statements = _split_sql(raw)
-            _run_statements(db, statements)
+            _run_statements(engine, statements)
 
-            with db.engine.connect() as conn:
+            with engine.connect() as conn:
                 conn.execute(
                     text("INSERT INTO schema_migrations (name) VALUES (:name)"),
                     {"name": filename}
@@ -122,22 +126,22 @@ def _run_pending_migrations(db):
         except Exception as e:
             logger.error(f"[migrations] FAILED: {filename} — {e}")
 
-    _refresh_rh_views(db)
+    _refresh_rh_views(engine)
 
 
-def _refresh_rh_views(db):
+def _refresh_rh_views(engine):
     """A view lists its table's columns as they were when it was made, so the RH-only views
     (migration 0145) have to pick up any column a migration just added. A failure is logged, not
     raised: the old views still filter, and the app should still start."""
     try:
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             if conn.execute(text("SELECT to_regproc('rh_refresh_views') IS NOT NULL")).scalar():
                 conn.execute(text("SELECT rh_refresh_views()"))
     except Exception as e:
         logger.error(f"[migrations] RH-only views not refreshed: {e}")
 
 
-def _run_statements(db, statements):
+def _run_statements(engine, statements):
     """
     Execute a migration's statements on a RAW DBAPI connection (psycopg2), not through
     SQLAlchemy's Connection.exec_driver_sql().
@@ -183,12 +187,12 @@ def _run_statements(db, statements):
     at least once, so it silently never triggered on an install with zero matching
     rows — same bug, just untriggered there.
     """
-    main_conn = db.engine.raw_connection()
+    main_conn = engine.raw_connection()
     try:
         cur = main_conn.cursor()
         for statement in statements:
             if _needs_autocommit(statement):
-                with db.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as ac_conn:
+                with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as ac_conn:
                     ac_conn.connection.cursor().execute(statement)
             else:
                 cur.execute(statement)
