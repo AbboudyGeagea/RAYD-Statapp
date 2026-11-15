@@ -43,19 +43,23 @@ def _load_map(app=None):
     from sqlalchemy import text
     try:
         from db import db
-        rows = db.session.execute(text("""
-            SELECT id, pacs_site_id, ris_issuer, hl7_building, is_default
-            FROM sites
-            WHERE active
-        """)).fetchall()
-        # org -> site is MANY-to-one (RIS sub-departments: 3926/5521/5120 -> RH, 5320 -> SJH),
-        # held in site_org_map (migration 0052), seeded from the RIS ORG_STRUCTURE hierarchy.
-        org_rows = db.session.execute(text(
-            "SELECT org_structure_key, site_id FROM site_org_map"
-        )).fetchall()
+        # The main database, on a connection of its own, never through the session: the
+        # session routes each statement by site (utils/site_db.py), and finding the site
+        # needs this map, so reading the map through it recursed (item 13a).
+        with db.engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT id, pacs_site_id, ris_issuer, hl7_building, is_default
+                FROM public.sites
+                WHERE active
+            """)).fetchall()
+            # org -> site is MANY-to-one (RIS sub-departments: 3926/5521/5120 -> RH, 5320 -> SJH),
+            # held in site_org_map (migration 0052), seeded from the RIS ORG_STRUCTURE hierarchy.
+            org_rows = conn.execute(text(
+                "SELECT org_structure_key, site_id FROM public.site_org_map"
+            )).fetchall()
     except Exception as e:
         logger.error(f"site map load failed: {e}")
-        return {"pacs": {}, "issuer": {}, "org": {}, "building": {}, "default": None}
+        return None
 
     m = {"pacs": {}, "issuer": {}, "org": {}, "building": {}, "default": None}
     for sid, pacs, issuer, bldg, is_default in rows:
@@ -68,12 +72,20 @@ def _load_map(app=None):
     return m
 
 
+_EMPTY = {"pacs": {}, "issuer": {}, "org": {}, "building": {}, "default": None}
+
+
 def _get_map(app=None, force=False):
+    """The map, reloaded every 5 minutes. A load that fails is not kept: the previous map
+    stays in use (or the empty one, with no default site, until a load succeeds), and the
+    next call tries again, instead of a passing failure holding for 5 minutes."""
     global _cache, _cache_loaded_at
     if force or _cache is None or (time.time() - _cache_loaded_at) > _CACHE_TTL:
-        _cache = _load_map(app)
-        _cache_loaded_at = time.time()
-    return _cache
+        loaded = _load_map(app)
+        if loaded is not None:
+            _cache = loaded
+            _cache_loaded_at = time.time()
+    return _cache if _cache is not None else _EMPTY
 
 
 def invalidate_cache():

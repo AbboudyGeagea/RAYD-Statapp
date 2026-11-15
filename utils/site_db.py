@@ -211,8 +211,25 @@ def route(default_engine, mapper=None, clause=None):
         return default_engine
     if mapper is not None and _table_name(mapper) in MAIN_TABLES | set(SHARED_TABLES):
         return default_engine
-    site = current_site_id()
-    return _engines.get(site, default_engine)
+    site = _routing_site()
+    return _engines.get(site, default_engine) if site is not None else default_engine
+
+
+def _routing_site():
+    """The site whose database a statement goes to, or None for the main database. Outside
+    a request and outside use_site() it is the main database without asking anything, and a
+    statement made while the request's site is being worked out goes there too, so routing
+    never needs the database to decide where to go."""
+    forced = _forced.get()
+    if forced is not None:
+        return forced
+    from flask import has_request_context, request
+    if not has_request_context():
+        return None
+    got = request.environ.get(_ENV_KEY)
+    if got is _RESOLVING:
+        return None
+    return got if got is not None else current_site_id()
 
 
 def _table_name(mapper):

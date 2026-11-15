@@ -328,6 +328,11 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
 
 ## Dev Workflow
 
+Local stack on a laptop (two databases, the PACS pointed at `oracle-disabled.invalid`, test
+runner, sample data from production): `scripts/local_stack.md`. Compose project
+`rayd-laumc`, files `docker-compose.yml` + `docker-compose.local.yml`. How much SJH data RH's
+database holds: `scripts/sql/sjh_census.sql` (read-only).
+
 ```bash
 # Start stack with DB port exposed (needed for MCP postgres server)
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d

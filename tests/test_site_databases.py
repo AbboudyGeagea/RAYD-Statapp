@@ -451,6 +451,31 @@ def test_procedure_codes_read_through_the_model_come_from_the_main_database(app,
 
 # ── outside a request ─────────────────────────────────────────────────────────
 
+def test_the_site_map_loads_with_a_site_database_present(app, ids, caplog):
+    """Found starting the real stack: the site map was read through the routed session,
+    whose routing asks for the default site, which reads the site map: it recursed about a
+    thousand levels deep ("maximum recursion depth exceeded"), each reload of the map."""
+    import logging
+    from utils import site_resolver
+    caplog.set_level(logging.ERROR, logger='SITE_RESOLVER')
+    site_resolver.invalidate_cache()
+    with app.app_context():
+        assert site_resolver.default_site() == ids['RH']
+    site_resolver.invalidate_cache()
+    with app.test_request_context('/'):
+        assert site_resolver.default_site() == ids['RH']
+    assert not [r for r in caplog.records if 'site map load failed' in r.getMessage()]
+
+
+def test_a_failed_site_map_load_is_not_kept(app, ids):
+    """Outside an app context the map cannot load; that must not stick for 5 minutes."""
+    from utils import site_resolver
+    site_resolver.invalidate_cache()
+    assert site_resolver.default_site() is None               # no app context: nothing to read
+    with app.app_context():
+        assert site_resolver.default_site() == ids['RH']       # the next call loads it
+
+
 def test_background_work_reads_the_main_database_unless_told(app, ids, sjh):
     from db import db
     from utils import site_db
@@ -480,7 +505,7 @@ def test_without_a_site_database_everything_reads_the_main_one(app, ids, monkeyp
         with site_db.use_site(ids['SJH']):
             assert db.session.execute(text("SELECT rayd_served_site_id()")).scalar() == ids['RH']
         db.session.rollback()
-    assert site_db.database_site_ids() == {ids['RH']}
+        assert site_db.database_site_ids() == {ids['RH']}
 
 
 def _rh_id(app):

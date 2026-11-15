@@ -1,0 +1,23 @@
+# Local LAUMC stack on a developer laptop: docker-compose.yml plus this file.
+#
+#   docker compose -p rayd-laumc -f docker-compose.yml -f docker-compose.local.yml up -d --build
+#
+# What it changes for a laptop:
+#   - Postgres reachable on 127.0.0.1:5432 (psql, the rayd-postgres MCP server, the
+#     sample-data import in scripts/sample_data/), never on other interfaces;
+#   - containers restart unless stopped, instead of always.
+# Two databases, as LAUMC will run (item 13a): etl_db (RH, logins) and etl_db_sjh, which the
+# app creates at startup when .env sets POSTGRES_DB_SJH=etl_db_sjh.
+# Before the first start of an empty database, point the PACS connection at nothing, so the
+# app's start-up ETL can never reach the hospital PACS from a laptop (scripts/local_stack.md).
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+  rayd-app:
+    restart: unless-stopped
+  rayd-nlp:
+    restart: unless-stopped
+  nginx:
+    restart: unless-stopped

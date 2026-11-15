@@ -1,0 +1,4 @@
+# Shell scripts run inside Linux containers and on the server: always LF, also on a
+# Windows checkout (core.autocrlf=true gave entrypoint.sh CRLF, and the container could
+# not exec it: "no such file or directory").
+*.sh text eol=lf
