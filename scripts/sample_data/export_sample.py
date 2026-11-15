@@ -42,18 +42,41 @@ from datetime import date, datetime, timedelta
 import psycopg2
 
 # ── what is taken ─────────────────────────────────────────────────────────────
+#
+# The keys of the period are worked out once, each with a plain query, and every table is
+# then filtered with "= ANY(those keys)". The first version nested the selections inside
+# each other with IN (...) OR ...; Postgres cannot turn an IN under an OR into a join, and
+# on production (507k ORU reports) it re-ran the inner query for every row: the export
+# never got past hl7_oru_reports (2026-11-15).
 
-S = "SELECT study_db_uid FROM etl_didb_studies WHERE study_date BETWEEN %(f)s AND %(t)s"
-P = "SELECT patient_db_uid FROM etl_didb_studies WHERE study_date BETWEEN %(f)s AND %(t)s"
-O = (f"SELECT order_dbid FROM etl_orders WHERE (scheduled_datetime >= %(f)s "
-     f"AND scheduled_datetime < %(t1)s) OR study_db_uid IN ({S})")
-ACC = (f"SELECT accession_number FROM etl_didb_studies WHERE study_date BETWEEN %(f)s AND %(t)s "
-       f"AND accession_number IS NOT NULL UNION "
-       f"SELECT accession_number FROM etl_orders WHERE order_dbid IN ({O}) AND accession_number IS NOT NULL")
-RISPAT = f"SELECT patient_dbid FROM etl_orders WHERE order_dbid IN ({O})"
-PPS = f"SELECT pps_key FROM std_pps WHERE study_db_uid IN ({S}) OR (created_date >= %(f)s AND created_date < %(t1)s)"
-ORU = (f"SELECT id FROM hl7_oru_reports WHERE accession_number IN ({ACC}) "
-       f"OR (result_datetime >= %(f)s AND result_datetime < %(t1)s)")
+# (name, Postgres array type, query): later queries use earlier keys
+KEYS = [
+    ('studies', 'bigint[]',
+     "SELECT study_db_uid FROM etl_didb_studies WHERE study_date BETWEEN %(f)s AND %(t)s"),
+    ('patients', 'bigint[]',
+     "SELECT DISTINCT patient_db_uid FROM etl_didb_studies "
+     "WHERE study_db_uid = ANY(%(studies)s::bigint[]) AND patient_db_uid IS NOT NULL"),
+    ('orders', 'bigint[]',
+     "SELECT order_dbid FROM etl_orders WHERE scheduled_datetime >= %(f)s AND scheduled_datetime < %(t1)s "
+     "UNION SELECT order_dbid FROM etl_orders WHERE study_db_uid = ANY(%(studies)s::bigint[])"),
+    ('accessions', 'text[]',
+     "SELECT accession_number FROM etl_didb_studies "
+     "WHERE study_db_uid = ANY(%(studies)s::bigint[]) AND accession_number IS NOT NULL "
+     "UNION SELECT accession_number FROM etl_orders "
+     "WHERE order_dbid = ANY(%(orders)s::bigint[]) AND accession_number IS NOT NULL"),
+    ('ris_patients', 'text[]',
+     "SELECT DISTINCT patient_dbid::text FROM etl_orders "
+     "WHERE order_dbid = ANY(%(orders)s::bigint[]) AND patient_dbid IS NOT NULL"),
+    ('visits', 'text[]',
+     "SELECT DISTINCT visit_dbid::text FROM etl_orders "
+     "WHERE order_dbid = ANY(%(orders)s::bigint[]) AND visit_dbid IS NOT NULL"),
+    ('pps', 'text[]',
+     "SELECT pps_key::text FROM std_pps WHERE study_db_uid = ANY(%(studies)s::bigint[]) "
+     "UNION SELECT pps_key::text FROM std_pps WHERE created_date >= %(f)s AND created_date < %(t1)s"),
+    ('oru', 'bigint[]',
+     "SELECT id FROM hl7_oru_reports WHERE accession_number = ANY(%(accessions)s::text[]) "
+     "UNION SELECT id FROM hl7_oru_reports WHERE result_datetime >= %(f)s AND result_datetime < %(t1)s"),
+]
 
 # (table, WHERE or None for the whole table), in the order the import loads them
 PLAN = [
@@ -72,33 +95,36 @@ PLAN = [
     ('worklist_status_map', None), ('financial_config', None), ('oru_diagnosis_vocabulary', None),
     ('settings', "NOT (key ~* '(password|secret|token|licen[cs]e|oauth|smtp_|worklist_db_|api_key|served_site)')"),
     # PACS
-    ('etl_patient_view', f"patient_db_uid IN ({P})"),
-    ('etl_didb_studies', "study_date BETWEEN %(f)s AND %(t)s"),
-    ('etl_didb_serieses', f"study_db_uid IN ({S})"),
+    ('etl_patient_view', "patient_db_uid = ANY(%(patients)s::bigint[])"),
+    ('etl_didb_studies', "study_db_uid = ANY(%(studies)s::bigint[])"),
+    ('etl_didb_serieses', "study_db_uid = ANY(%(studies)s::bigint[])"),
     ('summary_storage_daily', "study_date BETWEEN %(f)s AND %(t)s"),
-    ('fact_exam', f"study_db_uid IN ({S})"),
-    ('etl_sticky_notes', f"study_db_uid IN ({S})"),
-    ('study_access_history', f"study_db_uid IN ({S})"),
+    ('fact_exam', "study_db_uid = ANY(%(studies)s::bigint[])"),
+    ('etl_sticky_notes', "study_db_uid = ANY(%(studies)s::bigint[])"),
+    ('study_access_history', "study_db_uid = ANY(%(studies)s::bigint[])"),
     # RIS
-    ('std_patients_ris', f"patient_person_key::text IN ({RISPAT})"),
-    ('std_patient_ids', f"patient_person_key::text IN ({RISPAT})"),
-    ('std_visits', f"visit_key::text IN (SELECT visit_dbid::text FROM etl_orders WHERE order_dbid IN ({O}))"),
-    ('etl_orders', f"order_dbid IN ({O})"),
-    ('std_worklist_scheduled', f"site_worklist_key IN ({O})"),
-    ('std_worklist_arrivals', f"site_worklist_key IN ({O})"),
-    ('std_worklist_exam_done', f"site_worklist_key IN ({O})"),
-    ('std_worklist_cancellations', f"site_worklist_key IN ({O})"),
-    ('worklist_status_history', f"site_worklist_key IN ({O})"),
-    ('std_pps', f"pps_key IN ({PPS})"),
-    ('std_pps_person_reference', f"pps_key IN ({PPS})"),
-    ('std_reports', f"reported_acc_number IN ({ACC})"),
+    ('std_patients_ris', "patient_person_key::text = ANY(%(ris_patients)s::text[])"),
+    ('std_patient_ids', "patient_person_key::text = ANY(%(ris_patients)s::text[])"),
+    ('std_visits', "visit_key::text = ANY(%(visits)s::text[])"),
+    ('etl_orders', "order_dbid = ANY(%(orders)s::bigint[])"),
+    ('std_worklist_scheduled', "site_worklist_key = ANY(%(orders)s::bigint[])"),
+    ('std_worklist_arrivals', "site_worklist_key = ANY(%(orders)s::bigint[])"),
+    ('std_worklist_exam_done', "site_worklist_key = ANY(%(orders)s::bigint[])"),
+    ('std_worklist_cancellations', "site_worklist_key = ANY(%(orders)s::bigint[])"),
+    ('worklist_status_history', "site_worklist_key = ANY(%(orders)s::bigint[])"),
+    ('std_pps', "pps_key::text = ANY(%(pps)s::text[])"),
+    ('std_pps_person_reference', "pps_key::text = ANY(%(pps)s::text[])"),
+    ('std_reports', "reported_acc_number = ANY(%(accessions)s::text[])"),
     # ORU
-    ('hl7_oru_reports', f"id IN ({ORU})"),
-    ('hl7_oru_analysis', f"report_id IN ({ORU})"),
-    ('ai_nlp_cache', f"source_id IN ({ORU})"),
+    ('hl7_oru_reports', "id = ANY(%(oru)s::bigint[])"),
+    ('hl7_oru_analysis', "report_id = ANY(%(oru)s::bigint[])"),
+    ('ai_nlp_cache', "source_id = ANY(%(oru)s::bigint[])"),
     # ETL history (Report 37's monthly workbook waits on it)
     ('etl_job_log', "start_time >= %(f)s AND start_time < %(t1)s"),
 ]
+
+# A query that runs longer than this stops the export with a clear error instead of hanging.
+STATEMENT_TIMEOUT = '20min'
 
 # Never exported, whatever the options: names, contact details, raw HL7.
 ALWAYS_NULL = {'patient_name', 'raw_message', 'mobile_phone_number', 'pager_number', 'primary_email_address',
@@ -158,9 +184,22 @@ def main():
                 'exported_at': datetime.now().isoformat(timespec='seconds'), 'tables': []}
     try:
         with conn.cursor() as cur:
+            cur.execute(f"SET statement_timeout = '{STATEMENT_TIMEOUT}'")
             cur.execute("SELECT current_database(), "
                         "(SELECT MAX(name) FROM schema_migrations WHERE name ~ '^[0-9]{4}_')")
             manifest['database'], manifest['last_migration'] = cur.fetchone()
+            print(f"Keys of {f} to {t}:", flush=True)
+            for name, _kind, sql in KEYS:
+                cur.execute("SAVEPOINT k")
+                try:
+                    cur.execute(sql, params)
+                    params[name] = [r[0] for r in cur.fetchall()]
+                    cur.execute("RELEASE SAVEPOINT k")
+                except psycopg2.errors.UndefinedTable:
+                    cur.execute("ROLLBACK TO SAVEPOINT k")
+                    params[name] = []
+                print(f"  {name:34s} {len(params[name]):>9,}", flush=True)
+            print("Tables:", flush=True)
             for table, where in PLAN:
                 cur.execute("""SELECT column_name FROM information_schema.columns
                                WHERE table_schema = 'public' AND table_name = %s ORDER BY ordinal_position""",
@@ -169,6 +208,7 @@ def main():
                 if not cols:
                     print(f"  {table:34s} not on this server, skipped")
                     continue
+                print(f"  {table:34s} ...", end='\r', flush=True)
                 select = ', '.join(expression(table, c, args.pseudo, '%(salt)s') for c in cols)
                 sql = f"SELECT {select} FROM public.{table}" + (f" WHERE {where}" if where else "")
                 inner = cur.mogrify(sql, params).decode()
@@ -179,7 +219,7 @@ def main():
                     fh.write(data)
                 rows = sum(1 for _ in csv.reader(io.StringIO(data))) - 1 if data else 0
                 manifest['tables'].append({'table': table, 'rows': rows, 'columns': cols})
-                print(f"  {table:34s} {rows:>9,} rows")
+                print(f"  {table:34s} {rows:>9,} rows", flush=True)
         conn.rollback()
     finally:
         conn.close()

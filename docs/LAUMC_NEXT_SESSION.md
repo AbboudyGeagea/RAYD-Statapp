@@ -62,20 +62,14 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
      OR referring_physician_last_name ILIKE '%referring%'
   GROUP BY 1, 2 ORDER BY 3 DESC;
   ```
-- **Monday too, items 26 and 27, on RAYD Postgres (read-only):** the SJH census, and whether
-  patient names sit in Postgres. Send the output back.
-  ```bash
-  docker exec -i rayd_db psql -U etl_user -d etl_db -P pager=off -f - < scripts/sql/sjh_census.sql
-  ```
+- **Monday too, item 27 (read-only):** the one table outside HL7 with a patient name column
+  (the HL7 tables may hold names, operator 2026-11-15).
   ```sql
-  SELECT 'hl7_orders' AS tbl, COUNT(*) FILTER (WHERE NULLIF(BTRIM(patient_name), '') IS NOT NULL) AS with_name,
-         COUNT(*) FILTER (WHERE raw_message IS NOT NULL) AS with_raw_hl7, COUNT(*) AS total FROM hl7_orders
-  UNION ALL SELECT 'hl7_scn_studies', COUNT(*) FILTER (WHERE NULLIF(BTRIM(patient_name), '') IS NOT NULL), 0, COUNT(*) FROM hl7_scn_studies
-  UNION ALL SELECT 'hl7_patients', COUNT(*) FILTER (WHERE NULLIF(BTRIM(patient_name), '') IS NOT NULL), 0, COUNT(*) FROM hl7_patients
-  UNION ALL SELECT 'cd_print_log', COUNT(*) FILTER (WHERE NULLIF(BTRIM(patient_name), '') IS NOT NULL), 0, COUNT(*) FROM cd_print_log
-  UNION ALL SELECT 'hl7_message_archive', 0, COUNT(*), COUNT(*) FROM hl7_message_archive;
+  SELECT COUNT(*) FILTER (WHERE NULLIF(BTRIM(patient_name), '') IS NOT NULL) AS with_name, COUNT(*) AS total
+  FROM cd_print_log;
   ```
-  Optional, for the laptop (item 28): a pseudonymised sample, read-only on the server.
+  Optional, for the laptop (item 28): a pseudonymised sample, read-only on the server (the
+  first version hung on `hl7_oru_reports`; fixed 2026-11-15, copy the script in again).
   ```bash
   docker cp scripts/sample_data/export_sample.py rayd_service:/tmp/
   docker exec rayd_service python /tmp/export_sample.py --from 2026-10-01 --to 2026-10-14
@@ -100,7 +94,7 @@ only at weekends, which can add calendar time.
 | 3 | Report 22 AE filter + stress test of all filters — **done** | Medium | 0.5 | 3–4 | 0.5 | 4–5 | — |
 | 4 | RIS room names everywhere — **built** | Medium | 0.5 | 3–4 | 0.5–1 | 4–5.5 | RIS data fixed after the Monday queries |
 | 5 | ORU severity on a standard | Medium | 1–2 | 2–3 | 1–2 | 4–7 | chief radiologist |
-| 6 | Report 27 hourly load, scheduled vs started — **built** | Low | 0.25 | 0.5–1 | 0.25 | 1–1.5 | — |
+| 6 | Report 27 hourly load, scheduled vs started — **built**, but "started" is empty on production | Low | 0.25 | 0.5–1 | 0.25 | 1–1.5 | which RIS time counts as started |
 | 7 | Report 27 status mix check | Low–Medium | 0.5 | 0–2 | 0.5 | 1–3 | Tuesday session |
 | 8 | Super Report residents by wet read (PACS) | Medium–High | 1–1.5 | 2–2.5 | 0.5–1 | 3.5–5 | PACS timestamp check |
 | 9 | Staff who left, hidden from KPIs | Medium | 1 | 2.5–3 | 0.5 | 4–4.5 | Tuesday session; manager’s list |
@@ -133,8 +127,8 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) — **done** | Low | 0.5–1 | — |
 | 24 | Deploy the 2026-11-14 and 2026-11-15 work (migrations 0148–0153) | Low | 0.5 | item 4's Monday check |
 | 25 | ER dashboard onto the one report UI (Report 38) — **done** | Low | 1–1.5 | — |
-| 26 | SJH census of RH's Postgres — **built** (to run on the server) | Low | 0.25 | Monday run |
-| 27 | Patient names in Postgres (HL7 tables, BRAYN archive) | Low–Medium | 0.5–1.5 | Monday check |
+| 26 | SJH census of RH's Postgres — **done** (run 2026-11-15) | Low | 0.25 | — |
+| 27 | Patient names outside the HL7 tables (`cd_print_log`) | Low | 0.25 | Monday check |
 | 28 | Local LAUMC stack and sample data from production — **done** | Low | — | optional export run |
 
 Item 25 is the ER dashboard only (operator, 2026-11-14): the ORU tab stays a standalone page,
@@ -151,7 +145,7 @@ are listed under "Waits on" above. Those waits hold whatever the class is.
 | **Local, no server** | 3 Report 22 AE filter + stress test; 6 hourly load; 11 report start date; 12 chart explanations; shared filter panel; placeholders via BRAYN | yes |
 | **Local, no server** (blocked) | 1 HIS vs RIS (Mirth ORMs, RIS column for ORC-2); 2 first open (audit table, Monday); 5 ORU severity (chief radiologist); 8 wet read (PACS Oracle check first); ORU final-only (`FAP`); urgent emergent in HL7 (a question, no code); patient schedule lead time | no |
 | **Local build, server to validate** | 4 RIS room names (Monday queries, one on RAYD Postgres); 14 radiologist TAT (compared with Oracle on production) | build yes |
-| **Needs the server** | 7 status mix check (RAYD vs Oracle at one cut-off); 9 staff who left (export of names, PACS user columns); 10 modality "PACS" samples; 13 SJH database (the build is local, the move, counts and delete run on production); R2I and BRAYN switch-on checks; CRN go-live; 26 SJH census run; 27 patient-name check | no |
+| **Needs the server** | 7 status mix check (RAYD vs Oracle at one cut-off); 9 staff who left (export of names, PACS user columns); 10 modality "PACS" samples; 13 SJH database (the build is local, the move, counts and delete run on production); R2I and BRAYN switch-on checks; CRN go-live; 27 patient-name check | no |
 
 Order for work without the server: 3, then 4 (build), 6, 11, 12, shared filter panel.
 
@@ -265,6 +259,10 @@ read; radiologists approve or finalise (check both).
    **Built 2026-11-14** (`tests/test_report_27_hourly.py`), not deployed. Check on the server
    that `worklist_status_history` holds `in_progress` rows, or the red line stays at 0. The
    "Busiest Day & Time" grid still counts scheduled orders.
+   **Checked 2026-11-15 (census): `worklist_status_history` is empty on production** (0 rows:
+   it is filled from HL7 orders, and none arrive). So the red line would be 0. To fix before
+   deploy: take "started" from the RIS instead, most likely `std_pps.start_datetime` (the
+   performed step's start, 610,525 rows), to confirm with the operator.
 7. **Report 27 Order Status Mix:** double-check session on both ends (Oracle and RAYD) on
    Tuesday 2026-11-17, mainly the scheduled status. Compare at the same cut-off time (RAYD
    copies nightly, Oracle is live). Last tied out 2026-09-18, see
@@ -518,15 +516,36 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     and the steps, status history and reports hanging off them, PPS, ORU reports and their
     NLP rows, devices per site, and every table with a `site_id` column. SJH rows are
     recognised the way the RH-only views hide them, so the counts are what 13b will move.
-    Checked on a migrated LAUMC database. **To do:** run it on the server (Monday section).
-27. **Patient names in Postgres.** The operator's rule is no patient names in Postgres, ever
-    (gotchas below), but four tables have a `patient_name` column (`hl7_orders`,
+    Checked on a migrated LAUMC database.
+    **Run on production 2026-11-15.** RH's Postgres holds about a third of everything for SJH:
+
+    | Data | SJH | Total | Note |
+    |---|---|---|---|
+    | PACS studies | 182,207 | 561,342 | 2021-04-13 to today (not 2019: SJH starts April 2021); 9,221 studies have no site |
+    | series | 975,840 | 2,614,739 | images not counted (heavy) |
+    | patients | 50,781 SJH only; 7,085 at both sites | 157,630 | the 7,085 are needed in both databases |
+    | RIS orders | 294,907 | 917,496 | by SJH's issuer; `etl_orders.site_id` is never filled |
+    | RIS steps | scheduled 272,114, arrivals 223,554, exam done 202,699, cancellations 17,826 | | |
+    | RIS reports | 335,642 | 1,062,880 | `std_reports.site_id` never filled |
+    | PPS | 198,961 | 610,525 | |
+    | ORU reports, NLP rows | 160,228 each | 507,344 | its own `site_id` says 155,479; 20,706 have no site |
+    | devices | 12 (1 gateway) | 90 | 73 RH, 5 no site |
+    | RIS staff | 169 | 1,575 | 216 RH, 1,190 no site |
+
+    Per year: 5,523 (2021), 21,510, 32,445, 39,664, 42,689, 40,376 (2026 so far). The PACS
+    label says 191,705 SJH studies, 9,498 more than the resolved site: the double-read RH
+    mammography stamped '1' (rule 0).
+    **For 13b, to decide with the operator:** where the 9,221 studies and 20,706 ORU reports
+    with no site go (today the RH views count them as RH); patients seen at both sites are
+    copied, not moved; orders, RIS reports and visits are told apart by the RIS issuer, since
+    their `site_id` columns are empty. Also found: `worklist_status_history` is empty on
+    production (item 6).
+27. **Patient names in Postgres.** Four tables have a `patient_name` column (`hl7_orders`,
     `hl7_scn_studies`, `hl7_patients`, `cd_print_log`), and `hl7_orders.raw_message` and
-    BRAYN's `hl7_message_archive` keep whole HL7 messages, PID-5 (the name) included. BRAYN
-    switches on the week of 2026-11-16 and archives every message from then on. **To do:**
-    count what is filled (Monday section), then decide with the operator: stop storing the
-    name and the raw message, or blank PID-5 before archiving, and clear what is there. The
-    sample export (item 28) never takes any of these.
+    BRAYN's `hl7_message_archive` keep whole HL7 messages. **Operator, 2026-11-15: the HL7
+    tables are the only ones allowed to hold names.** Left: `cd_print_log` (the CD log
+    module was removed at LAUMC, so it is probably empty): count it (Monday section) and clear
+    it if not. The sample export (item 28) still never takes names, HL7 tables included.
 28. **Local LAUMC stack and sample data.** **Done 2026-11-15** (`scripts/local_stack.md`):
     the laptop's Docker runs the LAUMC branch with two databases (`etl_db`, `etl_db_sjh`),
     the PACS connection pointed at `oracle-disabled.invalid` so its start-up ETL can never
@@ -591,7 +610,8 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
   or unnecessary.
 - Site vocabularies may change at the ~2027 RIS/PACS upgrade → only `sites` / `site_org_map`
   rows change, never code.
-- **NO PATIENT NAMES in Postgres, ever** (operator instruction, 2026-07-27). Staff/resource
+- **NO PATIENT NAMES in Postgres, ever** (operator instruction, 2026-07-27), **except the
+  HL7 tables** (`hl7_*`, BRAYN's message archive: operator, 2026-11-15). Staff/resource
   names ARE pulled (`std_resources_ris`) — different rule, don't conflate the two.
   Free-text clinical notes fields follow the same exclusion logic even when not literally
   a "name" column — see `std_pps` (`TECHNURSE_NOTES`/`DEMONSTRATION_NOTES`, never
