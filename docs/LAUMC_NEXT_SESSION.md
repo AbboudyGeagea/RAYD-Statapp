@@ -1,6 +1,6 @@
 # LAUMC — To do
 
-Updated 2026-11-13. This file holds only what is still open. What was built is in the commit
+Updated 2026-11-15. This file holds only what is still open. What was built is in the commit
 messages, and the July version of this file (history, punch list round 2) is in git history.
 Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 `LAUMC_OPEN_QUESTIONS.md` (vendor questions), `LAUMC_DATA_REQUEST.md` (discovery record).
@@ -62,6 +62,26 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
      OR referring_physician_last_name ILIKE '%referring%'
   GROUP BY 1, 2 ORDER BY 3 DESC;
   ```
+- **Monday too, items 26 and 27, on RAYD Postgres (read-only):** the SJH census, and whether
+  patient names sit in Postgres. Send the output back.
+  ```bash
+  docker exec -i rayd_db psql -U etl_user -d etl_db -P pager=off -f - < scripts/sql/sjh_census.sql
+  ```
+  ```sql
+  SELECT 'hl7_orders' AS tbl, COUNT(*) FILTER (WHERE NULLIF(BTRIM(patient_name), '') IS NOT NULL) AS with_name,
+         COUNT(*) FILTER (WHERE raw_message IS NOT NULL) AS with_raw_hl7, COUNT(*) AS total FROM hl7_orders
+  UNION ALL SELECT 'hl7_scn_studies', COUNT(*) FILTER (WHERE NULLIF(BTRIM(patient_name), '') IS NOT NULL), 0, COUNT(*) FROM hl7_scn_studies
+  UNION ALL SELECT 'hl7_patients', COUNT(*) FILTER (WHERE NULLIF(BTRIM(patient_name), '') IS NOT NULL), 0, COUNT(*) FROM hl7_patients
+  UNION ALL SELECT 'cd_print_log', COUNT(*) FILTER (WHERE NULLIF(BTRIM(patient_name), '') IS NOT NULL), 0, COUNT(*) FROM cd_print_log
+  UNION ALL SELECT 'hl7_message_archive', 0, COUNT(*), COUNT(*) FROM hl7_message_archive;
+  ```
+  Optional, for the laptop (item 28): a pseudonymised sample, read-only on the server.
+  ```bash
+  docker cp scripts/sample_data/export_sample.py rayd_service:/tmp/
+  docker exec rayd_service python /tmp/export_sample.py --from 2026-10-01 --to 2026-10-14
+  docker cp rayd_service:/tmp/rayd_sample.tar.gz .
+  docker exec rayd_service rm /tmp/rayd_sample.tar.gz /tmp/export_sample.py
+  ```
 - **Tuesday 2026-11-17, from 9:30:** double-check session on Report 27 Order Status Mix,
   mainly the scheduled status (item 7); a session on the PACS user columns in
   `MEDILINK.SECM_USERS` (item 9); and finding the RIS column that holds ORC-2 (item 1).
@@ -93,7 +113,9 @@ only at weekends, which can add calendar time.
 Item 13 splits into: second database, per-request switch, migrations and SJH ETL (6–8);
 migrate, count and delete SJH rows (2–3); site dropdown (1); RH vs SJH per-modality views
 (2–3); BRAYN routing by site (1–2); new roles and permissions (3–4); mail server per site and
-licence (1).
+licence (1). Built by 2026-11-15: roles and permissions, second database, switch, migrations,
+site dropdown, per-modality views, mail server per site. Left: BRAYN routing (13d, the
+operator's walkthrough), SJH's ETL and the data move (13b, on production).
 
 Items 1–14 without item 5 add up to about 54–76 days (35–51 without item 13). Items 8 and 14
 share about one day. Doing item 3 together with the shared filter panel saves 1–2 days.
@@ -109,8 +131,11 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 21 | Patient schedule lead time (very low) | Low–Medium | 2.5–3 | which moment counts as "booked" |
 | 22 | Daily Briefing snapshot RH only (found 2026-11-14) — **done** | Low | 1 | — (counts checked on the server) |
 | 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) — **done** | Low | 0.5–1 | — |
-| 24 | Deploy the 2026-11-14 work (migrations 0148, 0149) | Low | 0.5 | item 4's Monday check |
+| 24 | Deploy the 2026-11-14 and 2026-11-15 work (migrations 0148–0153) | Low | 0.5 | item 4's Monday check |
 | 25 | ER dashboard onto the one report UI (Report 38) — **done** | Low | 1–1.5 | — |
+| 26 | SJH census of RH's Postgres — **built** (to run on the server) | Low | 0.25 | Monday run |
+| 27 | Patient names in Postgres (HL7 tables, BRAYN archive) | Low–Medium | 0.5–1.5 | Monday check |
+| 28 | Local LAUMC stack and sample data from production — **done** | Low | — | optional export run |
 
 Item 25 is the ER dashboard only (operator, 2026-11-14): the ORU tab stays a standalone page,
 out of scope.
@@ -126,7 +151,7 @@ are listed under "Waits on" above. Those waits hold whatever the class is.
 | **Local, no server** | 3 Report 22 AE filter + stress test; 6 hourly load; 11 report start date; 12 chart explanations; shared filter panel; placeholders via BRAYN | yes |
 | **Local, no server** (blocked) | 1 HIS vs RIS (Mirth ORMs, RIS column for ORC-2); 2 first open (audit table, Monday); 5 ORU severity (chief radiologist); 8 wet read (PACS Oracle check first); ORU final-only (`FAP`); urgent emergent in HL7 (a question, no code); patient schedule lead time | no |
 | **Local build, server to validate** | 4 RIS room names (Monday queries, one on RAYD Postgres); 14 radiologist TAT (compared with Oracle on production) | build yes |
-| **Needs the server** | 7 status mix check (RAYD vs Oracle at one cut-off); 9 staff who left (export of names, PACS user columns); 10 modality "PACS" samples; 13 SJH database (the build is local, the move, counts and delete run on production); R2I and BRAYN switch-on checks; CRN go-live | no |
+| **Needs the server** | 7 status mix check (RAYD vs Oracle at one cut-off); 9 staff who left (export of names, PACS user columns); 10 modality "PACS" samples; 13 SJH database (the build is local, the move, counts and delete run on production); R2I and BRAYN switch-on checks; CRN go-live; 26 SJH census run; 27 patient-name check | no |
 
 Order for work without the server: 3, then 4 (build), 6, 11, 12, shared filter panel.
 
@@ -472,7 +497,7 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     (the `rh.etl_orders` view). "Orders Placed" is now "RIS Exams Done"; the panel has its
     info icon.
 24. **Deploy the 2026-11-14 and 2026-11-15 work** (items 3, 4, 6, 11, 12, 16, 19, 22, 23,
-    25, 13f, 13a's first part; migrations 0148–0153) after item 4's Monday room-name check.
+    25, 13f, 13a; migrations 0148–0153) after item 4's Monday room-name check.
     Leave `POSTGRES_DB_SJH` unset until SJH's data is moved (13b). Then add Monday's
     test patients on the BRAYN console and check each placeholder record's "Reaches" count,
     and do item 13f's after-deploy steps (CHT accounts, one former viewer and tec).
@@ -485,6 +510,32 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     access. The shared left panel: dates (last 30 days by default), the reporting target in
     hours, and a modality filter (new). Tests: `tests/test_report_38.py`. After deploy: run
     migration 0150, then check the home card and a technologist account (no access).
+
+## Added 2026-11-15
+
+26. **How much SJH data RH's Postgres holds.** `scripts/sql/sjh_census.sql`, read-only:
+    SJH studies (by site, per year), their series and patients, RIS orders by SJH's issuer
+    and the steps, status history and reports hanging off them, PPS, ORU reports and their
+    NLP rows, devices per site, and every table with a `site_id` column. SJH rows are
+    recognised the way the RH-only views hide them, so the counts are what 13b will move.
+    Checked on a migrated LAUMC database. **To do:** run it on the server (Monday section).
+27. **Patient names in Postgres.** The operator's rule is no patient names in Postgres, ever
+    (gotchas below), but four tables have a `patient_name` column (`hl7_orders`,
+    `hl7_scn_studies`, `hl7_patients`, `cd_print_log`), and `hl7_orders.raw_message` and
+    BRAYN's `hl7_message_archive` keep whole HL7 messages, PID-5 (the name) included. BRAYN
+    switches on the week of 2026-11-16 and archives every message from then on. **To do:**
+    count what is filled (Monday section), then decide with the operator: stop storing the
+    name and the raw message, or blank PID-5 before archiving, and clear what is there. The
+    sample export (item 28) never takes any of these.
+28. **Local LAUMC stack and sample data.** **Done 2026-11-15** (`scripts/local_stack.md`):
+    the laptop's Docker runs the LAUMC branch with two databases (`etl_db`, `etl_db_sjh`),
+    the PACS connection pointed at `oracle-disabled.invalid` so its start-up ETL can never
+    reach the hospital PACS. `scripts/sample_data/export_sample.py` takes a date window
+    from production read-only (by default patient IDs, accessions and UIDs hashed, birth
+    dates cut to the year, report text dropped; never names, phones or raw HL7);
+    `import_sample.py` loads it into a local stack only. With a sample, 13b's move can be
+    rehearsed on the laptop first. Found on the way: the site lookup recursed ~1000 levels
+    on every reload once a site database existed (fixed, with tests).
 
 ## Low priority
 
