@@ -27,3 +27,7 @@ Untitled Document*
 
 # personal testing notes, not part of the repo's tracked docs
 docs/LAUMC_BUGFIX_TESTING_CHECKLIST_2026-07-28.md
+
+# Production samples for the local stack (scripts/sample_data/): never committed
+rayd_sample*.tar.gz
+rayd_sample/
