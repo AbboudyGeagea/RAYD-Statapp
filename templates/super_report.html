@@ -246,6 +246,14 @@
                 <!-- KPIs -->
                 <div id="super-kpis" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-3"></div>
 
+                {% if site_switch is defined and site_switch() %}
+                <!-- Sites side by side, per modality (item 13b): accounts holding RH and SJH -->
+                <div class="card p-5" id="super-sites-card" style="display:none">
+                    <h4 class="text-sky-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-hospital"></i> Sites side by side, per modality<i class="bi bi-info-circle chart-info-icon" data-explain="sr-sites" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
+                    <div id="super-sites" style="overflow-x:auto"></div>
+                </div>
+                {% endif %}
+
                 <!-- Sections -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="card p-5">
@@ -572,6 +580,7 @@
                 renderFilterBanner();
                 render(data);
                 document.getElementById('super-results').classList.remove('hidden');
+                loadSites();
             }
         } catch(e) {
             clearInterval(iv);
@@ -580,6 +589,41 @@
             alert('Network error: ' + e.message);
         }
         document.querySelector('#mainForm .rfp-generate').disabled = false;
+    }
+
+    // ── Sites side by side, per modality (item 13b) ───────────────────
+    async function loadSites() {
+        const card = document.getElementById('super-sites-card');
+        if (!card) return;                       // the account holds one site
+        try {
+            const d = await fetch(`/viewer/super-report/sites?${buildQS()}`).then(r => r.json());
+            if (d.error || !d.sites || d.sites.length < 2) { card.style.display = 'none'; return; }
+            renderSites(d);
+            card.style.display = '';
+        } catch (e) { card.style.display = 'none'; }
+    }
+
+    function renderSites(d) {
+        const fmt = v => (v == null ? '—' : Number(v).toLocaleString());
+        const head1 = d.sites.map(s => `<th colspan="4" style="text-align:center;padding:6px 8px;border-bottom:1px solid #28332e;color:#e2e8f0">${escHtml(s.code)}<span style="color:#64748b;font-weight:600"> · ${escHtml(s.name)}</span></th>`).join('');
+        const head2 = d.sites.map(() => ['Studies', 'Patients', 'Median TAT (min)', 'GB']
+            .map(h => `<th style="text-align:right;padding:4px 8px;color:#64748b;font-size:9px;text-transform:uppercase">${h}</th>`).join('')).join('');
+        const cell = v => `<td style="text-align:right;padding:4px 8px;font-variant-numeric:tabular-nums">${v}</td>`;
+        const rows = d.modalities.map(m => `<tr style="border-top:1px solid #1d2522"><td style="padding:4px 8px;font-weight:800;color:#e2e8f0">${escHtml(m.modality)}</td>` +
+            d.sites.map(s => {
+                const r = m.by_site[s.code] || {};
+                return cell(fmt(r.studies || 0)) + cell(fmt(r.patients || 0)) + cell(fmt(r.median_tat_min)) + cell(fmt(r.gb || 0));
+            }).join('') + '</tr>').join('');
+        const total = `<tr style="border-top:2px solid #28332e;font-weight:900"><td style="padding:6px 8px">Total</td>` +
+            d.sites.map(s => {
+                const t = d.totals[s.code] || {};
+                return cell(fmt(t.studies || 0)) + cell(fmt(t.patients || 0)) + cell('') + cell(fmt(t.gb || 0));
+            }).join('') + '</tr>';
+        document.getElementById('super-sites').innerHTML =
+            `<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:520px">` +
+            `<thead><tr><th></th>${head1}</tr><tr><th style="text-align:left;padding:4px 8px;color:#64748b;font-size:9px;text-transform:uppercase">Modality</th>${head2}</tr></thead>` +
+            `<tbody>${rows || ''}${total}</tbody></table>` +
+            (d.modalities.length ? '' : '<p style="font-size:10px;color:#475569;padding:8px">No study on either site for these dates and filters.</p>');
     }
 
     // ── Render ────────────────────────────────────────────────────────

@@ -48,6 +48,14 @@ MAIN_TABLES = frozenset({
     'active_sessions', 'user_audit_log', 'permission_groups',
 })
 
+# Procedure codes are shared by both sites (meeting of 2026-11-13, item 13e): the main
+# database holds them, every write goes there, and each site database keeps an identical
+# copy (sync_shared_tables). Parents before children, the order they are copied in.
+SHARED_TABLES = (
+    'procedure_canonical_groups', 'procedure_duration_map', 'procedure_canonical_members',
+    'procedure_duplicate_candidates', 'procedure_fuzzy_candidates', 'procedure_modality_conflicts',
+)
+
 _engines = {}                 # site_id -> Engine, for sites with their own database
 _codes = {}                   # site_id -> site code
 _forced = ContextVar('rayd_site_forced', default=None)
@@ -171,6 +179,20 @@ def main_only(view):
     return wrapper
 
 
+def shared_write(view):
+    """A view that changes procedure codes (SHARED_TABLES): it writes the main database, and
+    each site database's copy is brought in line as soon as it succeeds."""
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        with use_site(default_site_id()):
+            response = view(*args, **kwargs)
+        status = response[1] if isinstance(response, tuple) and len(response) > 1             else getattr(response, 'status_code', 200)
+        if isinstance(status, int) and status < 400:
+            sync_shared_tables()
+        return response
+    return wrapper
+
+
 # ── which engine ──────────────────────────────────────────────────────────────
 
 def engine_for(site_id):
@@ -187,7 +209,7 @@ def route(default_engine, mapper=None, clause=None):
     """db.SiteSession.get_bind: the engine a statement goes to (see the module notes)."""
     if not _engines:
         return default_engine
-    if mapper is not None and _table_name(mapper) in MAIN_TABLES:
+    if mapper is not None and _table_name(mapper) in MAIN_TABLES | set(SHARED_TABLES):
         return default_engine
     site = current_site_id()
     return _engines.get(site, default_engine)
@@ -199,6 +221,46 @@ def _table_name(mapper):
         return sa.inspect(mapper).local_table.name
     except Exception:
         return getattr(getattr(mapper, '__table__', None), 'name', None)
+
+
+# ── background work per site ──────────────────────────────────────────────────
+
+def has_site_databases():
+    """True when at least one site has its own database (no app context needed)."""
+    return bool(_engines)
+
+
+def each_site_id():
+    """Every site with a database, the default site (main database) first."""
+    d = default_site_id()
+    return ([d] if d is not None else []) + sorted(s for s in _engines if s != d)
+
+
+def run_per_site(name, job):
+    """Run job(site_id) once per database: the main one as before, then each site database
+    inside use_site(site_id), so db.session reads and writes that database. A failure on one
+    site is logged and does not stop the others. Returns {site_id: job's result}."""
+    from db import db
+    out = {}
+    for sid in each_site_id() or [None]:
+        try:
+            if sid is None or sid == default_site_id():
+                out[sid] = job(sid)
+            else:
+                with use_site(sid):
+                    out[sid] = job(sid)
+        except Exception:
+            logger.exception(f"{name}: failed for site {site_code(sid) if sid else 'main'}")
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+        finally:
+            try:
+                db.session.remove()
+            except Exception:
+                pass
+    return out
 
 
 # ── setting up a site's database ──────────────────────────────────────────────
@@ -264,6 +326,7 @@ def init_app(app, databases=None):
                 logger.exception(f"site {code}: database {getattr(url, 'database', url)} not set up")
         if ready:
             mirror_users()
+            sync_shared_tables()
         return ready
 
 
@@ -379,3 +442,90 @@ def mirror_users():
                             email = EXCLUDED.email"""), r)
         except Exception:
             logger.exception(f"users not copied to the database of site {sid}")
+
+
+# ── the shared procedure codes in each site database ──────────────────────────
+
+def sync_shared_tables():
+    """Make every site database's copy of SHARED_TABLES identical to the main database's.
+    Skipped where nothing changed (a checksum per table over the same columns on both
+    sides); otherwise all of them are copied in one transaction (COPY with an explicit
+    column list, so column order and types never matter). Returns {site_id: copied?}."""
+    from db import db
+    if not _engines:
+        return {}
+    out = {}
+    try:
+        main_cols = {t: _columns(db.engine, t) for t in SHARED_TABLES}
+    except Exception:
+        logger.exception("shared tables not read on the main database")
+        return out
+    for sid, engine in list(_engines.items()):
+        try:
+            cols = {}
+            for t in SHARED_TABLES:
+                there = set(_columns(engine, t))
+                cols[t] = [c for c in main_cols[t] if c in there]
+                if not cols[t]:
+                    raise RuntimeError(f"{t} has no column in common")
+            if all(_checksum(db.engine, t, cols[t]) == _checksum(engine, t, cols[t]) for t in SHARED_TABLES):
+                out[sid] = False
+                continue
+            _copy_shared(db.engine, engine, cols)
+            out[sid] = True
+            logger.info(f"shared procedure tables copied to site {site_code(sid)}")
+        except Exception:
+            logger.exception(f"shared procedure tables not copied to site {sid}")
+    return out
+
+
+def _columns(engine, table):
+    from sqlalchemy import text
+    with engine.connect() as c:
+        return [r[0] for r in c.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = :t ORDER BY ordinal_position"""), {'t': table})]
+
+
+def _quoted(cols):
+    return ', '.join('"' + c.replace('"', '""') + '"' for c in cols)
+
+
+def _checksum(engine, table, cols):
+    from sqlalchemy import text
+    with engine.connect() as c:
+        return c.execute(text(f"""
+            SELECT md5(COALESCE(string_agg(x, E'\n' ORDER BY x), ''))
+            FROM (SELECT ROW({_quoted(cols)})::text AS x FROM public.{table}) q""")).scalar()
+
+
+def _copy_shared(main_engine, site_engine, cols):
+    import io
+    data = {}
+    src = main_engine.raw_connection()
+    try:
+        cur = src.cursor()
+        for t in SHARED_TABLES:
+            buf = io.StringIO()
+            cur.copy_expert(f"COPY public.{t} ({_quoted(cols[t])}) TO STDOUT", buf)
+            data[t] = buf.getvalue()
+        src.rollback()
+    finally:
+        src.close()
+    dst = site_engine.raw_connection()
+    try:
+        cur = dst.cursor()
+        for t in reversed(SHARED_TABLES):               # children first
+            cur.execute(f"DELETE FROM public.{t}")
+        for t in SHARED_TABLES:                         # parents first
+            cur.copy_expert(f"COPY public.{t} ({_quoted(cols[t])}) FROM STDIN", io.StringIO(data[t]))
+            if 'id' in cols[t]:
+                cur.execute(f"""SELECT setval(pg_get_serial_sequence('public.{t}', 'id'),
+                                              COALESCE((SELECT MAX(id) FROM public.{t}), 0) + 1, false)
+                                WHERE pg_get_serial_sequence('public.{t}', 'id') IS NOT NULL""")
+        dst.commit()
+    except Exception:
+        dst.rollback()
+        raise
+    finally:
+        dst.close()

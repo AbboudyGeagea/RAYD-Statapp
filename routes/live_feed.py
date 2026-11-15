@@ -61,6 +61,7 @@ from datetime import datetime, timedelta
 from flask import (Blueprint, Response, jsonify, render_template,
                    request, stream_with_context, abort, current_app)
 from flask_login import login_required, current_user
+from utils.site_db import shared_write
 from sqlalchemy import text
 from db import db, user_has_page, OracleConnector
 from utils.hl7_forward import forward_message as _hl7_forward
@@ -733,6 +734,7 @@ def link_order():
 # ── API — add / update procedure duration ─────────────────────────────────────
 @live_feed_bp.route("/viewer/live/add_procedure", methods=["POST"])
 @login_required
+@shared_write          # procedure codes are shared by both sites (item 13e)
 def add_procedure():
     """
     Insert or update a procedure code in procedure_duration_map.

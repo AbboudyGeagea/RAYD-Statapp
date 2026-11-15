@@ -289,15 +289,7 @@ def super_report():
     except Exception:
         delta = 30
 
-    filters = {k: request.args.getlist(k) for k in [
-        "modality","storing_ae","study_status","report_status","order_status",
-        "patient_class","patient_location","body_part","procedure_code",
-        "signing_physician","referring_physician","sex","age_group",
-        "order_control","order_modality","series_modality","body_part_series","protocol_name"
-    ]}
-    filters["has_report"] = request.args.get("has_report")
-    filters["age_min"]    = request.args.get("age_min")
-    filters["age_max"]    = request.args.get("age_max")
+    filters = _request_filters()
 
     # Cache key built post-resolution so an implicit vs. explicit cmp_start/end
     # (auto-computed above when omitted) still lands on the same key, and
@@ -344,6 +336,98 @@ def super_report():
     except Exception as e:
         logger.error(f"Super report error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+
+
+@super_report_bp.route("/viewer/super-report/sites")
+@login_required
+def super_report_sites():
+    """RH and SJH side by side, per modality (meeting of 2026-11-13, item 13b: "direct
+    comparison only in the Super Report and the Live Department board, per modality"). For
+    an account holding two or more sites that have a database (utils/site_db.py): the same
+    period and filters run on each site's own database, with the Super Report's own
+    definitions (_build_where, _joins, the TAT clock of _collect_data). Anyone else gets no
+    sites, and the page shows nothing."""
+    from utils import site_db
+    from utils.roles import all_sites
+    start, end = request.args.get("start"), request.args.get("end")
+    if not start or not end:
+        return jsonify({"error": "start and end date required"}), 400
+    site_ids = sorted(site_db.selectable_site_ids(current_user))
+    if len(site_ids) < 2:
+        return jsonify({"sites": [], "modalities": [], "totals": {}})
+    filters = _request_filters()
+    key = {"start": start, "end": end, "sites": site_ids,
+           **{k: (sorted(v) if isinstance(v, list) else v) for k, v in filters.items()}}
+    cached = cache_get("super_report_sites", key)
+    if cached is not None:
+        return jsonify(cached)
+
+    names = {sid: (code, name) for sid, code, name in all_sites()}
+    codes = {sid: names[sid][0] if sid in names else str(sid) for sid in site_ids}
+    per_site = {}
+    try:
+        for sid in site_ids:
+            with site_db.use_site(sid):
+                per_site[sid] = _site_modalities(start, end, filters, sid)
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Super report sites error: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+    modalities = {}
+    for sid, rows in per_site.items():
+        for r in rows:
+            modalities.setdefault(r["modality"], {})[codes[sid]] = r
+    order = sorted(modalities, key=lambda m: -sum(v["studies"] for v in modalities[m].values()))
+    result = {
+        "sites": [{"id": sid, "code": codes[sid], "name": names[sid][1] if sid in names else ""}
+                  for sid in site_ids],
+        "modalities": [{"modality": m, "by_site": modalities[m]} for m in order],
+        "totals": {codes[sid]: {"studies": sum(r["studies"] for r in rows),
+                                "patients": sum(r["patients"] for r in rows),
+                                "gb": round(sum(r["gb"] for r in rows), 2)}
+                   for sid, rows in per_site.items()},
+    }
+    cache_put("super_report_sites", key, result)
+    return jsonify(result)
+
+
+def _site_modalities(start, end, filters, site_id):
+    """Per modality, on the database the session reads (use_site): studies, patients,
+    reported studies and their median TAT, storage. Run once per site."""
+    where, params = _build_where(start, end, filters, site_id)
+    mj, pj = _joins()
+    tat = ("EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) "
+           "- s.insert_time)) / 60.0")
+    reported = ("COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL "
+                "AND s.insert_time IS NOT NULL")
+    rows = db.session.execute(text(f"""
+        SELECT COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
+               COUNT(DISTINCT s.study_db_uid)   AS studies,
+               COUNT(DISTINCT s.patient_db_uid) AS patients,
+               COUNT(*) FILTER (WHERE {reported}) AS reported,
+               ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY {tat})
+                      FILTER (WHERE {reported}))::numeric, 1) AS median_tat_min
+        FROM etl_didb_studies s {mj} {pj} WHERE {where}
+        GROUP BY 1
+    """), params).mappings().fetchall()
+    sp = {"start": start, "end": end}
+    sc = "study_date BETWEEN :start AND :end"
+    if filters.get("modality"):
+        sc += " AND modality = ANY(:modality)"
+        sp["modality"] = filters["modality"]
+    gb = dict(db.session.execute(text(f"""
+        SELECT COALESCE(modality, 'Unknown'), ROUND(SUM(total_gb)::numeric, 2)
+        FROM summary_storage_daily WHERE {sc} GROUP BY 1
+    """), sp).fetchall())
+    out = [{"modality": r["modality"], "studies": int(r["studies"] or 0),
+            "patients": int(r["patients"] or 0), "reported": int(r["reported"] or 0),
+            "median_tat_min": float(r["median_tat_min"]) if r["median_tat_min"] is not None else None,
+            "gb": float(gb.pop(r["modality"], 0) or 0)} for r in rows]
+    for modality, value in gb.items():          # storage for a modality with no study counted
+        out.append({"modality": modality, "studies": 0, "patients": 0, "reported": 0,
+                    "median_tat_min": None, "gb": float(value or 0)})
+    return out
 
 
 # ─────────────────────────────────────────────
@@ -430,6 +514,33 @@ def _orders_have_site():
         return False
 
 
+def _request_filters():
+    """The filters of /viewer/super-report and /viewer/super-report/sites, as named there."""
+    filters = {k: request.args.getlist(k) for k in [
+        "modality","storing_ae","study_status","report_status","order_status",
+        "patient_class","patient_location","body_part","procedure_code",
+        "signing_physician","referring_physician","sex","age_group",
+        "order_control","order_modality","series_modality","body_part_series","protocol_name"
+    ]}
+    filters["has_report"] = request.args.get("has_report")
+    filters["age_min"]    = request.args.get("age_min")
+    filters["age_max"]    = request.args.get("age_max")
+    return filters
+
+
+def _joins():
+    """The device (m) and patient (p) joins every study query here uses. Why the device join
+    is LATERAL ... LIMIT 1: see _collect_data. station_name is the device's label: the RIS
+    room name (utils.ae_display). etl_patient_view.patient_db_uid is the PK, so p is 1:1."""
+    mj = ("LEFT JOIN LATERAL ("
+          f"SELECT m0.modality, {ae_display_sql('m0', 'NULL')} AS station_name, m0.site_id "
+          "FROM aetitle_modality_map m0 "
+          "WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) "
+          "ORDER BY m0.id LIMIT 1) m ON TRUE")
+    pj = "LEFT JOIN etl_patient_view p ON p.patient_db_uid = s.patient_db_uid"
+    return mj, pj
+
+
 def _collect_data(start, end, filters, rh_site_id=None):
     where, params = _build_where(start, end, filters, rh_site_id)
     # LATERAL ... LIMIT 1, not a plain LEFT JOIN. aetitle_modality_map's UNIQUE is on
@@ -449,13 +560,7 @@ def _collect_data(start, end, filters, rh_site_id=None):
     # LIMIT 1 makes one study exactly one row whether or not duplicates exist, so this
     # holds even after the next RIS import. ORDER BY id keeps the choice deterministic.
     # station_name here is the device's label: the RIS room name (utils.ae_display).
-    mj = ("LEFT JOIN LATERAL ("
-          f"SELECT m0.modality, {ae_display_sql('m0', 'NULL')} AS station_name, m0.site_id "
-          "FROM aetitle_modality_map m0 "
-          "WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) "
-          "ORDER BY m0.id LIMIT 1) m ON TRUE")
-    # etl_patient_view.patient_db_uid is the PK, so this one is 1:1 and safe as-is.
-    pj = "LEFT JOIN etl_patient_view p ON p.patient_db_uid = s.patient_db_uid"
+    mj, pj = _joins()
 
     kpis = db.session.execute(text(f"""
         SELECT COUNT(DISTINCT s.study_db_uid)     AS total_studies,

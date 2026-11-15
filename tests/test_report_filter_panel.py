@@ -108,7 +108,7 @@ def test_the_super_report_query_reads_every_panel_name():
     """Every dropdown the Super Report panel offers is a parameter its query applies."""
     import inspect
     from routes import super_report
-    read = inspect.getsource(super_report.super_report)
+    read = inspect.getsource(super_report._request_filters)    # what super_report() reads
     where = inspect.getsource(super_report._build_where) + inspect.getsource(super_report._collect_data)
     for name, _label in super_report._PANEL_FILTERS:
         assert f'"{name}"' in read, name

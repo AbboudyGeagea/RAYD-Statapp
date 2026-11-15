@@ -28,7 +28,8 @@ def _should_record(path: str) -> bool:
 
 
 def init_query_monitor(app, engine):
-    """Call once from create_app() after db is initialised."""
+    """Call from create_app() after db is initialised, once per engine (the main database,
+    and each site database, item 13a). The per-request audit row is registered once."""
 
     @event.listens_for(engine, "before_cursor_execute")
     def _before(conn, cursor, statement, parameters, context, executemany):
@@ -53,6 +54,10 @@ def init_query_monitor(app, engine):
                     q['rows'] = 0
                 del q['_t']
                 break
+
+    if app.extensions.get('rayd_query_monitor'):
+        return
+    app.extensions['rayd_query_monitor'] = True
 
     @app.after_request
     def _save_audit(response):

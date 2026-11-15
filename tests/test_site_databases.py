@@ -44,8 +44,10 @@ def sjh(app, ids):
             return res.fetchall() if res.returns_rows else None
 
     def clear():
-        for t in ('worklist_versions', 'worklists', 'etl_didb_studies', 'aetitle_modality_map'):
+        for t in ('worklist_email_runs', 'worklist_email_schedules', 'worklist_versions', 'worklists',
+                  'etl_didb_studies', 'aetitle_modality_map'):
             run(f"DELETE FROM {t}" + (" WHERE folder <> 'Examples' OR owner_id IS NOT NULL" if t == 'worklists' else ''))
+        run("DELETE FROM settings WHERE key LIKE 'smtp\_%'")
     clear()
     yield run
     clear()
@@ -268,6 +270,55 @@ def test_a_streamed_export_reads_the_picked_site(client, app, people, sjh, ids):
     assert len(sjh_rows) == 1 and 'SJHCLASS' in sjh_rows[0]
 
 
+# ── RH and SJH side by side (item 13b) ────────────────────────────────────────
+
+def test_the_super_report_puts_the_sites_side_by_side_per_modality(client, app, people, sjh, ids):
+    uid = people('compare', 'administrator', ('RH', 'SJH'))
+    rh_study(app, BASE + 940)
+    rh_study(app, BASE + 941)
+    sjh_study(sjh, BASE + 942)
+    r = client.get('/viewer/super-report/sites', headers=hdr(uid),
+                   query_string={'start': '2026-10-01', 'end': '2026-10-31'})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    d = r.get_json()
+    assert [s['code'] for s in d['sites']] == ['RH', 'SJH']
+    ct = next(m for m in d['modalities'] if m['modality'] == 'CT')['by_site']
+    assert (ct['RH']['studies'], ct['SJH']['studies']) == (2, 1)
+    assert (ct['RH']['median_tat_min'], ct['SJH']['median_tat_min']) == (45.0, 30.0)
+    assert d['totals']['RH']['studies'] == 2 and d['totals']['SJH']['studies'] == 1
+
+
+def test_the_side_by_side_is_for_accounts_holding_both_sites(client, app, people):
+    one = people('one_site', 'administrator', ('RH',))
+    both = people('two_sites', 'administrator', ('RH', 'SJH'))
+    q = {'start': '2026-10-01', 'end': '2026-10-31'}
+    assert client.get('/viewer/super-report/sites', headers=hdr(one), query_string=q).get_json()['sites'] == []
+    assert 'id="super-sites-card"' not in client.get('/viewer/super-report-page', headers=hdr(one)).get_data(as_text=True)
+    assert 'id="super-sites-card"' in client.get('/viewer/super-report-page', headers=hdr(both)).get_data(as_text=True)
+
+
+def test_the_live_board_puts_the_sites_side_by_side_per_modality(client, app, people, sjh, ids):
+    """Each site's board, built on its own database, summarised per modality."""
+    uid = people('board', 'administrator', ('RH', 'SJH'))
+    rh_study(app, BASE + 950)
+    sjh_study(sjh, BASE + 951)
+    r = client.get('/viewer/department/api/sites', headers=hdr(uid))
+    assert r.status_code == 200, r.get_data(as_text=True)
+    d = r.get_json()
+    assert [s['code'] for s in d['sites']] == ['RH', 'SJH']
+    ct = next(m for m in d['modalities'] if m['modality'] == 'CT')['by_site']
+    assert ct['RH']['devices'] >= 1 and ct['SJH']['devices'] == 1
+    assert set(d['totals']) == {'RH', 'SJH'}
+
+
+def test_the_board_offers_the_sites_only_with_two_sites(client, app, people):
+    one = people('board_one', 'administrator', ('RH',))
+    both = people('board_two', 'administrator', ('RH', 'SJH'))
+    assert client.get('/viewer/department/api/sites', headers=hdr(one)).get_json()['sites'] == []
+    assert 'id="sites-btn"' not in client.get('/viewer/department', headers=hdr(one)).get_data(as_text=True)
+    assert 'id="sites-btn"' in client.get('/viewer/department', headers=hdr(both)).get_data(as_text=True)
+
+
 # ── SJH's own tables point at users ───────────────────────────────────────────
 
 def test_a_report_saved_on_sjh_is_kept_in_sjh(client, app, people, sjh, ids):
@@ -283,6 +334,119 @@ def test_a_report_saved_on_sjh_is_kept_in_sjh(client, app, people, sjh, ids):
     from db import db
     with app.app_context():
         assert db.session.execute(text("SELECT COUNT(*) FROM worklists WHERE name = 'SJH list'")).scalar() == 0
+
+
+# ── scheduled work per site ───────────────────────────────────────────────────
+
+def test_a_job_runs_once_per_database(app, ids):
+    from db import db
+    from utils import site_db
+    seen = []
+
+    def job(site_id):
+        seen.append((site_id, db.session.execute(text("SELECT rayd_served_site_id()")).scalar()))
+        if site_id == ids['RH']:
+            raise RuntimeError('one site failing does not stop the next')
+        return 'done'
+    with app.app_context():
+        out = site_db.run_per_site('test job', job)
+    assert seen == [(ids['RH'], ids['RH']), (ids['SJH'], ids['SJH'])]
+    assert out == {ids['SJH']: 'done'}
+
+
+def test_an_sjh_schedule_is_sent_through_sjhs_mail_server(client, app, people, sjh, ids):
+    """Report Composer schedules live in each site's database, with that site's mail server
+    (meeting of 2026-11-13, item 13g: one mail server per site). RH has none set here, so
+    only SJH sends, and the run is recorded in SJH's database."""
+    from test_worklist_email import Relay
+    from utils import site_db
+    from utils.worklist_email import run_due
+    relay = Relay()
+    try:
+        for k, v in (('smtp_host', '127.0.0.1'), ('smtp_port', str(relay.port)), ('smtp_security', 'none'),
+                     ('smtp_from', 'rayd@sjh.test'), ('smtp_allowed_domains', 'sjh.test')):
+            sjh("INSERT INTO settings (key, value) VALUES (:k, :v) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", k=k, v=v)
+        uid = people('mailer', 'administrator', ('RH', 'SJH'))
+        pick(client, uid, ids['SJH'])
+        wid = client.post('/worklists/api/save', headers=hdr(uid), json={
+            'name': 'SJH daily', 'folder': 'Mail', 'visibility': 'shared',
+            'definition': {'dataset': 'studies', 'criteria': {}, 'output': {'kind': 'list', 'columns': ['accession']}},
+        }).get_json()['id']
+        r = client.post('/worklists/api/schedules/save', headers=hdr(uid), json={
+            'name': 'SJH pack', 'recipients': 'head@sjh.test', 'frequency': 'daily',
+            'send_time': '07:00', 'worklist_ids': [wid]})
+        assert r.status_code == 200, r.get_data(as_text=True)
+        sjh("UPDATE worklist_email_schedules SET next_run_at = :t", t=datetime(2020, 1, 1, 7))
+        with app.app_context():
+            sent = site_db.run_per_site('Report Composer emails', lambda _s: run_due())
+        assert sent == {ids['RH']: 0, ids['SJH']: 1}
+        assert len(relay.mails) == 1
+        assert sjh("SELECT status FROM worklist_email_runs")[0][0] == 'sent'
+    finally:
+        relay.stop()
+
+
+# ── procedure codes, shared by both sites ─────────────────────────────────────
+
+@pytest.fixture
+def procedure(app, ids):
+    """One procedure on the main database, the copies in line before the test."""
+    from db import db
+    from utils import site_db
+    with app.app_context():
+        db.session.execute(text("""INSERT INTO procedure_duration_map (procedure_code, procedure_name, duration_minutes)
+                                   VALUES ('SD-CT01', 'CT test', 15)"""))
+        db.session.commit()
+        site_db.sync_shared_tables()
+    yield 'SD-CT01'
+    with app.app_context():
+        db.session.execute(text("DELETE FROM procedure_duration_map WHERE procedure_code = 'SD-CT01'"))
+        db.session.commit()
+        site_db.sync_shared_tables()
+
+
+def test_the_sjh_copy_of_procedure_codes_matches_the_main_one(app, ids, sjh, procedure):
+    from utils import site_db
+    assert sjh("SELECT procedure_name, duration_minutes FROM procedure_duration_map "
+               "WHERE procedure_code = 'SD-CT01'") == [('CT test', 15)]
+    with app.app_context():
+        assert site_db.sync_shared_tables() == {ids['SJH']: False}     # nothing to copy
+
+
+def test_a_procedure_changed_on_sjh_is_changed_for_both_sites(client, app, people, sjh, ids, procedure):
+    """Mapping's procedure edits write the main database, whatever site is picked, and
+    SJH's copy follows at once."""
+    uid = people('mapper', 'cht', ('RH', 'SJH'))
+    pick(client, uid, ids['SJH'])
+    r = client.post('/mapping/procedure/update', json={'code': 'sd-ct01', 'duration': 25}, headers=hdr(uid))
+    assert r.status_code == 200, r.get_data(as_text=True)
+    from db import db
+    with app.app_context():
+        assert db.session.execute(text("SELECT duration_minutes FROM procedure_duration_map "
+                                       "WHERE procedure_code = 'SD-CT01'")).scalar() == 25
+    assert sjh("SELECT duration_minutes FROM procedure_duration_map WHERE procedure_code = 'SD-CT01'") == [(25,)]
+
+
+def test_a_copy_that_drifted_is_brought_back(app, ids, sjh, procedure):
+    from utils import site_db
+    sjh("UPDATE procedure_duration_map SET duration_minutes = 99 WHERE procedure_code = 'SD-CT01'")
+    sjh("INSERT INTO procedure_duration_map (procedure_code, duration_minutes) VALUES ('SD-STRAY', 5)")
+    with app.app_context():
+        assert site_db.sync_shared_tables() == {ids['SJH']: True}
+    assert sjh("SELECT duration_minutes FROM procedure_duration_map WHERE procedure_code = 'SD-CT01'") == [(15,)]
+    assert sjh("SELECT COUNT(*) FROM procedure_duration_map WHERE procedure_code = 'SD-STRAY'")[0][0] == 0
+
+
+def test_procedure_codes_read_through_the_model_come_from_the_main_database(app, ids, sjh, procedure):
+    from db import ProcedureDurationMap, db
+    from utils import site_db
+    sjh("UPDATE procedure_duration_map SET duration_minutes = 77 WHERE procedure_code = 'SD-CT01'")
+    with app.app_context():
+        with site_db.use_site(ids['SJH']):
+            row = ProcedureDurationMap.query.filter_by(procedure_code='SD-CT01').one()
+            assert row.duration_minutes == 15
+        db.session.rollback()
 
 
 # ── outside a request ─────────────────────────────────────────────────────────

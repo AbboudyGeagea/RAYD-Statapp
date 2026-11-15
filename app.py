@@ -801,11 +801,19 @@ def create_app():
         with app.app_context():
             try:
                 from ETL_JOBS.daily_analytics import run as run_analytics
-                logger.info(f"⏰ [5:30 AM] Daily analytics snapshot starting: {datetime.now()}")
-                # The briefing is read by people, so it counts RH only like the reports do.
+                from utils import site_db
                 from utils.rh_scope import rh_scope
-                with rh_scope():
-                    run_analytics(engine=db.engine)
+                logger.info(f"⏰ [5:30 AM] Daily analytics snapshot starting: {datetime.now()}")
+
+                def one_site(site_id):
+                    # The briefing is read by people: on the main database it counts RH only,
+                    # like the reports; a site's own database holds only that site (item 13a).
+                    if site_id is None or site_id == site_db.default_site_id():
+                        with rh_scope():
+                            run_analytics(engine=db.engine)
+                    else:
+                        run_analytics(engine=site_db.engine_for(site_id))
+                site_db.run_per_site('daily analytics snapshot', one_site)
                 logger.info("✅ [5:30 AM] Daily analytics snapshot complete.")
             except Exception as e:
                 logger.error(f"🛑 [5:30 AM] Daily analytics failed: {e}", exc_info=True)
@@ -880,14 +888,15 @@ def create_app():
 
     def purge_old_audit_logs():
         with app.app_context():
-            try:
+            from utils import site_db
+
+            def one_site(_site_id):
                 db.session.execute(text(
                     "DELETE FROM query_audit_log WHERE captured_at < NOW() - INTERVAL '10 days'"
                 ))
                 db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                logger.error(f"[Purge] query_audit_log: {e}")
+            # each site database keeps its own query log (item 13a)
+            site_db.run_per_site('query_audit_log purge', one_site)
 
     scheduler.add_job(
         func=purge_old_audit_logs,
@@ -970,10 +979,14 @@ def create_app():
             return
         with app.app_context():
             try:
+                from utils import site_db
                 from utils.worklist_email import run_due
-                sent = run_due()
-                if sent:
-                    logger.info(f"[Report Composer] {sent} scheduled email(s) processed")
+                # each site database has its own schedules and its own mail server (item 13a)
+                for site_id, sent in site_db.run_per_site('Report Composer emails',
+                                                          lambda _s: run_due()).items():
+                    if sent:
+                        logger.info(f"[Report Composer] {sent} scheduled email(s) processed "
+                                    f"({site_db.site_code(site_id) if site_id else 'main'})")
             except Exception as e:
                 db.session.rollback()
                 logger.error(f"🛑 [Report Composer] scheduled email pass failed: {e}", exc_info=True)
@@ -995,12 +1008,21 @@ def create_app():
         # end, and a no-op most of the time. People read it, so it counts RH only.
         with app.app_context():
             try:
+                from utils import site_db
                 from utils.rh_scope import rh_scope
                 from utils.sticky_notes_monthly import run_due as run_sticky_monthly
-                with rh_scope():
-                    done = run_sticky_monthly()
-                if done:
-                    logger.info(f"[Sticky Notes] monthly report: {done}")
+
+                def one_site(site_id):
+                    # RH only on the main database; a site's own database holds only that
+                    # site, with its own recipients and mail server (item 13a)
+                    if site_id is None or site_id == site_db.default_site_id():
+                        with rh_scope():
+                            return run_sticky_monthly()
+                    return run_sticky_monthly()
+                for site_id, done in site_db.run_per_site('Report 37 monthly', one_site).items():
+                    if done:
+                        logger.info(f"[Sticky Notes] monthly report: {done} "
+                                    f"({site_db.site_code(site_id) if site_id else 'main'})")
             except Exception as e:
                 db.session.rollback()
                 logger.error(f"🛑 [Sticky Notes] monthly report failed: {e}", exc_info=True)
@@ -1011,6 +1033,30 @@ def create_app():
         hours=1,
         id='sticky_notes_monthly',
         name='Sticky Notes monthly JCI report (hourly check)',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    def shared_tables_job():
+        # Procedure codes are shared by both sites (item 13e): the ETL changes them on the main
+        # database, so each site database's copy is checked every 15 minutes and copied only
+        # when it differs. The Mapping page's own changes are copied at once (shared_write).
+        from utils import site_db
+        if not site_db.has_site_databases():
+            return
+        with app.app_context():
+            try:
+                site_db.sync_shared_tables()
+            except Exception as e:
+                logger.error(f"🛑 [Sites] shared procedure tables not copied: {e}", exc_info=True)
+
+    scheduler.add_job(
+        func=shared_tables_job,
+        trigger='interval',
+        minutes=15,
+        id='shared_tables_sync',
+        name='Shared procedure codes to each site database (every 15 minutes)',
         replace_existing=True,
         max_instances=1,
         coalesce=True,

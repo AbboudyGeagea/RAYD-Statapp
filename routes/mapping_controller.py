@@ -1,6 +1,9 @@
 from flask import Blueprint, request, render_template, flash, redirect, url_for, jsonify, abort, Response
 from flask_login import login_required, current_user
 from utils.roles import can
+# Procedure codes are shared by both sites: written on the main database, copied to each
+# site database (utils/site_db.py, item 13e). AE mappings stay per site.
+from utils.site_db import shared_write
 # Import the CLASS names from your db file
 from db import db, AETitleModalityMap, ProcedureDurationMap, DeviceException, DeviceWeeklySchedule, user_has_page
 from utils.permissions import permission_required
@@ -318,6 +321,7 @@ def upload_modality_map():
     
 @mapping_bp.route('/upload/procedure', methods=['POST'])
 @login_required
+@shared_write
 def upload_procedure_map():
     if not can(current_user, 'implementation'): return abort(403)
     file = request.files.get('file')
@@ -420,6 +424,7 @@ def save_grid_changes():
 # NEW: Inline edit for individual procedures (Point #4)
 @mapping_bp.route('/procedure/update', methods=['POST'])
 @login_required
+@shared_write
 def update_single_procedure():
     if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import func as _f
@@ -453,6 +458,7 @@ def update_single_procedure():
 
 @mapping_bp.route('/procedure/delete', methods=['POST'])
 @login_required
+@shared_write
 def delete_procedure():
     """Delete a procedure from the catalog (admin only)."""
     if not can(current_user, 'implementation'): return abort(403)
@@ -483,6 +489,7 @@ def delete_procedure():
 
 @mapping_bp.route('/canonical/approve', methods=['POST'])
 @login_required
+@shared_write
 def approve_canonical_group():
     if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
@@ -509,6 +516,7 @@ def approve_canonical_group():
 
 @mapping_bp.route('/canonical/delete', methods=['POST'])
 @login_required
+@shared_write
 def delete_canonical_group():
     if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
@@ -525,6 +533,7 @@ def delete_canonical_group():
 
 @mapping_bp.route('/canonical/set-modality', methods=['POST'])
 @login_required
+@shared_write
 def set_canonical_modality():
     """Apply a modality to all procedure codes in a canonical group."""
     if not can(current_user, 'implementation'): return abort(403)
@@ -560,6 +569,7 @@ def set_canonical_modality():
 
 @mapping_bp.route('/canonical/confirm-pair', methods=['POST'])
 @login_required
+@shared_write
 def confirm_pair():
     """Mark a candidate pair as confirmed and add both codes to a canonical group."""
     if not can(current_user, 'implementation'): return abort(403)
@@ -624,6 +634,7 @@ def confirm_pair():
 
 @mapping_bp.route('/canonical/reject-pair', methods=['POST'])
 @login_required
+@shared_write
 def reject_pair():
     """Mark a candidate pair as rejected (different procedures)."""
     if not can(current_user, 'implementation'): return abort(403)
@@ -644,6 +655,7 @@ def reject_pair():
 
 @mapping_bp.route('/canonical/approve-member', methods=['POST'])
 @login_required
+@shared_write
 def approve_member():
     if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
@@ -662,6 +674,7 @@ def approve_member():
 
 @mapping_bp.route('/canonical/move-member', methods=['POST'])
 @login_required
+@shared_write
 def move_member():
     """Move a code to a different cluster, or delete from all clusters (unclustered)."""
     if not can(current_user, 'implementation'): return abort(403)
@@ -689,6 +702,7 @@ def move_member():
 
 @mapping_bp.route('/canonical/add-to-cluster', methods=['POST'])
 @login_required
+@shared_write
 def add_to_cluster():
     if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
@@ -710,6 +724,7 @@ def add_to_cluster():
 
 @mapping_bp.route('/canonical/add-cluster', methods=['POST'])
 @login_required
+@shared_write
 def add_cluster():
     if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t
@@ -957,6 +972,7 @@ def set_reader_role():
 
 @mapping_bp.route('/canonical/rename-cluster', methods=['POST'])
 @login_required
+@shared_write
 def rename_cluster():
     if not can(current_user, 'implementation'): return abort(403)
     from sqlalchemy import text as _t

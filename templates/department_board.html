@@ -168,6 +168,10 @@
     <div class="controls">
         <div id="mod-chips" style="display:flex;flex-wrap:wrap;gap:5px"></div>
         <select class="chip" id="site" aria-label="Site" hidden></select>
+        {% if site_switch is defined and site_switch() %}
+        <button class="chip" id="sites-btn" type="button" title="RH and SJH side by side, per modality">
+            <i class="bi bi-hospital"></i> Sites</button>
+        {% endif %}
         <button class="chip" id="names" type="button" aria-pressed="false" title="In the details: patient names or initials only">
             <i class="bi bi-eye-slash"></i> Initials</button>
         <span class="updated" id="updated"></span>
@@ -233,6 +237,7 @@ async function load() {
     B = d; offset = parse(d.now) - Date.now(); lastOk = Date.now();
     $('banner').hidden = true;
     render();
+    if (open && open.sites) loadSites();
   } catch (e) {
     $('banner').hidden = false;
     $('banner').textContent = 'The board could not be refreshed (' + e.message + '). ' +
@@ -378,9 +383,46 @@ function list(items, kind) {
                       : `<span class="t">${esc(x.state === 'Scheduled' ? 'scheduled ' : 'ordered ')}${hm(parse(x.since))}</span>`}</li>`).join('')}</ul>`;
 }
 
+// ── RH and SJH side by side, per modality (item 13b) ───────────────────────────
+let S = null;
+async function loadSites() {
+  try {
+    const r = await fetch('/viewer/department/api/sites', {headers: {'Accept': 'application/json'}});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+    S = d;
+  } catch (e) { S = {error: e.message}; }
+  if (open && open.sites) { renderDrawer(); }
+}
+function sitesHtml() {
+  if (!S) return '<div class="none">Loading the sites…</div>';
+  if (S.error) return `<div class="none">The sites could not be read (${esc(S.error)}).</div>`;
+  if (!S.sites.length) return '<div class="none">Your account holds one site.</div>';
+  const cell = v => `<td style="text-align:right;padding:3px 6px;font-variant-numeric:tabular-nums">${v}</td>`;
+  const one = s => !s ? cell('—') + cell('—') + cell('—') + cell('—') :
+    cell(`${s.busy}/${s.devices}`) + cell(s.waiting) + cell(s.done_today) +
+    cell(s.utilization_pct == null ? '—' : s.utilization_pct + '%');
+  const head = S.sites.map(s => `<th colspan="4" style="padding:4px 6px;text-align:center">${esc(s.code)}</th>`).join('');
+  const sub = S.sites.map(() => ['Busy', 'Waiting', 'Done', 'Util.']
+    .map(h => `<th style="padding:2px 6px;text-align:right;font-size:10px;opacity:.7">${h}</th>`).join('')).join('');
+  const rows = S.modalities.map(m => `<tr><td style="padding:3px 6px;font-weight:800">${esc(m.modality)}</td>` +
+    S.sites.map(s => one(m.by_site[s.code])).join('') + '</tr>').join('');
+  const total = '<tr style="border-top:1px solid currentColor;font-weight:800"><td style="padding:3px 6px">All</td>' +
+    S.sites.map(s => one(S.totals[s.code])).join('') + '</tr>';
+  return `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr><th></th>${head}</tr><tr><th style="text-align:left;padding:2px 6px;font-size:10px;opacity:.7">Modality</th>${sub}</tr></thead>
+    <tbody>${rows}${total}</tbody></table>
+    <div class="none" style="margin-top:8px">Each site from its own database, counted the same way. Busy = devices with a study in progress / devices.</div>`;
+}
+
 function renderDrawer() {
   let html;
-  if (open.unassigned) {
+  if (open.sites) {
+    html = `<div class="dr-head"><div><h3 id="dr-title">Sites side by side</h3>
+        <div class="sub">Per modality, now</div></div>
+        <button class="dr-close" type="button" data-close>Close</button></div>
+      <div class="dr-body"><div class="dr-sec">${sitesHtml()}</div></div>`;
+  } else if (open.unassigned) {
     const lane = B.lanes.find(l => l.modality === open.unassigned);
     const u = lane && lane.unassigned;
     if (!u) { closeDrawer(); return; }
@@ -476,6 +518,7 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && open) closeDrawer(); });
 $('site').addEventListener('change', e => { site = e.target.value; store.set('site', site); closeDrawer(); load(); });
 $('names').addEventListener('click', () => { initials = !initials; store.set('initials', initials); render(); });
+if ($('sites-btn')) $('sites-btn').addEventListener('click', () => { open = {sites: true}; renderDrawer(); loadSites(); });
 
 load();
 setInterval(load, REFRESH);

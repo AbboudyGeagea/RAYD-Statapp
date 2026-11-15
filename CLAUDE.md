@@ -320,7 +320,11 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    or access table goes in MAIN_TABLES and its raw SQL on the main engine. Each site database
    keeps a password-less copy of `users` (`site_db.mirror_users()`), so its tables can point at
    users. The RH-only views (rule 0) apply to the main database only. Outside a request
-   everything reads the main database unless inside `site_db.use_site(site_id)`.
+   everything reads the main database unless inside `site_db.use_site(site_id)`; a scheduled
+   job that produces something people read runs once per database with
+   `site_db.run_per_site()`. Procedure codes are shared (`site_db.SHARED_TABLES`): a route
+   that writes them is decorated `@shared_write` (writes the main database, then copies to
+   each site database); `sync_shared_tables()` runs every 15 minutes for the ETL's writes.
 
 ## Dev Workflow
 

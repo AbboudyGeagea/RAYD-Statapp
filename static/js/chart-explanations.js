@@ -528,6 +528,12 @@ const ChartExplanations = {
       valueMeaning: 'Each sentence compares the period with the comparison period (by default the same number of days just before). Arrows and percentages are the change between the two. The sentences come from fixed rules, not from AI.',
       interpretation: 'Compare periods of the same length and kind: a month with holidays against one without will show a drop that is not a trend.'
     },
+    'sr-sites': {
+      title: 'Sites side by side',
+      purpose: 'Rizk Hospital (RH) and Saint John (SJH) per modality for the same dates and filters, each read from its own database. Shown only to accounts that may open both sites.',
+      valueMeaning: 'Studies = distinct PACS studies on the site\'s own devices (modality from the device on that site\'s Mapping page). Patients = distinct patients. Median TAT = PACS arrival to report (last composed, else PACS final), for reported studies only. GB = image storage from that site\'s nightly storage summary.',
+      interpretation: 'Both sites are counted the same way, so a gap between them is real, not a difference of method. An AE title filter belongs to one site and empties the other.'
+    },
     'sr-volume': {
       title: 'Volume & Trends',
       purpose: 'How many Rizk Hospital studies were done in the period and how they spread over the days.',

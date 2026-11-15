@@ -87,7 +87,7 @@ only at weekends, which can add calendar time.
 | 10 | Modality "PACS" samples | Low | 0.25 | 0–1 | 0.25 | 0.5–1.5 | operator’s review |
 | 11 | Report start date setting — **done** | Low | 0.1 | 1 | 0.25 | 1–1.5 | — |
 | 12 | Chart explanations (~150 notes, 16 pages) — **done** | Low–Medium | 0.5 | 2.5–3.5 | 0.5 | 3.5–4.5 | — |
-| 13 | SJH database, all parts (13f roles and access **built**; 13a database and switch **built**, scheduling, shared procedures, comparisons left) | High | 3–4 | 14–18 | 2–3 | 19–25 | BRAYN on; site-ID walkthrough |
+| 13 | SJH database, all parts (13f roles and access **built**; 13a **built** but BRAYN routing by site) | High | 3–4 | 14–18 | 2–3 | 19–25 | BRAYN on; site-ID walkthrough |
 | 14 | Radiologist TAT and report counts on PACS | High | 2 | 4–5 | 1–2 | 7–9 | shares item 8’s PACS copy |
 
 Item 13 splits into: second database, per-request switch, migrations and SJH ETL (6–8);
@@ -369,16 +369,26 @@ read; radiologists approve or finalise (check both).
     - Per site by construction (each database has its own): AE mapping, settings (the Email
       Server page edits the picked site's mail server), Report Composer's saved reports,
       BRAYN tables, CRN set-up.
+    **13a, second part built 2026-11-15** (`tests/test_site_databases.py`), not deployed:
+    - Scheduled work per site (`site_db.run_per_site`): Report Composer's scheduled emails
+      and Report 37's monthly workbook run on each site's database, through that site's
+      mail server and recipients; the 05:30 Daily Briefing snapshot and the query-log purge
+      too. A failure on one site does not stop the other.
+    - Procedure codes shared (e.): the six procedure tables live on RH's database. Every
+      write goes there (the Mapping page's procedure edits, whatever site is picked; the
+      ETL), and each site database keeps an identical copy: copied right after a Mapping
+      change, checked every 15 minutes for the ETL's changes (a checksum, copied only when
+      it differs). AE mappings stay per site.
+    - Side by side per modality (b.): the Super Report shows "Sites side by side, per
+      modality" (studies, patients, median TAT, GB) and the Live Department board a
+      "Sites" panel (busy devices, waiting, done today, utilization), each site read from
+      its own database with the same definitions. Only for accounts holding both sites.
     **Left in 13a:**
-    - Scheduled sending per site: Report Composer schedules and Report 37's monthly
-      workbook still run on RH's database only (the scheduler runs no SJH pass).
-    - Procedure codes shared (e.): today each database has its own copy.
-    - RH vs SJH side by side per modality in the Super Report and the Live Department board
-      (b.).
+    - BRAYN routing each HL7 message to its site's database (d.): needs the operator's
+      walkthrough of where the site ID sits in each message. Until then HL7 data (BRAYN,
+      the Live board, CRN) stays on RH's database, so SJH's board is empty.
     - On SJH the ETL Control Room shows SJH's (empty) job history, but its triggers still run
       RH's ETL: SJH's own ETL comes with 13b.
-    - BRAYN routing each HL7 message to its site's database (d.): needs the operator's
-      walkthrough of where the site ID sits in each message.
 14. **Radiologists TAT and radiologists' number of reports: revamp and validate thoroughly;
     this is the selling point.** Source is PACS Oracle (rule above). Show both start clocks,
     RIS exam done and PACS insert time (`DIDB_STUDIES.INSERT_TIME`), because they disagree.
