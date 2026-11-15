@@ -95,6 +95,8 @@ def load(dsn, folder, manifest):
             local = {name: kind for name, kind, generated, _ in found if not generated}
             always_identity = any(ident for *_, ident in found)
             common = [c for c in t['columns'] if c in local]
+            if table == 'settings':                # matched on key; the id is the local one
+                common = [c for c in common if c != 'id']
             plan.append((table, t['columns'], common, local, always_identity))
 
         data_tables = [p[0] for p in plan if p[0] != 'settings']
@@ -118,9 +120,9 @@ def load(dsn, folder, manifest):
             else:
                 overriding = ' OVERRIDING SYSTEM VALUE' if always_identity else ''
                 cur.execute(f"INSERT INTO public.{q(table)} ({target}){overriding} SELECT {values} FROM _sample")
+            missing = [c for c in cols if c not in local]
             print(f"  {table:34s} {cur.rowcount:>9,} rows"
-                  + (f"   (skipped columns: {', '.join(c for c in cols if c not in local)})"
-                     if len(common) < len(cols) else ''))
+                  + (f"   (skipped columns: {', '.join(missing)})" if missing else ''))
             if 'id' in local:
                 cur.execute("SELECT pg_get_serial_sequence(%s, 'id')", (f'public.{table}',))
                 seq = cur.fetchone()[0]

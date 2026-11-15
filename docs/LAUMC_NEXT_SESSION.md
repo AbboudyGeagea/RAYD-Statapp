@@ -129,7 +129,8 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 25 | ER dashboard onto the one report UI (Report 38) — **done** | Low | 1–1.5 | — |
 | 26 | SJH census of RH's Postgres — **done** (run 2026-11-15) | Low | 0.25 | — |
 | 27 | Patient names outside the HL7 tables (`cd_print_log`) | Low | 0.25 | Monday check |
-| 28 | Local LAUMC stack and sample data from production — **done** | Low | — | optional export run |
+| 28 | Local LAUMC stack and sample data from production — **done** (October 1–14 loaded) | Low | — | — |
+| 29 | Cardiology purge (ETL Phase 2c) not running on production | Low | 0.25–0.5 | `RAYD_ETL_PHASES` and the ETL log |
 
 Item 25 is the ER dashboard only (operator, 2026-11-14): the ORU tab stays a standalone page,
 out of scope.
@@ -499,6 +500,9 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     Leave `POSTGRES_DB_SJH` unset until SJH's data is moved (13b). Then add Monday's
     test patients on the BRAYN console and check each placeholder record's "Reaches" count,
     and do item 13f's after-deploy steps (CHT accounts, one former viewer and tec).
+    **2026-11-15: production is already at migration 0153** (the sample's manifest), so the
+    code looks deployed; to confirm with the operator, then do the after-deploy steps above.
+    Item 6's "started" line still needs its fix (worklist_status_history is empty).
 25. **ER dashboard onto the one report UI** (CLAUDE.md rule 8). The ORU tab was taken out of
     scope (operator, 2026-11-14) and stays the standalone page `/oru`.
     **Done 2026-11-14**, not deployed: the ER dashboard is Report 38 (`routes/report_38.py`,
@@ -555,11 +559,37 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     `import_sample.py` loads it into a local stack only. With a sample, 13b's move can be
     rehearsed on the laptop first. Found on the way: the site lookup recursed ~1000 levels
     on every reload once a site database existed (fixed, with tests).
+    **Loaded 2026-11-15:** production's 1–14 October, pseudonymised (4,492 studies, 6,508
+    orders, 8,052 RIS reports, 4,416 ORU reports, 22,835 series, reference tables). Locally:
+    2,393 RH studies, 1,870 SJH, 52 with no site; Report 22 shows 2,363 RH studies for the
+    two weeks, Report 38 346 ER studies, SJH nothing until 13b moves its rows. The first
+    export hung on `hl7_oru_reports` (fixed). The sample showed production's settings: BRAYN
+    is on (`brayn_enabled`), CRN's hospital name reads **"Mazloum Hospital"** (item 20), and
+    production is at migration 0153 (item 24).
+29. **Cardiology purge not running on production.** ETL Phase 2c deletes the CARD-family
+    studies (`CARD`, `SJH_CARD`, `CARDUS`, `SJHCARD`) of the two shared gateways
+    (`SJHCSAPWFMFIR`, `LAUMCWFM2FIR`) every night. The October 1–14 sample still held 177
+    of them, all `SJH_CARD`, SJH, last loaded 11–24 October, and the local ETL purged them
+    at once. So on production 2c has not run since at least 24 October (likely
+    `RAYD_ETL_PHASES` set without it, or the nightly run stops before it). They are SJH rows
+    (RH reports never showed them), but they inflate SJH's census and 13b must not move them
+    (CARD is always dropped, 13c). **To check on the server (read-only):**
+    ```bash
+    grep RAYD_ETL_PHASES /opt/rayd/.env
+    sudo docker logs rayd_service 2>&1 | grep "Phase 2c" | tail -5
+    ```
+    ```sql
+    SELECT COUNT(*), MIN(study_date), MAX(study_date) FROM etl_didb_studies
+    WHERE UPPER(TRIM(storing_ae)) IN ('SJHCSAPWFMFIR', 'LAUMCWFM2FIR')
+      AND UPPER(TRIM(study_modality)) IN ('CARD', 'SJH_CARD', 'CARDUS', 'SJHCARD');
+    ```
 
 ## Low priority
 
 - **CRN go-live.** CRN is off (`crn_live_since` empty, provider "log"). It needs a real
-  provider and signed-off message wording before it is switched on.
+  provider and signed-off message wording before it is switched on. Also: production's
+  `crn_hospital_name` reads "Mazloum Hospital" (seen in the 2026-11-15 sample); set it to
+  LAUMC's name on the CRN settings page before going live.
 
 ## Very low priority — later, as a goodwill gesture (added 2026-11-14)
 

@@ -93,7 +93,9 @@ PLAN = [
     ('std_schedule_template_items', None), ('std_availability_indicators', None),
     ('std_device_weekly_availability', None), ('std_device_weekly_windows', None),
     ('worklist_status_map', None), ('financial_config', None), ('oru_diagnosis_vocabulary', None),
-    ('settings', "NOT (key ~* '(password|secret|token|licen[cs]e|oauth|smtp_|worklist_db_|api_key|served_site)')"),
+    # no secrets, no licence, and nothing that sends anywhere (HL7 forwarding, CRN gateway)
+    ('settings', "NOT (key ~* '(password|secret|token|licen[cs]e|oauth|smtp_|worklist_db_|api_key|served_site"
+                 "|hl7_forward|crn_gateway|crn_public|crn_live)')"),
     # PACS
     ('etl_patient_view', "patient_db_uid = ANY(%(patients)s::bigint[])"),
     ('etl_didb_studies', "study_db_uid = ANY(%(studies)s::bigint[])"),
