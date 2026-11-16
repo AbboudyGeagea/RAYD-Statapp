@@ -94,7 +94,7 @@ only at weekends, which can add calendar time.
 | 3 | Report 22 AE filter + stress test of all filters — **done** | Medium | 0.5 | 3–4 | 0.5 | 4–5 | — |
 | 4 | RIS room names everywhere — **built** | Medium | 0.5 | 3–4 | 0.5–1 | 4–5.5 | RIS data fixed after the Monday queries |
 | 5 | ORU severity on a standard | Medium | 1–2 | 2–3 | 1–2 | 4–7 | chief radiologist |
-| 6 | Report 27 hourly load, scheduled vs started — **built**, but "started" is empty on production | Low | 0.25 | 0.5–1 | 0.25 | 1–1.5 | which RIS time counts as started |
+| 6 | Report 27 hourly load, scheduled vs started — **done** ("started" = the RIS performed step's start) | Low | 0.25 | 0.5–1 | 0.25 | 1–1.5 | — |
 | 7 | Report 27 status mix check | Low–Medium | 0.5 | 0–2 | 0.5 | 1–3 | Tuesday session |
 | 8 | Super Report residents by wet read (PACS) | Medium–High | 1–1.5 | 2–2.5 | 0.5–1 | 3.5–5 | PACS timestamp check |
 | 9 | Staff who left, hidden from KPIs | Medium | 1 | 2.5–3 | 0.5 | 4–4.5 | Tuesday session; manager’s list |
@@ -121,16 +121,16 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 17 | R2I and BRAYN switch-on checks | Medium | 2 | feed live |
 | 18 | ORU final-only via BRAYN | Low–Medium | 2 | meaning of `FAP` or a prelim sample |
 | 19 | Placeholders via BRAYN — **done** (test patient IDs on Monday) | Low | 1.5–2 | — |
-| 20 | CRN go-live — **this month** (operator, 2026-11-15); SMS sender and hospital name **built** | Medium | 2–3 left | SMS account, gateway address, fallback contact, wording |
+| 20 | CRN go-live — **this month** (operator, 2026-11-15); email-to-SMS sender and hospital name **built** | Medium | 2–3 left | gateway address, Email Server, CRN gateway, fallback contact, wording |
 | 21 | Patient schedule lead time (very low) | Low–Medium | 2.5–3 | which moment counts as "booked" |
 | 22 | Daily Briefing snapshot RH only (found 2026-11-14) — **done** | Low | 1 | — (counts checked on the server) |
 | 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) — **done** | Low | 0.5–1 | — |
 | 24 | Deploy the 2026-11-14 and 2026-11-15 work (migrations 0148–0153) | Low | 0.5 | item 4's Monday check |
 | 25 | ER dashboard onto the one report UI (Report 38) — **done** | Low | 1–1.5 | — |
 | 26 | SJH census of RH's Postgres — **done** (run 2026-11-15) | Low | 0.25 | — |
-| 27 | Patient names outside the HL7 tables (`cd_print_log`) | Low | 0.25 | Monday check |
+| 27 | Patient names outside the HL7 tables (`cd_print_log`) — **done** (0 rows) | Low | 0.25 | — |
 | 28 | Local LAUMC stack and sample data from production — **done** (October 1–14 loaded) | Low | — | — |
-| 29 | Cardiology purge (ETL Phase 2c) not running on production | Low | 0.25–0.5 | `RAYD_ETL_PHASES` and the ETL log |
+| 29 | Cardiology purge (ETL Phase 2c) not running on production — cause found | Low | 0.25 | `.env` change on the server |
 
 Item 25 is the ER dashboard only (operator, 2026-11-14): the ORU tab stays a standalone page,
 out of scope.
@@ -261,9 +261,12 @@ read; radiologists approve or finalise (check both).
    that `worklist_status_history` holds `in_progress` rows, or the red line stays at 0. The
    "Busiest Day & Time" grid still counts scheduled orders.
    **Checked 2026-11-15 (census): `worklist_status_history` is empty on production** (0 rows:
-   it is filled from HL7 orders, and none arrive). So the red line would be 0. To fix before
-   deploy: take "started" from the RIS instead, most likely `std_pps.start_datetime` (the
-   performed step's start, 610,525 rows), to confirm with the operator.
+   it is filled from HL7 orders, and none arrive). So the red line would be 0.
+   **Fixed 2026-11-16** (operator: yes): "started" is the RIS performed step's start
+   (`std_pps.start_datetime`), reached from any of the order's worklist rows (scheduled,
+   arrivals, exam done), else the status history. On the local sample (production's 1–14
+   October): started exams peak at 10:00–12:00 (about 18 an hour); busiest weekday Tuesday
+   (203 a day). `tests/test_report_27_hourly.py`.
 7. **Report 27 Order Status Mix:** double-check session on both ends (Oracle and RAYD) on
    Tuesday 2026-11-17, mainly the scheduled status. Compare at the same cut-off time (RAYD
    copies nightly, Oracle is live). Last tied out 2026-09-18, see
@@ -543,7 +546,7 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     with no site go (today the RH views count them as RH); patients seen at both sites are
     copied, not moved; orders, RIS reports and visits are told apart by the RIS issuer, since
     their `site_id` columns are empty. Also found: `worklist_status_history` is empty on
-    production (item 6).
+    production (item 6, fixed).
 **Users per site (operator, 2026-11-15)** — already possible since 13f/13a, checked on the
 local stack with real accounts: (A) an RH user = role User, site RH: reads RH only, no site
 dropdown, SJH refused; (B) an SJH user = User, site SJH: reads SJH's database only (signs in
@@ -555,9 +558,8 @@ pages and reports ticked per site in its drawer.
 27. **Patient names in Postgres.** Four tables have a `patient_name` column (`hl7_orders`,
     `hl7_scn_studies`, `hl7_patients`, `cd_print_log`), and `hl7_orders.raw_message` and
     BRAYN's `hl7_message_archive` keep whole HL7 messages. **Operator, 2026-11-15: the HL7
-    tables are the only ones allowed to hold names.** Left: `cd_print_log` (the CD log
-    module was removed at LAUMC, so it is probably empty): count it (Monday section) and clear
-    it if not. The sample export (item 28) still never takes names, HL7 tables included.
+    tables are the only ones allowed to hold names.** `cd_print_log` counted 2026-11-16: no
+    name. **Done.** The sample export (item 28) still never takes names, HL7 tables included.
 28. **Local LAUMC stack and sample data.** **Done 2026-11-15** (`scripts/local_stack.md`):
     the laptop's Docker runs the LAUMC branch with two databases (`etl_db`, `etl_db_sjh`),
     the PACS connection pointed at `oracle-disabled.invalid` so its start-up ETL can never
@@ -578,37 +580,55 @@ pages and reports ticked per site in its drawer.
     studies (`CARD`, `SJH_CARD`, `CARDUS`, `SJHCARD`) of the two shared gateways
     (`SJHCSAPWFMFIR`, `LAUMCWFM2FIR`) every night. The October 1–14 sample still held 177
     of them, all `SJH_CARD`, SJH, last loaded 11–24 October, and the local ETL purged them
-    at once. So on production 2c has not run since at least 24 October (likely
-    `RAYD_ETL_PHASES` set without it, or the nightly run stops before it). They are SJH rows
+    at once. So on production 2c has not run since at least 24 October.
+    **Cause, 2026-11-16:** production's `.env` has
+    `RAYD_ETL_PHASES=1,2,2b,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,19` (left from a phased
+    backfill): 2c is not in it ("Phase 2c ... not in RAYD_ETL_PHASES, skipped" at 05:00), nor
+    18 (RIS device schedules, read by the capacity ladder, the AI report and the Live board:
+    schedule changes on the RIS have stopped reaching RAYD) nor 20 (`fact_exam`, read by no
+    page). **Fix:** add 2c and 18, recreate the app container (commands below); the next
+    05:00 run purges the CARD studies, as migration 0111 and 2c always did. They are SJH rows
     (RH reports never showed them), but they inflate SJH's census and 13b must not move them
-    (CARD is always dropped, 13c). **To check on the server (read-only):**
-    ```bash
-    grep RAYD_ETL_PHASES /opt/rayd/.env
-    sudo docker logs rayd_service 2>&1 | grep "Phase 2c" | tail -5
-    ```
+    (CARD is always dropped, 13c). **On the server:** first count what 2c will delete
+    (read-only), then change the line and recreate the container (`docker restart` does not
+    re-read `.env`):
     ```sql
     SELECT COUNT(*), MIN(study_date), MAX(study_date) FROM etl_didb_studies
     WHERE UPPER(TRIM(storing_ae)) IN ('SJHCSAPWFMFIR', 'LAUMCWFM2FIR')
       AND UPPER(TRIM(study_modality)) IN ('CARD', 'SJH_CARD', 'CARDUS', 'SJHCARD');
     ```
+    ```bash
+    sudo sed -i 's/^RAYD_ETL_PHASES=.*/RAYD_ETL_PHASES=1,2,2b,2c,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19/' /opt/rayd/.env
+    grep RAYD_ETL_PHASES /opt/rayd/.env
+    cd /opt/rayd && sudo docker compose up -d rayd-app
+    ```
+    Next morning: `sudo docker logs rayd_service 2>&1 | grep -E "Phase (2c|18)" | tail -5`.
 
 ## CRN go-live — this month (operator, 2026-11-15)
 
-CRN is off (`crn_live_since` empty, provider "log", nothing sent). **Built 2026-11-15**
+CRN is off (`crn_live_since` empty, provider "log", nothing sent). **Built 2026-11-15 and 2026-11-16**
 (`tests/test_crn_sms.py`), not deployed:
-- **A real SMS sender: e-tec SMS** (e-tecsms.com), ported from the Mazloum branch where CHT
-  runs it. Admin > CRN > Settings: provider, username, password (stored encrypted), sender
-  name; the readiness check names what is missing. One POST per batch of up to 50 numbers;
-  a refusal (answer starting ERR) is a failed send that the dispatcher retries. If LAUMC
-  uses another provider, it plugs in at `utils/crn_sms.send_sms`.
+- **LAUMC sends by email to SMS** (operator, 2026-11-16): one email per mobile to the
+  hospital's email-to-SMS gateway, through the site's Email Server (Administration > Email
+  Server, Microsoft 365 included). Admin > CRN > Settings, provider "Email to SMS": the
+  gateway address, with the mobile as {number} (70123456), {intl} (96170123456) or {e164}
+  (+96170123456), and an optional subject (for a fixed address that reads the number
+  there). The gateway's domain must be among the Email Server's allowed domains; saving
+  checks all of it, and the readiness panel shows where a sample mobile would be emailed.
+- **e-tec SMS** (e-tecsms.com), ported from the Mazloum branch where CHT runs it, stays
+  available but LAUMC does not use it: provider, username, password (stored encrypted),
+  sender name; one POST per batch of up to 50 numbers. Another provider plugs in at
+  `utils/crn_sms.send_sms`.
 - **The hospital name** on the page a doctor opens was "Mazloum Hospital" (migration 0132's
   seed, ported from Mazloum). Migration 0154 sets each database's own site name: "LAUMC -
   Rizk Hospital", and "LAUMC - Saint John" in SJH's database. A typed name stays.
 
 **To go live (in order):**
 1. Deploy (git pull, rebuild; migration 0154 runs).
-2. The SMS account: confirm e-tec for LAUMC, then username, password and a sender name
-   registered with e-tec (at most 11 characters, e.g. LAUMC).
+2. The email-to-SMS gateway: its address format from LAUMC IT (e.g. 70123456@... or a
+   fixed address with the number in the subject), the Email Server set up (Microsoft 365:
+   `docs/LAUMC_O365_EMAIL_SETUP.md`) with the gateway's domain in its allowed domains, then
+   provider "Email to SMS" on Admin > CRN > Settings.
 3. The CRN gateway (the page a doctor opens from the SMS): its address
    (`crn_public_base_url`), `crn_gateway_url` and API key, and IT's firewall rules
    (`docs/LAUMC_CRN_FIREWALL_REQUEST.md`).
