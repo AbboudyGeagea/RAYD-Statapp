@@ -121,7 +121,7 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 17 | R2I and BRAYN switch-on checks | Medium | 2 | feed live |
 | 18 | ORU final-only via BRAYN | Low–Medium | 2 | meaning of `FAP` or a prelim sample |
 | 19 | Placeholders via BRAYN — **done** (test patient IDs on Monday) | Low | 1.5–2 | — |
-| 20 | CRN go-live — **this month** (operator, 2026-11-15); email-to-SMS sender and hospital name **built** | Medium | 2–3 left | gateway address, Email Server, CRN gateway, fallback contact, wording |
+| 20 | CRN go-live — **this month** (operator, 2026-11-15); email-to-SMS sender and hospital name **built** | Medium | 2–3 left | Email Server, CRN gateway, fallback contact, wording |
 | 21 | Patient schedule lead time (very low) | Low–Medium | 2.5–3 | which moment counts as "booked" |
 | 22 | Daily Briefing snapshot RH only (found 2026-11-14) — **done** | Low | 1 | — (counts checked on the server) |
 | 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) — **done** | Low | 0.5–1 | — |
@@ -591,12 +591,10 @@ pages and reports ticked per site in its drawer.
     05:00 run purges the CARD studies, as migration 0111 and 2c always did. They are SJH rows
     (RH reports never showed them), but they inflate SJH's census and 13b must not move them
     (CARD is always dropped, 13c). **On the server:** first count what 2c will delete
-    (read-only), then change the line and recreate the container (`docker restart` does not
-    re-read `.env`):
-    ```sql
-    SELECT COUNT(*), MIN(study_date), MAX(study_date) FROM etl_didb_studies
-    WHERE UPPER(TRIM(storing_ae)) IN ('SJHCSAPWFMFIR', 'LAUMCWFM2FIR')
-      AND UPPER(TRIM(study_modality)) IN ('CARD', 'SJH_CARD', 'CARDUS', 'SJHCARD');
+    (read-only, through psql in the database container), then change the line and recreate
+    the container (`docker restart` does not re-read `.env`):
+    ```bash
+    sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT COUNT(*), MIN(study_date), MAX(study_date) FROM etl_didb_studies WHERE UPPER(TRIM(storing_ae)) IN ('SJHCSAPWFMFIR', 'LAUMCWFM2FIR') AND UPPER(TRIM(study_modality)) IN ('CARD', 'SJH_CARD', 'CARDUS', 'SJHCARD');"
     ```
     ```bash
     sudo sed -i 's/^RAYD_ETL_PHASES=.*/RAYD_ETL_PHASES=1,2,2b,2c,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19/' /opt/rayd/.env
@@ -626,10 +624,10 @@ CRN is off (`crn_live_since` empty, provider "log", nothing sent). **Built 2026-
 
 **To go live (in order):**
 1. Deploy (git pull, rebuild; migration 0154 runs).
-2. The email-to-SMS gateway: its address format from LAUMC IT (e.g. 70123456@... or a
-   fixed address with the number in the subject), the Email Server set up (Microsoft 365:
+2. The email-to-SMS gateway is LAUMC's own, already in use by another application (operator,
+   2026-11-16: no question to ask IT about it). Set up the Email Server (Microsoft 365:
    `docs/LAUMC_O365_EMAIL_SETUP.md`) with the gateway's domain in its allowed domains, then
-   provider "Email to SMS" on Admin > CRN > Settings.
+   provider "Email to SMS" and the gateway address on Admin > CRN > Settings.
 3. The CRN gateway (the page a doctor opens from the SMS): its address
    (`crn_public_base_url`), `crn_gateway_url` and API key, and IT's firewall rules
    (`docs/LAUMC_CRN_FIREWALL_REQUEST.md`).
