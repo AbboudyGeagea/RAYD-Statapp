@@ -130,7 +130,7 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 26 | SJH census of RH's Postgres — **done** (run 2026-11-15) | Low | 0.25 | — |
 | 27 | Patient names outside the HL7 tables (`cd_print_log`) — **done** (0 rows) | Low | 0.25 | — |
 | 28 | Local LAUMC stack and sample data from production — **done** (October 1–14 loaded) | Low | — | — |
-| 29 | Cardiology purge (ETL Phase 2c) not running on production — cause found | Low | 0.25 | `.env` change on the server |
+| 29 | Cardiology purge (ETL Phase 2c) not running on production — `.env` fixed 2026-11-16 (1,036 studies to purge) | Low | 0.25 | 05:00 run on 2026-11-17, then the log check |
 
 Item 25 is the ER dashboard only (operator, 2026-11-14): the ORU tab stays a standalone page,
 out of scope.
@@ -588,7 +588,12 @@ pages and reports ticked per site in its drawer.
     18 (RIS device schedules, read by the capacity ladder, the AI report and the Live board:
     schedule changes on the RIS have stopped reaching RAYD) nor 20 (`fact_exam`, read by no
     page). **Fix:** add 2c and 18, recreate the app container (commands below); the next
-    05:00 run purges the CARD studies, as migration 0111 and 2c always did. They are SJH rows
+    05:00 run purges the CARD studies, as migration 0111 and 2c always did.
+    **Counted on production 2026-11-16:** 1,036 CARD gateway studies, study dates
+    2026-07-28 to 2026-11-13, so 2c has been off since about late July and new ones still
+    arrive every day. The `.env` change was made the same day; recreating the container
+    starts no ETL (that happens only when a table is empty), so 2c first runs at 05:00 on
+    2026-11-17. They are SJH rows
     (RH reports never showed them), but they inflate SJH's census and 13b must not move them
     (CARD is always dropped, 13c). **On the server:** first count what 2c will delete
     (read-only, through psql in the database container), then change the line and recreate
