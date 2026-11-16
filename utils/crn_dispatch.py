@@ -46,6 +46,7 @@ DEFAULTS = {
     'crn_link_ttl_hours': '72', 'crn_fallback_code': '', 'crn_public_base_url': '',
     'crn_sms_provider': 'log', 'crn_sms_template': DEFAULT_TEMPLATE,
     'crn_sms_username': '', 'crn_sms_password': '', 'crn_sms_sender': '',
+    'crn_sms_email_to': '', 'crn_sms_email_subject': '',
     'crn_gateway_url': '', 'crn_gateway_api_key': '', 'crn_gateway_event_cursor': '0',
     'crn_hospital_name': '', 'crn_page_footer': '',
 }

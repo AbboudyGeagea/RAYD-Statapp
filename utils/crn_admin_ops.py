@@ -18,7 +18,8 @@ from utils import crn_dispatch as dispatch
 from utils import crn_gateway_client as gateway
 from utils.crypto import decrypt, encrypt
 from utils.crn_contacts import normalize_phone
-from utils.crn_sms import PROVIDERS as SMS_PROVIDERS, etec_configured, send_sms
+from utils.crn_sms import (PROVIDERS as SMS_PROVIDERS, SAMPLE_MOBILE, email_problem, email_target,
+                           etec_configured, send_sms)
 
 OPEN_STATUSES = ('detected', 'sent', 'overdue', 'unroutable', 'send_failed')
 STATUS_LABELS = {
@@ -98,6 +99,12 @@ def save_settings(form):
         "SELECT 1 FROM settings WHERE key = 'crn_sms_password' AND value <> ''")).fetchone()))
     if provider == 'etec' and not (values['crn_sms_username'] and sender and has_password):
         errors.append('e-tec SMS needs a username, a password and a sender name.')
+    values['crn_sms_email_to'] = (form.get('crn_sms_email_to') or '').strip()[:200]
+    values['crn_sms_email_subject'] = (form.get('crn_sms_email_subject') or '').strip()[:120]
+    if provider == 'email':
+        problem = email_problem(values)
+        if problem:
+            errors.append(problem + '.')
 
     if errors:
         db.session.rollback()
@@ -142,6 +149,14 @@ def readiness(cfg, check_gateway=True):
         rows.append(('ok', 'SMS provider', f"e-tec SMS, sender {cfg['crn_sms_sender']}"))
     elif provider == 'etec':
         rows.append(('bad', 'SMS provider', 'e-tec SMS: username, password or sender name not set'))
+    elif provider == 'email':
+        problem = email_problem(cfg)
+        if problem:
+            rows.append(('bad', 'SMS provider', problem))
+        else:
+            address, subject = email_target(cfg, SAMPLE_MOBILE)
+            rows.append(('ok', 'SMS provider', f"email to SMS: {SAMPLE_MOBILE} is emailed to {address}"
+                                               + (f', subject "{subject}"' if subject else '')))
     else:
         rows.append(('bad', 'SMS provider', f'unknown provider {provider}'))
     db.session.rollback()

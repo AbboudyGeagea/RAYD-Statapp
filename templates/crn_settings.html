@@ -126,8 +126,20 @@
                                 {% if sms_password_set %}<label class="muted text-xs mt-1 inline-flex gap-2 items-center"><input type="checkbox" name="clear_sms_password"> remove the saved password</label>{% endif %}
                             </div>
                         </div>
+                        <h4 class="label mt-4">Email to SMS</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label class="label">Gateway address</label>
+                                <input name="crn_sms_email_to" value="{{ cfg.crn_sms_email_to }}" maxlength="200"
+                                       placeholder="{number}@sms.example.com" class="input-field font-mono"></div>
+                            <div><label class="label">Subject</label>
+                                <input name="crn_sms_email_subject" value="{{ cfg.crn_sms_email_subject }}" maxlength="120"
+                                       placeholder="empty, or e.g. {number} if the gateway reads it there" class="input-field font-mono"></div>
+                        </div>
+                        <p class="muted text-xs mt-3">Email to SMS: one email per mobile through the Email Server (Administration &gt; Email Server);
+                            the gateway turns it into an SMS. Write the mobile as {number} (70123456), {intl} (96170123456) or {e164} (+96170123456),
+                            in the address or the subject. The gateway's domain must be among the Email Server's allowed domains.</p>
                         <p class="muted text-xs mt-3">e-tec SMS: sent by POST to e-tecsms.com, up to 50 numbers per request. The password is stored encrypted.
-                            With e-tec selected, real phones are texted: the Test above, and every CRN while CRN is ON.</p>
+                            With e-tec or email to SMS selected, real phones are texted: the Test above, and every CRN while CRN is ON.</p>
                     </section>
 
                     <section class="card">
