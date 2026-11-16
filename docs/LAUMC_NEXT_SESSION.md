@@ -14,6 +14,52 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
   room names with the labels RAYD shows. Then a working session on the PACS audit table
   (item 2). Sessions start at 9:30.
 
+  **Item 2, finding the audit table that records opens** (PACS Oracle, a DBA login: RAYD's
+  account cannot see `AUDITING` or `AUDIT_OFFLINE`, checked 2026-11-05; run by a person in
+  SQL Developer, once). A–C read the data dictionary only, no load:
+  ```sql
+  -- A. the audit tables and their size
+  SELECT owner, table_name, num_rows, last_analyzed FROM dba_tables
+  WHERE owner IN ('AUDITING', 'AUDIT_OFFLINE') ORDER BY num_rows DESC NULLS LAST;
+
+  -- B. their columns
+  SELECT owner, table_name, column_name, data_type FROM dba_tab_columns
+  WHERE owner IN ('AUDITING', 'AUDIT_OFFLINE') ORDER BY owner, table_name, column_id;
+
+  -- C. time columns that lead an index (the only ones D reads)
+  SELECT ic.table_owner, ic.table_name, ic.column_name, ic.index_name
+  FROM dba_ind_columns ic
+  JOIN dba_tab_columns c ON c.owner = ic.table_owner AND c.table_name = ic.table_name
+                        AND c.column_name = ic.column_name
+  WHERE ic.table_owner IN ('AUDITING', 'AUDIT_OFFLINE') AND ic.column_position = 1
+    AND (c.data_type = 'DATE' OR c.data_type LIKE 'TIMESTAMP%');
+  ```
+  D, the live test: someone opens a known study in the PACS viewer; note the exact time, the
+  accession and the login. Within 5 minutes, count each audit table's rows of the last 10
+  minutes, through indexed time columns only:
+  ```sql
+  SET SERVEROUTPUT ON
+  DECLARE n NUMBER;
+  BEGIN
+    FOR c IN (SELECT DISTINCT ic.table_owner o, ic.table_name t, ic.column_name col
+              FROM dba_ind_columns ic
+              JOIN dba_tab_columns tc ON tc.owner = ic.table_owner AND tc.table_name = ic.table_name
+                                     AND tc.column_name = ic.column_name
+              WHERE ic.table_owner IN ('AUDITING', 'AUDIT_OFFLINE') AND ic.column_position = 1
+                AND (tc.data_type = 'DATE' OR tc.data_type LIKE 'TIMESTAMP%')) LOOP
+      BEGIN
+        EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM "' || c.o || '"."' || c.t || '" WHERE "' || c.col
+                          || '" > SYSDATE - 10/1440' INTO n;
+        IF n > 0 THEN DBMS_OUTPUT.PUT_LINE(c.o || '.' || c.t || '.' || c.col || ': ' || n); END IF;
+      EXCEPTION WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE(c.o || '.' || c.t || ': ' || SQLERRM);
+      END;
+    END LOOP;
+  END;
+  /
+  ```
+  E. For each table D names: `SELECT * FROM <owner>.<table> WHERE <column> > SYSDATE - 10/1440
+  ORDER BY <column>;` and look for the open: accession or study UID, login, time.
+
   RIS Oracle (the query `ETL_JOBS/etl_ris_modality.py` runs; `ORDER BY` added for reading):
   ```sql
   SELECT m.MODALITY_KEY, m.AE_TITLE, m.CODE, m.DESCRIPTION, m.STATION_NAME,
