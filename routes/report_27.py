@@ -263,9 +263,10 @@ def get_report_data(start, end):
             s.storing_ae,
             -- the device's RIS room name, else its AE title (utils.ae_display)
             COALESCE(dev.label, s.storing_ae) AS ae_label,
-            -- when the exam reached RIS status Started (stage in_progress), for the
-            -- hourly load (meeting of 2026-11-13, item 6)
-            st.started_at,
+            -- when the exam started, for the hourly load (meeting of 2026-11-13, item 6):
+            -- the RIS performed step's start (std_pps.start_datetime, reached through the
+            -- order's worklist rows), else the status history's in_progress time
+            COALESCE(ps.started_at, st.started_at) AS started_at,
             s.procedure_code,
             p.birth_date,
             p.gender_code AS sex,
@@ -292,6 +293,19 @@ def get_report_data(start, end):
             LIMIT 1
         ) m ON TRUE
         {ae_label_join_sql('s.storing_ae')}
+        -- The performed step's start (operator, 2026-11-16). worklist_status_history,
+        -- the first source, is filled from HL7 orders, and none reach LAUMC: on production
+        -- it held no row at all (census of 2026-11-15), so the red line was 0. The step is
+        -- linked from any of the order's worklist rows (the scheduled row alone carries it
+        -- for about half the orders; exam done for every one).
+        LEFT JOIN LATERAL (
+            SELECT MIN(p.start_datetime) AS started_at
+            FROM std_pps p
+            WHERE p.pps_key IN (
+                SELECT w.pps_key FROM std_worklist_scheduled w WHERE w.site_worklist_key = o.order_dbid
+                UNION SELECT w.pps_key FROM std_worklist_arrivals w WHERE w.site_worklist_key = o.order_dbid
+                UNION SELECT w.pps_key FROM std_worklist_exam_done w WHERE w.site_worklist_key = o.order_dbid)
+        ) ps ON TRUE
         LEFT JOIN LATERAL (
             SELECT MIN(COALESCE(h.source_time, h.captured_at)) AS started_at
             FROM worklist_status_history h
@@ -337,7 +351,8 @@ def _days_in(start, end):
 
 def _hourly_load(df, start, end):
     """Meeting of 2026-11-13, item 6: per hour of the day, the average per day over the
-    range of exams scheduled (blue) and exams started on the RIS (red, status Started)."""
+    range of exams scheduled (blue) and exams started (red: the RIS performed step's start,
+    else the status history's Started)."""
     days = _days_in(start, end)
     def per_hour(col):
         hours = pd.to_datetime(df[col], errors='coerce').dropna().dt.hour.value_counts()

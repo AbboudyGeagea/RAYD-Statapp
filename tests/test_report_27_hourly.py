@@ -1,7 +1,7 @@
 """
 tests/test_report_27_hourly.py — item 6 of the meeting of 2026-11-13: Report 27's hourly
 load shows, per hour, the average per day over the range of exams scheduled and exams
-started (RIS status Started), and the busiest day is counted on started exams, Monday to
+started (the RIS performed step's start, else status Started), and the busiest day is counted on started exams, Monday to
 Friday ranked, Saturday and Sunday apart.
 """
 import pytest
@@ -24,7 +24,28 @@ def sql(statement, **params):
     db.session.commit()
 
 
-def test_started_time_comes_from_the_ris_status_history():
+def test_started_time_comes_from_the_ris_performed_step():
+    """Production has no status history (census of 2026-11-15): the performed step's start
+    (std_pps.start_datetime) counts, reached from any of the order's worklist rows, and it
+    wins over the status history when both exist (operator, 2026-11-16)."""
+    from routes.report_27 import get_report_data
+    sql("""INSERT INTO etl_orders (order_dbid, accession_number, order_status, scheduled_datetime)
+           VALUES (11, 'B1', 'CM', '2026-11-02 09:00'), (12, 'B2', 'CM', '2026-11-02 10:00'),
+                  (13, 'B3', 'SC', '2026-11-02 11:00')""")
+    sql("""INSERT INTO std_pps (pps_key, start_datetime) VALUES (501, '2026-11-02 09:25'), (502, '2026-11-02 10:35')""")
+    sql("""INSERT INTO std_worklist_exam_done (site_worklist_key, pps_key, exam_done_at)
+           VALUES (11, 501, '2026-11-02 09:50')""")
+    sql("""INSERT INTO std_worklist_scheduled (site_worklist_key, pps_key, scheduled_at)
+           VALUES (12, 502, '2026-11-02 10:00')""")
+    sql("""INSERT INTO worklist_status_history (site_worklist_key, stage, source_time)
+           VALUES (11, 'in_progress', '2026-11-02 09:40')""")
+    df = get_report_data('2026-11-02', '2026-11-02').set_index('order_dbid')
+    assert str(df.loc[11, 'started_at']) == '2026-11-02 09:25:00'   # the step, not the history
+    assert str(df.loc[12, 'started_at']) == '2026-11-02 10:35:00'   # found from the scheduled row
+    assert pd.isna(df.loc[13, 'started_at'])                       # never started
+
+
+def test_started_time_falls_back_to_the_ris_status_history():
     from routes.report_27 import get_report_data
     sql("""INSERT INTO etl_orders (order_dbid, accession_number, order_status, scheduled_datetime)
            VALUES (1, 'A1', 'CM', '2026-11-02 09:00'), (2, 'A2', 'SC', '2026-11-02 10:00')""")
