@@ -14,7 +14,9 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
   room names with the labels RAYD shows. Then a working session on the PACS audit table
   (item 2). Sessions start at 9:30.
 
-  **Item 2, finding the audit table that records opens** (PACS Oracle, a DBA login: RAYD's
+  **Item 2, finding the audit table that records opens.** First, with any login:
+  `scripts/sql/pacs_first_open_finder.sql` (open an old study, then it searches every table's
+  rows of the last 20 minutes for that accession and login). Then, if needed (PACS Oracle, a DBA login: RAYD's
   account cannot see `AUDITING` or `AUDIT_OFFLINE`, checked 2026-11-05; run by a person in
   SQL Developer, once). A–C read the data dictionary only, no load:
   ```sql
