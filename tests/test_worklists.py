@@ -379,7 +379,19 @@ def test_scheduled_filter_reads_the_appointment_index(app):
     sql("""INSERT INTO etl_orders (order_dbid, scheduled_datetime, modality)
            SELECT g, CAST(:t AS timestamp) - (g % 400) * INTERVAL '1 day', 'CT'
              FROM generate_series(1, 2000) g""", t=MIDNIGHT + timedelta(minutes=1))
+    # Other exams' RIS transitions: an analysed empty table costs 0 to scan, and whether an
+    # earlier test or autovacuum left it analysed decided the plan (full suite, 2026-11-16).
+    for table, col in (('scheduled', 'scheduled_at'), ('arrivals', 'arrived_at'),
+                       ('exam_done', 'exam_done_at')):
+        sql(f"""INSERT INTO std_worklist_{table} (site_worklist_key, pps_key, {col})
+                SELECT 100000 + g, 100000 + g, CAST(:t AS timestamp) - g * INTERVAL '1 hour'
+                  FROM generate_series(1, 2000) g""", t=MIDNIGHT)
+    sql("""INSERT INTO std_worklist_cancellations (site_worklist_key, status_key, cancelled_at)
+           SELECT 100000 + g, 50, CAST(:t AS timestamp) - g * INTERVAL '1 hour'
+             FROM generate_series(1, 2000) g""", t=MIDNIGHT)
     sql('ANALYZE etl_orders')
+    for table in ('scheduled', 'arrivals', 'exam_done', 'cancellations'):
+        sql(f'ANALYZE std_worklist_{table}')
     c = engine.compile_definition({'dataset': 'exams',
                                    'criteria': {'scheduled_at': {'mode': 'quick', 'quick': 'today'}},
                                    'output': {'kind': 'table', 'measures': ['count']}})
