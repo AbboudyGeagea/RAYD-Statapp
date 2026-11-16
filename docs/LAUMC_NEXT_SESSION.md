@@ -125,7 +125,7 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 21 | Patient schedule lead time (very low) | Low–Medium | 2.5–3 | which moment counts as "booked" |
 | 22 | Daily Briefing snapshot RH only (found 2026-11-14) — **done** | Low | 1 | — (counts checked on the server) |
 | 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) — **done** | Low | 0.5–1 | — |
-| 24 | Deploy the 2026-11-14 and 2026-11-15 work (migrations 0148–0153) | Low | 0.5 | item 4's Monday check |
+| 24 | Deploy: production at 0153; still to go 0154, CRN email to SMS, item 6 | Low | 0.5 | item 4's Monday check |
 | 25 | ER dashboard onto the one report UI (Report 38) — **done** | Low | 1–1.5 | — |
 | 26 | SJH census of RH's Postgres — **done** (run 2026-11-15) | Low | 0.25 | — |
 | 27 | Patient names outside the HL7 tables (`cd_print_log`) — **done** (0 rows) | Low | 0.25 | — |
@@ -505,7 +505,8 @@ R2I and BRAYN checks, ORU final-only, placeholders, CRN go-live, patient schedul
     and do item 13f's after-deploy steps (CHT accounts, one former viewer and tec).
     **2026-11-15: production is already at migration 0153** (the sample's manifest), so the
     code looks deployed; to confirm with the operator, then do the after-deploy steps above.
-    Item 6's "started" line still needs its fix (worklist_status_history is empty).
+    **Still to deploy (2026-11-16):** migration 0154 (CRN hospital name), CRN email to SMS,
+    item 6's "started" fix. A `git pull` and rebuild brings them all.
 25. **ER dashboard onto the one report UI** (CLAUDE.md rule 8). The ORU tab was taken out of
     scope (operator, 2026-11-14) and stays the standalone page `/oru`.
     **Done 2026-11-14**, not deployed: the ER dashboard is Report 38 (`routes/report_38.py`,
