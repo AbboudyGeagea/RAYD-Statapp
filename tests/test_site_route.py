@@ -1,0 +1,292 @@
+"""
+tests/test_site_route.py — SJH's rows into SJH's own database (item 13b, option A,
+ETL_JOBS/etl_site_route.py).
+
+The ETL reads both hospitals into RH's database; this job stores SJH's rows in SJH's
+database, matched on natural keys, verified, and only then deleted from RH. Rows with no
+site stay on RH, flagged; devices, catalogs and RIS patients stay on RH too.
+"""
+from datetime import datetime
+
+import pytest
+from sqlalchemy import text
+
+from ETL_JOBS import etl_site_route as route
+
+T = datetime(2026, 10, 5, 9, 0)
+RH, SJH = 1, 2
+
+# every table the job writes, children first, cleaned in both databases around each test
+DATA = ('hl7_oru_rule_cache', 'hl7_oru_analysis', 'ai_nlp_cache', 'crn_events', 'crn_recipients',
+        'crn_notifications', 'hl7_oru_reports', 'std_site_pps_ext', 'std_pps_person_reference', 'std_pps',
+        'std_patient_ids', 'std_patients_ris', 'std_visits', 'std_reports', 'worklist_status_history',
+        'std_worklist_scheduled', 'std_worklist_arrivals', 'std_worklist_exam_done', 'std_worklist_cancellations',
+        'etl_orders', 'fact_exam', 'cd_print_log', 'etl_pacs_audit_opens', 'study_access_history',
+        'etl_sticky_notes', 'etl_image_locations', 'etl_didb_raw_images', 'etl_didb_serieses',
+        'etl_didb_studies', 'etl_patient_view')
+CATALOGS = tuple(t.name for t in route.TABLES if t.where == 'TRUE')
+DEVICES = ('CT_RH_T', 'CT_SJ_T')
+
+
+def run(engine, statement, **params):
+    with engine.begin() as c:
+        return c.execute(text(statement), params)
+
+
+def rows(engine, statement, **params):
+    with engine.connect() as c:
+        return [tuple(r) for r in c.execute(text(statement), params)]
+
+
+def keys(engine, statement):
+    return sorted(r[0] for r in rows(engine, statement))
+
+
+def wipe(engine):
+    run(engine, f"TRUNCATE {', '.join(t for t in DATA if _exists(engine, t))} CASCADE")
+    for t in CATALOGS:
+        if _exists(engine, t):
+            run(engine, f"DELETE FROM {t}")
+    for t in ('device_weekly_schedule', 'aetitle_modality_map'):
+        run(engine, f"DELETE FROM {t} WHERE aetitle IN :d".replace(':d', str(DEVICES)))
+
+
+def _exists(engine, table):
+    return rows(engine, "SELECT to_regclass(:t) IS NOT NULL", t=f'public.{table}')[0][0]
+
+
+@pytest.fixture
+def dbs(app):
+    from db import db
+    from utils import site_db
+    with app.app_context():
+        main, sjh = db.engine, site_db.engine_for(site_db.each_site_id()[1])
+        assert rows(main, "SELECT id FROM sites WHERE code = 'SJH'")[0][0] == SJH
+        for e in (main, sjh):
+            wipe(e)
+        yield main, sjh
+        for e in (main, sjh):
+            wipe(e)
+
+
+def two_hospitals(main):
+    """RH study 101, SJH studies 201 and 202, study 301 with no site; patient 10 only at
+    SJH, patient 11 at both; an RH and an SJH order; ORU reports; PPS."""
+    run(main, """INSERT INTO aetitle_modality_map (aetitle, modality, site_id)
+                 VALUES ('CT_RH_T', 'CT', 1), ('CT_SJ_T', 'CT', 2)""")
+    run(main, "INSERT INTO device_weekly_schedule (aetitle, day_of_week, std_opening_minutes) VALUES ('CT_SJ_T', 0, 600)")
+    run(main, "INSERT INTO std_resources_ris (resource_id_key, first_name, last_name) VALUES (61, 'Rad', 'One')")
+    run(main, "INSERT INTO etl_patient_view (patient_db_uid, fallback_id) VALUES (10, 'P10'), (11, 'P11')")
+    run(main, """INSERT INTO etl_didb_studies (study_db_uid, patient_db_uid, site_id, accession_number, storing_ae,
+                                               study_instance_uid, study_date, report_status)
+                 VALUES (101, 11, 1, 'A101', 'CT_RH_T', '1.2.101', :d, 'APPROVED'),
+                        (201, 10, 2, 'A201', 'CT_SJ_T', '1.2.201', :d, 'WETREAD'),
+                        (202, 11, 2, 'A202', 'CT_SJ_T', '1.2.202', :d, NULL),
+                        (301, 11, NULL, 'A301', 'UNKNOWN', '1.2.301', :d, NULL)""", d=T.date())
+    run(main, """INSERT INTO etl_didb_serieses (series_db_uid, study_db_uid) VALUES (1011, 101), (2011, 201)""")
+    run(main, """INSERT INTO etl_didb_raw_images (raw_image_db_uid, patient_db_uid, study_db_uid, series_db_uid,
+                                                  study_instance_uid, series_instance_uid)
+                 VALUES (90201, 10, 201, 2011, '1.2.201', '1.2.201.1'), (90101, 11, 101, 1011, '1.2.101', '1.2.101.1')""")
+    run(main, "INSERT INTO etl_image_locations (raw_image_db_uid, image_size_kb) VALUES (90201, 512), (90101, 256)")
+    run(main, """INSERT INTO etl_sticky_notes (data_db_uid, study_db_uid, user_name, date_created)
+                 VALUES (9001, 201, 'res.one@ad', :t)""", t=T)
+    run(main, """INSERT INTO etl_orders (order_dbid, order_control, accession_number, study_db_uid, visit_dbid, patient_dbid)
+                 VALUES (5101, 'SAP_PROD', 'A101', 101, 7101, '8101'),
+                        (5201, 'SAP_SJH', 'A201', 201, 7001, '8001')""")
+    run(main, """INSERT INTO std_worklist_exam_done (site_worklist_key, exam_done_at) VALUES (5101, :t), (5201, :t)""", t=T)
+    run(main, """INSERT INTO std_reports (report_key, version, reported_acc_number, verified1_date)
+                 VALUES (61, 1, 'A201', :t), (62, 1, 'A101', :t)""", t=T)
+    run(main, "INSERT INTO std_visits (visit_key) VALUES (7001), (7101)")
+    run(main, "INSERT INTO std_patients_ris (patient_person_key) VALUES (8001), (8101)")
+    run(main, "INSERT INTO std_patient_ids (patient_id_list_key, patient_person_key, patient_id) VALUES (80011, 8001, 'S1')")
+    run(main, """INSERT INTO std_pps (pps_key, study_db_uid, performing_ae_title)
+                 VALUES (6201, 201, 'CT_SJ_T'), (6202, 101, 'CT_SJ_T'), (6101, 101, 'CT_RH_T')""")
+    run(main, """INSERT INTO hl7_oru_reports (accession_number, report_text, site_id)
+                 VALUES ('A101', 'rh report', 1), ('A201', 'sjh report', 2), ('A999', 'no site', NULL)""")
+    run(main, """INSERT INTO hl7_oru_analysis (report_id, is_critical)
+                 SELECT id, accession_number = 'A201' FROM hl7_oru_reports WHERE accession_number IN ('A101', 'A201')""")
+    run(main, """INSERT INTO ai_nlp_cache (source_id, classification)
+                 SELECT id, 'normal' FROM hl7_oru_reports WHERE accession_number = 'A201'""")
+
+
+def move(main, sjh, **kw):
+    return route.route_site(main, sjh, SJH, **{'delete': True, 'images': True, 'first_time': True, **kw})
+
+
+def test_the_move_puts_sjh_in_its_database_and_leaves_rh_alone(dbs):
+    main, sjh = dbs
+    two_hospitals(main)
+
+    report = move(main, sjh)
+
+    assert report['verified'] and report['deleted'] and not report['blocked']
+    assert keys(sjh, "SELECT study_db_uid FROM etl_didb_studies") == [201, 202]
+    assert keys(main, "SELECT study_db_uid FROM etl_didb_studies") == [101, 301]
+    assert keys(sjh, "SELECT series_db_uid FROM etl_didb_serieses") == [2011]
+    assert keys(main, "SELECT series_db_uid FROM etl_didb_serieses") == [1011]
+    assert keys(sjh, "SELECT raw_image_db_uid FROM etl_image_locations") == [90201]
+    assert keys(main, "SELECT raw_image_db_uid FROM etl_didb_raw_images") == [90101]
+    assert keys(sjh, "SELECT data_db_uid FROM etl_sticky_notes") == [9001]
+    assert keys(main, "SELECT COUNT(*) FROM etl_sticky_notes") == [0]
+    assert keys(sjh, "SELECT order_dbid FROM etl_orders") == [5201]
+    assert keys(main, "SELECT order_dbid FROM etl_orders") == [5101]
+    assert keys(sjh, "SELECT site_worklist_key FROM std_worklist_exam_done") == [5201]
+    assert keys(main, "SELECT site_worklist_key FROM std_worklist_exam_done") == [5101]
+    assert keys(sjh, "SELECT report_key FROM std_reports") == [61]
+    assert keys(main, "SELECT report_key FROM std_reports") == [62]
+    assert keys(sjh, "SELECT accession_number FROM hl7_oru_reports") == ['A201']
+    assert keys(main, "SELECT accession_number FROM hl7_oru_reports") == ['A101', 'A999']
+
+
+def test_oru_children_find_their_report_by_accession(dbs):
+    main, sjh = dbs
+    two_hospitals(main)
+    run(sjh, "INSERT INTO hl7_oru_reports (accession_number, report_text) VALUES ('X1', 'own row')")  # ids differ
+
+    move(main, sjh)
+
+    sjh_id = rows(sjh, "SELECT id FROM hl7_oru_reports WHERE accession_number = 'A201'")[0][0]
+    assert rows(sjh, "SELECT report_id, is_critical FROM hl7_oru_analysis") == [(sjh_id, True)]
+    assert rows(sjh, "SELECT source_id FROM ai_nlp_cache") == [(sjh_id,)]
+    assert rows(main, "SELECT COUNT(*) FROM hl7_oru_analysis") == [(1,)]       # A101's stays
+
+
+def test_patients_and_visits_stay_on_rh_while_rh_still_uses_them(dbs):
+    main, sjh = dbs
+    two_hospitals(main)
+
+    move(main, sjh)
+
+    assert keys(sjh, "SELECT patient_db_uid FROM etl_patient_view") == [10, 11]
+    assert keys(main, "SELECT patient_db_uid FROM etl_patient_view") == [11]          # 11 also has RH studies
+    assert keys(sjh, "SELECT visit_key FROM std_visits") == [7001]
+    assert keys(main, "SELECT visit_key FROM std_visits") == [7101]
+    assert keys(sjh, "SELECT patient_person_key FROM std_patients_ris") == [8001]
+    assert keys(main, "SELECT patient_person_key FROM std_patients_ris") == [8001, 8101]  # RIS patients stay
+    assert keys(sjh, "SELECT patient_id_list_key FROM std_patient_ids") == [80011]
+
+
+def test_devices_and_catalogs_are_copied_and_kept(dbs):
+    main, sjh = dbs
+    two_hospitals(main)
+
+    move(main, sjh)
+
+    assert rows(sjh, "SELECT aetitle, site_id FROM aetitle_modality_map WHERE aetitle IN ('CT_RH_T', 'CT_SJ_T')") \
+        == [('CT_SJ_T', SJH)]
+    assert rows(main, "SELECT COUNT(*) FROM aetitle_modality_map WHERE aetitle = 'CT_SJ_T'") == [(1,)]
+    assert rows(sjh, "SELECT std_opening_minutes FROM device_weekly_schedule WHERE aetitle = 'CT_SJ_T'") == [(600,)]
+    assert rows(sjh, "SELECT last_name FROM std_resources_ris") == [('One',)]
+
+
+def test_a_pps_on_an_sjh_device_for_an_rh_study_loses_its_link(dbs):
+    main, sjh = dbs
+    two_hospitals(main)
+
+    move(main, sjh)
+
+    assert rows(sjh, "SELECT pps_key, study_db_uid FROM std_pps ORDER BY pps_key") == [(6201, 201), (6202, None)]
+    assert rows(main, "SELECT pps_key, study_db_uid FROM std_pps") == [(6101, 101)]
+
+
+def test_rows_with_no_site_stay_on_rh_and_are_reported(dbs):
+    main, sjh = dbs
+    two_hospitals(main)
+
+    report = move(main, sjh)
+
+    assert report['no_site'] == {'studies': 1, 'oru_reports': 1}
+    assert keys(main, "SELECT study_db_uid FROM etl_didb_studies WHERE site_id IS NULL") == [301]
+
+
+def test_copy_only_deletes_nothing(dbs):
+    main, sjh = dbs
+    two_hospitals(main)
+
+    report = route.route_site(main, sjh, SJH)
+
+    assert report['verified'] and not report['deleted']
+    assert keys(main, "SELECT study_db_uid FROM etl_didb_studies") == [101, 201, 202, 301]
+    assert keys(sjh, "SELECT study_db_uid FROM etl_didb_studies") == [201, 202]
+
+
+def test_the_next_night_updates_what_the_etl_read_again(dbs):
+    """The studies ETL re-reads the last 10 days, so a moved study comes back to RH with
+    its new values and a new series: SJH's copy is updated, not duplicated."""
+    main, sjh = dbs
+    two_hospitals(main)
+    move(main, sjh)
+    run(main, """INSERT INTO etl_didb_studies (study_db_uid, patient_db_uid, site_id, accession_number, storing_ae,
+                                               study_instance_uid, study_date, report_status)
+                 VALUES (201, 10, 2, 'A201', 'CT_SJ_T', '1.2.201', :d, 'APPROVED')""", d=T.date())
+    run(main, "INSERT INTO etl_didb_serieses (series_db_uid, study_db_uid) VALUES (2012, 201)")
+    run(main, "INSERT INTO hl7_oru_reports (accession_number, report_text, site_id) VALUES ('A201', 'final text', 2)")
+
+    report = route.route_site(main, sjh, SJH, delete=True, images=True, lock=False)
+
+    assert report['verified'] and report['deleted']
+    assert rows(sjh, "SELECT report_status FROM etl_didb_studies WHERE study_db_uid = 201") == [('APPROVED',)]
+    assert keys(sjh, "SELECT series_db_uid FROM etl_didb_serieses") == [2011, 2012]
+    assert rows(sjh, "SELECT report_text FROM hl7_oru_reports WHERE accession_number = 'A201'") == [('final text',)]
+    assert keys(sjh, "SELECT data_db_uid FROM etl_sticky_notes") == [9001]      # untouched by the update
+    assert keys(main, "SELECT study_db_uid FROM etl_didb_studies") == [101, 301]
+
+
+def test_nothing_moves_while_the_etl_runs(dbs):
+    main, sjh = dbs
+    two_hospitals(main)
+    with main.connect() as etl:
+        etl.execute(text("SELECT pg_advisory_lock(:k)"), {'k': route._ETL_SYNC_LOCK_ID})
+        try:
+            with pytest.raises(RuntimeError, match='ETL is running'):
+                move(main, sjh)
+        finally:
+            etl.execute(text("SELECT pg_advisory_unlock(:k)"), {'k': route._ETL_SYNC_LOCK_ID})
+    assert keys(sjh, "SELECT COUNT(*) FROM etl_didb_studies") == [0]
+
+
+def test_a_crn_row_keeps_its_oru_report_on_rh(dbs):
+    main, sjh = dbs
+    two_hospitals(main)
+    run(main, """INSERT INTO crn_notifications (ref_code, report_id, marker, report_fingerprint)
+                 SELECT 'R1', id, 'CRN', 'f' FROM hl7_oru_reports WHERE accession_number = 'A201'""")
+
+    report = move(main, sjh)
+
+    assert report['deleted'] and report['blocked']
+    assert keys(main, "SELECT accession_number FROM hl7_oru_reports") == ['A101', 'A201', 'A999']
+    assert keys(main, "SELECT study_db_uid FROM etl_didb_studies") == [101, 301]      # the rest moved
+
+
+def test_the_nightly_step_waits_for_the_one_time_move(dbs):
+    """Before the history is moved, a nightly run would copy every image: it is skipped,
+    and runs once the move has recorded itself."""
+    from ETL_JOBS import etl_runner
+    main, sjh = dbs
+    two_hospitals(main)
+    run(main, "DELETE FROM settings WHERE key = 'site_route_moved_SJH'")
+    failures = []
+
+    etl_runner._route_sites(main, failures)
+    assert failures == [] and keys(sjh, "SELECT COUNT(*) FROM etl_didb_studies") == [0]
+
+    route.record_moved(main, 'SJH', datetime.now())
+    etl_runner._route_sites(main, failures)
+    assert failures == [] and keys(sjh, "SELECT study_db_uid FROM etl_didb_studies") == [201, 202]
+    assert keys(main, "SELECT study_db_uid FROM etl_didb_studies") == [101, 301]
+    assert rows(main, "SELECT status FROM etl_job_log WHERE job_name = 'SITE_ROUTE_SJH' ORDER BY id DESC LIMIT 1") \
+        == [('SUCCESS',)]
+    run(main, "DELETE FROM settings WHERE key = 'site_route_moved_SJH'")
+
+
+def test_a_dry_run_counts_and_writes_nothing(dbs):
+    main, sjh = dbs
+    two_hospitals(main)
+
+    report = route.route_site(main, sjh, SJH, dry_run=True, images=True)
+
+    counts = {r['table']: r['selected'] for r in report['tables']}
+    assert counts['etl_didb_studies'] == 2 and counts['etl_orders'] == 1 and counts['hl7_oru_reports'] == 1
+    assert counts['std_pps'] == 2 and counts['etl_didb_raw_images'] == 1
+    assert keys(sjh, "SELECT COUNT(*) FROM etl_didb_studies") == [0]
+    assert keys(main, "SELECT COUNT(*) FROM etl_didb_studies") == [4]

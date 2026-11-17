@@ -289,6 +289,52 @@ def _resolve_study_sites(engine, failures):
         logger.error(f"🛑 Study sites not resolved — continuing: {_e}", exc_info=True)
 
 
+def _route_sites(engine, failures):
+    """SJH's rows (any site with its own database) into that database, Postgres only
+    (ETL_JOBS/etl_site_route.py). Off until POSTGRES_DB_<SITE> is set, and for a site until
+    its one-time move has been done (`python -m ETL_JOBS.etl_site_route --move`): the first
+    nightly run would otherwise copy the site's whole image history, which stays out
+    (operator, 2026-11-17). A failure shows in the sync's status and stops nothing."""
+    try:
+        from utils import site_db
+        if not site_db.has_site_databases():
+            return
+        from etl_site_route import route_site, moved_already
+        default = site_db.default_site_id()
+        sites = [s for s in site_db.each_site_id() if s != default]
+    except Exception as _e:
+        failures.append("Site route")
+        logger.error(f"🛑 Site route not started — continuing: {_e}", exc_info=True)
+        return
+    for sid in sites:
+        code = site_db.site_code(sid) or str(sid)
+        if not moved_already(engine, code):
+            logger.warning(f"⏸  Site route {code}: the one-time move has not been done yet — skipped")
+            continue
+        started = datetime.now()
+        try:
+            report = route_site(engine, site_db.engine_for(sid), sid, delete=True, images=True, lock=False)
+            moved = sum(r.get('deleted', 0) for r in report['tables'])
+            note = f"no site, kept on RH: {report['no_site']}" + (f"; {'; '.join(report['blocked'])}" if report['blocked'] else '')
+            status = 'SUCCESS' if report['verified'] else 'FAILED'
+            if not report['verified']:
+                failures.append(f"Site route {code} (not verified, nothing deleted)")
+            logger.info(f"✅ Site route {code} — {moved:,} rows moved; {note}")
+        except Exception as _e:
+            moved, status, note = 0, 'FAILED', str(_e)[:500]
+            failures.append(f"Site route {code}")
+            logger.error(f"🛑 Site route {code} failed — continuing: {_e}", exc_info=True)
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "INSERT INTO etl_job_log (job_name, status, start_time, end_time, records_processed, "
+                    "duration_seconds, error_message) VALUES (:n, :s, :t, now(), :r, :d, :e)"),
+                    {"n": f"SITE_ROUTE_{code}", "s": status, "t": started, "r": moved,
+                     "d": round((datetime.now() - started).total_seconds(), 2), "e": note})
+        except Exception as _le:
+            logger.error(f"Site route {code}: job log not written: {_le}")
+
+
 _ETL_SYNC_LOCK_ID = 872951065  # distinct from db_migrations.py's 872951064
 
 
@@ -889,6 +935,11 @@ def _perform_migration(engine):
         # ── Study sites, outside any phase: a phase that a RAYD_ETL_PHASES list omits never
         # runs, and a device moved on the Mapping screen should take effect the same night.
         _resolve_study_sites(engine, _phase_failures)
+
+        # ── Each site's rows into its own database (item 13b, option A): the run read both
+        # hospitals into this database; SJH's rows now go to SJH's, after every phase and
+        # the site resolution, so a study's series, RIS rows and ORU go with it.
+        _route_sites(engine, _phase_failures)
 
         # ── Mark overall sync SUCCESS (or PARTIAL if any phase failed but the
         # run still made it to the end — each phase is now isolated by its own

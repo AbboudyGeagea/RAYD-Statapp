@@ -33,6 +33,11 @@ utils/roles.py                  — the four roles (Super user, CHT, Administrat
 utils/site_db.py                — SJH in its own database (item 13a, rule 10): POSTGRES_DB_SJH,
                                    per-request routing (db.SiteSession), site switch, user copy
 db_bootstrap.py                 — loads init-db/schema.sql into an empty database (site DBs, tests)
+ETL_JOBS/etl_site_route.py      — item 13b: SJH's rows from RH's database into SJH's (natural keys,
+                                   verified, then deleted from RH); one-time move from the command
+                                   line, then the ETL's last step every night (off until the move
+                                   recorded itself). A new table holding site rows needs a line in
+                                   its TABLES list
 routes/site_controller.py       — POST /site/switch, the header's site dropdown
 routes/
   report_22.py                  — main radiology stats (date/modality/physician filters)
