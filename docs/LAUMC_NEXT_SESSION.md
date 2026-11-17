@@ -73,6 +73,20 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     are older accessions whose FAP may predate the archive: AAP is likely an amended report
     after approval. RAYD keeps the first ORU of an accession (fill-only), so an amendment's
     text never reaches the ORU tab: a decision for the operator.
+    **Explained (manager via operator, 17 Nov):** MRI exams are booked on the 3T and some are
+    done on the 1.5T without changing the RIS room: that is the 44 on the 1.5T scanner with the
+    3T room. The 59 the other way (booked 1.5T, done on the 3T) are the same habit reversed.
+    So the PACS AE title is the scanner, the RIS room is the booking: device figures follow
+    the PACS AE wherever it is a real device (rule for the item 4 build).
+    **SJH, laptop sample (confirm on production):** SJH's CT (RIS CM_CT_CMW_V1) has **no RIS
+    performed step at all**, yet every unlinked SJH CT study has its RIS order, completed (CM),
+    linked to the PACS study, with arrival and exam done recorded. What is missing is the
+    performed step: scan start/end, room and technologist, so SJH CT has no technician figures
+    (Report 35), no "started" in Report 27, no order-to-scan interval. A RIS workflow question
+    for SJH (does the CT technologist skip the performed step?), not a RAYD fault. SJH XA with
+    no accession (241 in 90 days), institution spelled "LAU MC - SJH": no RIS order at all,
+    likely the cath lab doing cardiology outside the radiology RIS (cardiology is out of scope;
+    Phase 2c purges only CARD-family modalities).
     **Plan for item 4 (next session):** (a) a link PACS AE → RIS room, proposed from that
     evidence (one RIS room for ≥ 90 % of a PACS AE's exams) and confirmed on the Mapping page,
     which the nightly RIS copy follows (~0.5–1 day); (b) gateways (LAUMCWFM1AR, LAUMCWFM2FIR,
@@ -249,6 +263,7 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 27 | Patient names outside the HL7 tables (`cd_print_log`) — **done** (0 rows) | Low | 0.25 | — |
 | 28 | Local LAUMC stack and sample data from production — **done** (October 1–14 loaded) | Low | — | — |
 | 29 | Cardiology purge (ETL Phase 2c) not running on production — **done** (1,036 purged on 17 Nov, count 0) | Low | 0.25 | — |
+| 30 | Amended reports (added 2026-11-17, operator): report ORU amendments (OBR-25 `AAP`, sent after the approval `FAP`) and how the critical status changes between the first signature and the amendment, for quality improvement. RAYD keeps only an accession's first ORU today. Proposed: amendments read from BRAYN's archive (every ORU since 3 Nov; the listener is not touched), each version analysed by the NLP worker, a numbered report (rule 8): amendment rate by radiologist and modality, time from approval to amendment, critical upgrades and downgrades, case list | Medium | 2–3 | where it shows (new report vs the ORU tab) |
 
 Item 25 is the ER dashboard only (operator, 2026-11-14): the ORU tab stays a standalone page,
 out of scope.
