@@ -138,7 +138,7 @@ only at weekends, which can add calendar time.
 | # | Item | Difficulty | Analysis | Build + tests | Validation | Total | Waits on |
 |---|---|---|---|---|---|---|---|
 | 1 | HIS vs RIS orders (Report 27) | Medium | 0.5–1 | 2–3 | 0.5–1 | 3–5 | Mirth ORM forwarding; RIS column for ORC-2 |
-| 2 | First open from PACS audit (due 2026-11-20) | High | 1–2 | 2–3 | 0.5–1 | 3.5–6 | audit table logs opens; JCI definition |
+| 2 | First open from PACS audit (due 2026-11-20) — audit found and proven, **built** 2026-11-17 | High | 1–2 | 2–3 | 0.5–1 | 3.5–6 | grant on `AUDITING.AUDIT_LOG`; deploy; regenerate Oct/Nov |
 | 3 | Report 22 AE filter + stress test of all filters — **done** | Medium | 0.5 | 3–4 | 0.5 | 4–5 | — |
 | 4 | RIS room names everywhere — **built** | Medium | 0.5 | 3–4 | 0.5–1 | 4–5.5 | RIS data fixed after the Monday queries |
 | 5 | ORU severity on a standard | Medium | 1–2 | 2–3 | 1–2 | 4–7 | chief radiologist |
@@ -242,8 +242,28 @@ read; radiologists approve or finalise (check both).
    analysed, probably the archived part). Readable as SYS (the operator's login), not by
    RAYD's account. Other log-like tables: `MEDISTORE.DIDB_STUDY_EVENTS` (8.0 M) and
    `_PREVIOUS` (11.7 M), the 14 event types, which have no open; `MEDILINK.SECM_SESSIONS`
-   (21,291, sign-ins). Next: AUDIT_LOG's columns and indexes, then the live open of
-   accession 1005003240136 by `trad` found in it.
+   (21,291, sign-ins).
+   **Proven 2026-11-17** (live open of accession 1005003240136 by `trad` at 08:33:04):
+   opening a study in the Vue PACS workstation writes, the same second, "Instances Used /
+   Modify" with tags LOCKED + the login, and "Instances Used / Access" "Access to N
+   instances" (images displayed); Vue Motion writes the Access row too. `EVENT_DATE` is
+   hospital time. History is complete: the same study's 2025 reading shows arrival 00:50,
+   first open roy.ibrahim 09:54:27, wet read (tag WETREAD) 09:59:26, approved and signed by
+   julie.ferzli 11:39:00, so items 8 and 14 can use this audit too. Indexed: LOG_DBID (PK),
+   EVENT_DATE, STUDY_INSTANCE_UID, UPPER(accession), USER_NAME, CATEGORY+SUB_CATEGORY,
+   ACTION. About 150,000 rows a day; the open + lock rows about 6,000.
+   **Built 2026-11-17** (not deployed): migration 0155 `etl_pacs_audit_opens`; nightly step
+   `ETL_JOBS/etl_pacs_audit.py` after the sticky notes (one day per query through
+   `AUDIT_EVENT_DATE_INX`, dates as text, never names/IDs/description; first night backfills
+   from `settings.pacs_audit_since`, default 2026-10-01, at most 62 days a night); Report 37
+   takes the first open or lock by a resident or radiologist (`utils/pacs_roles`) for every
+   study the copy covers, the nightly snapshot for earlier ones. Tests:
+   `tests/test_pacs_audit_etl.py`, `tests/test_report_37_audit_open.py`.
+   **To go live:** (1) the PACS DBA grants `SELECT ON AUDITING.AUDIT_LOG` to RAYD's PACS
+   account (`db_params`, name like oracle_PACS); (2) deploy; (3) after the next 05:00 run,
+   check `etl_job_log` job `PACS_AUDIT_OPENS_ETL` and the settings
+   `pacs_audit_copied_from/until`; (4) regenerate October and November from Report 37's
+   panel; (5) spot-check a few studies against the audit on Oracle.
 3. **Report 22: filtering on one or more AE titles shows 0.** Then stress-test every filter on
    every report so this bug does not come back.
    **AE part fixed 2026-11-14 (code + tests, no server needed).** Could not be reproduced
