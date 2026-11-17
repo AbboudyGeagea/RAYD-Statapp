@@ -257,13 +257,35 @@ def test_the_orders_pull_stores_the_ordering_organization(engine, monkeypatch):
     from ETL_JOBS import etl_orders
 
     pacs = FakeOracle([(5001, 77, 88, '100500001', 'CT01', 'CT Chest', NIGHT, 100, 'CT',
-                        'SAP_PROD', None, NIGHT, 4242)])
+                        'SAP_PROD', None, NIGHT, 4242, 'HIS-778899', NIGHT - timedelta(days=3))])
     monkeypatch.setattr(etl_orders, 'OracleConnector',
                         SimpleNamespace(get_connection=lambda source: pacs))
 
     etl_orders.run_orders_etl(engine, 'ris', 'etl_orders', chunked_upsert, GO_LIVE)
 
     assert 'ORDERING_ORGANIZATION_KEY' in pacs.sql
+    assert 'o.PLACER_ORDER_NUMBER' in pacs.sql and 'o.CREATED_ON_DATE' in pacs.sql
     with engine.connect() as conn:
-        assert conn.execute(text('SELECT ordering_organization_key FROM etl_orders '
-                                 'WHERE order_dbid = 5001')).scalar() == 4242
+        row = conn.execute(text('SELECT ordering_organization_key, placer_order_number, order_created_at '
+                                'FROM etl_orders WHERE order_dbid = 5001')).one()
+    # the HIS order number (ORC-2) and the booking time, migration 0160
+    assert tuple(row) == (4242, 'HIS-778899', NIGHT - timedelta(days=3))
+
+
+def test_orders_loaded_before_0160_get_their_his_number_and_booking_time_once(engine, monkeypatch):
+    from ETL_JOBS import etl_orders
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM settings WHERE key = 'orders_header_filled'"))
+        conn.execute(text("INSERT INTO etl_orders (order_dbid, accession_number) VALUES (6001, 'A1'), (6002, 'A2')"))
+    ris = FakeOracle([(6001, 'HIS-1', NIGHT), (6002, None, NIGHT - timedelta(days=1)), (9999, 'HIS-X', NIGHT)])
+    monkeypatch.setattr(etl_orders, 'OracleConnector', SimpleNamespace(get_connection=lambda source: ris))
+
+    assert etl_orders.fill_order_header(engine, 'ris', GO_LIVE) == 2
+    assert 'SITE_WORKLIST_KEY' in ris.sql and 'PATIENT' not in ris.sql.upper()
+    assert etl_orders.fill_order_header(engine, 'ris', GO_LIVE) == 0 and len(ris.statements) == 1
+
+    with engine.begin() as conn:
+        got = conn.execute(text("SELECT order_dbid, placer_order_number, order_created_at FROM etl_orders "
+                                "WHERE order_dbid IN (6001, 6002) ORDER BY 1")).all()
+        conn.execute(text("DELETE FROM settings WHERE key = 'orders_header_filled'"))
+    assert [tuple(r) for r in got] == [(6001, 'HIS-1', NIGHT), (6002, None, NIGHT - timedelta(days=1))]

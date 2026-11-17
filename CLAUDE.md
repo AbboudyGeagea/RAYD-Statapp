@@ -152,7 +152,11 @@ etl_didb_studies
   reading_physician_id BIGINT, reading_physician_first_name TEXT, reading_physician_last_name TEXT,
   referring_physician_first_name TEXT, referring_physician_last_name TEXT,
   rep_prelim_timestamp TIMESTAMP, patient_class TEXT, patient_location VARCHAR(3),
-  study_description TEXT, study_body_part TEXT, age_at_exam NUMERIC(5,2)
+  study_description TEXT, study_body_part TEXT, age_at_exam NUMERIC(5,2),
+  original_storing_ae VARCHAR(100)   -- the device behind a gateway (SJH's middleware
+                                     -- SJHCSAPWFMFIR keeps it; migration 0159). Cardiology devices
+                                     -- (EPIQCVX, AZURION) are skipped at extract and purged
+                                     -- (etl_didb_studies.CARDIOLOGY_AES, operator 2026-11-17)
 
 etl_patient_view
   patient_db_uid BIGINT PK, patient_id TEXT, patient_name TEXT, dob DATE, sex TEXT,
@@ -161,7 +165,10 @@ etl_patient_view
 etl_orders
   order_dbid BIGINT PK, patient_dbid TEXT, study_db_uid BIGINT,
   proc_id TEXT, proc_text TEXT, scheduled_datetime TIMESTAMP,
-  order_status TEXT, modality TEXT, has_study BOOL, order_control TEXT
+  order_status TEXT, modality TEXT, has_study BOOL, order_control TEXT,
+  placer_order_number TEXT (HIS order number = ORM ORC-2), order_created_at TIMESTAMP (booked;
+  RIS ORDERS.CREATED_ON_DATE) -- migration 0160, one row per RIS worklist row (SPS)
+  RIS steps (std_pps) link to PACS by study UID, else by this order's accession (etl_ris_pps.py)
 
 etl_didb_serieses       — DICOM series detail (series_db_uid, study_db_uid, modality, body_part_examined)
 etl_didb_raw_images     — DICOM image detail (raw_image_db_uid, study_db_uid, series_db_uid)

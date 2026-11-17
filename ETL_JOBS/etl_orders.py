@@ -211,6 +211,63 @@ _ENRICH_LINKED_FALLBACK_SQL = text("""
 """)
 
 
+# The order header's HIS order number (ORDERS.PLACER_ORDER_NUMBER = the HIS ORM's ORC-2, item 1:
+# HIS orders vs RIS exams) and booking time (ORDERS.CREATED_ON_DATE, item 21: "booked" =
+# CREATED_ON_DATE, operator 2026-11-17), migration 0160. The nightly pull carries both from now
+# on; the rows loaded before get them once, three columns per worklist row, then a setting
+# says it is done.
+_HEADER_DONE_KEY = 'orders_header_filled'
+_HEADER_BATCH = 5000
+
+
+def fill_order_header(pg_engine, oracle_source, go_live_date):
+    """Once: placer_order_number and order_created_at on the worklist rows loaded before
+    migration 0160. Returns the rows filled (0 when already done)."""
+    with pg_engine.begin() as conn:
+        done = conn.execute(text("SELECT value FROM settings WHERE key = :k"), {'k': _HEADER_DONE_KEY}).scalar()
+        missing = conn.execute(text(
+            "SELECT EXISTS (SELECT 1 FROM etl_orders WHERE placer_order_number IS NULL "
+            "AND order_created_at IS NULL)")).scalar()
+    if done == 'true':
+        return 0
+    filled = 0
+    if missing:
+        gd_str = go_live_date.strftime('%Y-%m-%d') if hasattr(go_live_date, 'strftime') else str(go_live_date)
+        ora = OracleConnector.get_connection(oracle_source)
+        cursor = ora.cursor()
+        try:
+            cursor.execute(f"""
+                SELECT w.SITE_WORKLIST_KEY, o.PLACER_ORDER_NUMBER, o.CREATED_ON_DATE
+                FROM {_WORKLIST_TABLE} w
+                JOIN {_ORDERS_TABLE} o ON o.ORDER_KEY = w.ORDER_KEY
+                WHERE o.ISSUER_OF_PLACER_ORDER_NUMBER IN ('SAP_PROD','SAP_SJH')
+                  AND o.CREATED_ON_DATE >= TO_DATE(:cutoff, 'YYYY-MM-DD')
+            """, {'cutoff': gd_str})
+            while True:
+                rows = cursor.fetchmany(_HEADER_BATCH)
+                if not rows:
+                    break
+                with pg_engine.begin() as conn:
+                    filled += conn.execute(text("""
+                        UPDATE etl_orders e
+                        SET placer_order_number = u.placer, order_created_at = u.created
+                        FROM unnest(CAST(:keys AS bigint[]), CAST(:placers AS text[]),
+                                    CAST(:created AS timestamp[])) AS u(k, placer, created)
+                        WHERE e.order_dbid = u.k
+                          AND e.placer_order_number IS NULL AND e.order_created_at IS NULL
+                    """), {'keys': [int(r[0]) for r in rows if r[0] is not None],
+                           'placers': [_safe_str(r[1]) for r in rows if r[0] is not None],
+                           'created': [_safe_date(r[2]) for r in rows if r[0] is not None]}).rowcount
+        finally:
+            cursor.close()
+            ora.close()
+    with pg_engine.begin() as conn:
+        conn.execute(text("INSERT INTO settings (key, value) VALUES (:k, 'true') "
+                          "ON CONFLICT (key) DO UPDATE SET value = 'true'"), {'k': _HEADER_DONE_KEY})
+    logging.info(f"Orders header filled on {filled:,} rows loaded before migration 0160")
+    return filled
+
+
 def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_live_date):
     job_name   = "ORDERS_ETL"
     start_time = datetime.now()
@@ -224,7 +281,8 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
         'order_dbid', 'patient_dbid', 'study_db_uid', 'visit_dbid',
         'study_instance_uid', 'proc_id', 'proc_text', 'scheduled_datetime',
         'order_status', 'status_key', 'modality', 'has_study', 'order_control',
-        'accession_number', 'linked_id', 'last_update', 'ordering_organization_key'
+        'accession_number', 'linked_id', 'last_update', 'ordering_organization_key',
+        'placer_order_number', 'order_created_at'
     ]
 
     try:
@@ -263,7 +321,9 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
             o.ISSUER_OF_PLACER_ORDER_NUMBER,
             w.LINKED_ID,
             w.LAST_UPDATE_DATE,
-            o.ORDERING_ORGANIZATION_KEY
+            o.ORDERING_ORGANIZATION_KEY,
+            o.PLACER_ORDER_NUMBER,
+            o.CREATED_ON_DATE
         FROM {_WORKLIST_TABLE} w
         JOIN {_ORDERS_TABLE} o     ON o.ORDER_KEY = w.ORDER_KEY
         LEFT JOIN {_SPS_CODE_TABLE} sc ON sc.SPS_CODE_KEY = w.SPS_CODE_KEY
@@ -296,7 +356,7 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
                 (site_worklist_key, patient_person_key, visit_key, sps_id,
                  proc_code, proc_text, scheduled_date, status_key,
                  modality_type, issuer, linked_id, last_update_date,
-                 ordering_organization_key) = row
+                 ordering_organization_key, placer_order_number, created_on_date) = row
 
                 if site_worklist_key is None:
                     skipped += 1
@@ -323,6 +383,8 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
                     linked_id,                                  # linked_id — enrichment fallback key
                     _safe_date(last_update_date) or datetime.now(),  # last_update
                     _safe_int(ordering_organization_key),       # department, Sticky Notes page (0144)
+                    _safe_str(placer_order_number),             # HIS order number = ORM ORC-2 (0160)
+                    _safe_date(created_on_date),                # when the order was booked (0160)
                 ))
 
             if clean_batch:

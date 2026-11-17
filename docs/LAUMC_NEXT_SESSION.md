@@ -354,6 +354,10 @@ read; radiologists approve or finalise (check both).
    comes first (until the RIS/PACS upgrade), so a RIS exam with no HIS order is highlighted at
    once, with no grace time. "Completed" = exam done for now. The tab starts on the day the
    order feed starts.
+   **2026-11-17:** the RIS column is `ORDERS.PLACER_ORDER_NUMBER` (already in the July RIS map,
+   `docs/LAUMC_RIS_TABLES.md`: "HL7 lifecycle key"). Built: `etl_orders.placer_order_number`
+   (migration 0160), copied nightly and once for older rows. Left: Mirth forwarding the ORMs,
+   then the Report 27 tab (2–3 days).
 2. **First open of a study (Report 37, JCI) — deadline 2026-11-20 for a final solution.** A
    Mirth channel (Mirth 3.3.1 on the PACS server, the operator configures it; upgrade to 4.4.1
    in 3-5 months) reads the PACS audit table on insert or update and sends RAYD a message.
@@ -1054,6 +1058,8 @@ The readiness panel on Admin > CRN > Settings shows each of these as ok / missin
   as a filter). Decide with the operator which moment counts as "booked": the order's
   creation, or the time the step first got a Scheduled status in the RIS status history
   (Phase 17 already reads that history for arrivals).
+  **Decided 2026-11-17:** booked = `ORDERS.CREATED_ON_DATE`. Built: `etl_orders.order_created_at`
+  (migration 0160), copied nightly and once for older rows. Left: the report (about 2 days).
 
 ---
 
