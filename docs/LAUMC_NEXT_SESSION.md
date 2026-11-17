@@ -161,7 +161,7 @@ only at weekends, which can add calendar time.
 | 12 | Chart explanations (~150 notes, 16 pages) — **done** | Low–Medium | 0.5 | 2.5–3.5 | 0.5 | 3.5–4.5 | — |
 | 13 | SJH database, all parts (13f roles and access **built**; 13a **built** but BRAYN routing by site) | High | 3–4 | 14–18 | 2–3 | 19–25 | BRAYN on; site-ID walkthrough |
 | 14 | Radiologist TAT and report counts on PACS | High | 2 | 4–5 | 1–2 | 7–9 | shares item 8’s PACS copy |
-| 14A | Radiologist TAT, two charts: RIS exam done → signature, PACS arrival → signature (added 2026-11-17) — **built** (Report 32) | Low–Medium | 0.25 | 1–1.5 | 0.5 | 1.75–2.25 | Oracle check of the ETL query; deploy; one night |
+| 14A | Radiologist TAT, two charts: RIS exam done → signature, PACS arrival → signature (added 2026-11-17) — **built**, ETL query checked on Oracle | Low–Medium | 0.25 | 1–1.5 | 0.5 | 1.75–2.25 | deploy; one night; spot-check |
 | 14B | Reporting time: first open → signature (added 2026-11-17) — **built** with 14A | Low | 0.1 | 0.5 | 0.25 | 0.75–1 | as 14A |
 
 Item 13 splits into: second database, per-request switch, migrations and SJH ETL (6–8);
@@ -656,9 +656,13 @@ read; radiologists approve or finalise (check both).
       chart 2 images reach PACS → signature (14A), chart 3 first open → signature from the
       first reader's open and from the signer's own (14B). Tests: `tests/test_sign_tat.py`,
       `tests/test_pacs_audit_etl.py`. Report 37 reads opens and locks only.
-      **To check on Oracle before relying on it** (operator rule): the ETL's query for one
-      day, counted per kind (message of 2026-11-17); then, after deploy and one night,
-      spot-check a few radiologists' medians against the audit.
+      **Checked on Oracle 2026-11-17** (the ETL's query for 16 Nov, per kind): approve 857
+      rows / 459 studies / 13 logins (= 469 PENDING APPROVED + 342 + 46 ApprovedSign rows);
+      wetread 421 / 400 / 16 logins, none without a login (the 273 rows with no user get it
+      from the tags); open 5,483 + lock 1,465 = 6,948, the timing count. Open's 131 logins
+      include clinicians on Vue Motion and the HIS account; the reports keep readers only.
+      **Next:** deploy (with item 2's check on Wed 18); after one night, spot-check a few
+      radiologists' medians on Report 32 against the audit.
     - **Plan:** Wed 18 – Thu 19, the Oracle proof query (which sign events exist, how many);
       after item 2 is live, build Mon 23 – Tue 24, validate against Oracle on random dates
       Wed 25, deploy Thu 26.
