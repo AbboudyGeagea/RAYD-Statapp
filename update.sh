@@ -134,9 +134,28 @@ for f in $(ls "$SCRIPT_DIR/migrations"/[0-9]*.sql 2>/dev/null | sort); do
 
     info "  Applying: $name"
     docker cp "$f" rayd_db:/tmp/rayd_migration.sql
-    MIGRATION_ERR=$(docker exec rayd_db psql -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$PG_DB" -f /tmp/rayd_migration.sql -q 2>&1 1>/dev/null) && MIGRATION_STATUS=0 || MIGRATION_STATUS=$?
-    if [ "$MIGRATION_STATUS" -eq 0 ]; then
-        pg_exec "INSERT INTO schema_migrations (name) VALUES ('${name}');" 2>/dev/null || true
+    # Under the app's own migration lock (db_migrations.py, advisory lock 872951064), checked
+    # again once held: the new container applies pending migrations at startup too, and on
+    # 2026-11-18 both ran 0163 (900k rows) at once, one waiting on the other. Whoever holds the
+    # lock applies it; the other then finds it recorded and skips it. psql exiting on an error
+    # ends the session, which releases the lock.
+    MIGRATION_ERR=$(docker exec -i rayd_db psql -X -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$PG_DB" -qtA 2>&1 <<SQL
+SELECT pg_advisory_lock(872951064);
+SELECT COUNT(*) = 0 AS pending FROM schema_migrations WHERE name = '${name}' \gset
+\if :pending
+\i /tmp/rayd_migration.sql
+INSERT INTO schema_migrations (name) VALUES ('${name}');
+SELECT 'RAYD_APPLIED';
+\else
+SELECT 'RAYD_ALREADY';
+\endif
+SELECT pg_advisory_unlock(872951064);
+SQL
+) && MIGRATION_STATUS=0 || MIGRATION_STATUS=$?
+    if [ "$MIGRATION_STATUS" -eq 0 ] && echo "$MIGRATION_ERR" | grep -q 'RAYD_ALREADY'; then
+        ok "  Already applied by the app: $name"
+        SKIPPED=$((SKIPPED+1))
+    elif [ "$MIGRATION_STATUS" -eq 0 ]; then
         ok "  Applied : $name"
         APPLIED=$((APPLIED+1))
     else
