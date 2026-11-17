@@ -148,7 +148,7 @@ only at weekends, which can add calendar time.
 | # | Item | Difficulty | Analysis | Build + tests | Validation | Total | Waits on |
 |---|---|---|---|---|---|---|---|
 | 1 | HIS vs RIS orders (Report 27) | Medium | 0.5–1 | 2–3 | 0.5–1 | 3–5 | Mirth ORM forwarding; RIS column for ORC-2 |
-| 2 | First open from PACS audit (due 2026-11-20) — audit found and proven, **built** 2026-11-17 | High | 1–2 | 2–3 | 0.5–1 | 3.5–6 | grant on `AUDITING.AUDIT_LOG`; deploy; regenerate Oct/Nov |
+| 2 | First open from PACS audit (due 2026-11-20) — audit found and proven, built, **deployed** 2026-11-17 | High | 1–2 | 2–3 | 0.5–1 | 3.5–6 | the 05:00 copy of 18 Nov; regenerate October |
 | 3 | Report 22 AE filter + stress test of all filters — **done** | Medium | 0.5 | 3–4 | 0.5 | 4–5 | — |
 | 4 | RIS room names everywhere — **built** | Medium | 0.5 | 3–4 | 0.5–1 | 4–5.5 | RIS data fixed after the Monday queries |
 | 5 | ORU severity on a standard | Medium | 1–2 | 2–3 | 1–2 | 4–7 | chief radiologist |
@@ -185,12 +185,12 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 | 21 | Patient schedule lead time (very low) | Low–Medium | 2.5–3 | which moment counts as "booked" |
 | 22 | Daily Briefing snapshot RH only (found 2026-11-14) — **done** | Low | 1 | — (counts checked on the server) |
 | 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) — **done** | Low | 0.5–1 | — |
-| 24 | Deploy: production at 0153; still to go 0154, CRN email to SMS, item 6 | Low | 0.5 | item 4's Monday check |
+| 24 | Deploy — **done** 2026-11-17 (`update.sh LAUMC`: 0154, 0155, CRN email to SMS, item 6, item 2) | Low | 0.5 | after-deploy: test patients on BRAYN (item 19) |
 | 25 | ER dashboard onto the one report UI (Report 38) — **done** | Low | 1–1.5 | — |
 | 26 | SJH census of RH's Postgres — **done** (run 2026-11-15) | Low | 0.25 | — |
 | 27 | Patient names outside the HL7 tables (`cd_print_log`) — **done** (0 rows) | Low | 0.25 | — |
 | 28 | Local LAUMC stack and sample data from production — **done** (October 1–14 loaded) | Low | — | — |
-| 29 | Cardiology purge (ETL Phase 2c) not running on production — `.env` fixed 2026-11-16 (1,036 studies to purge) | Low | 0.25 | 05:00 run on 2026-11-17, then the log check |
+| 29 | Cardiology purge (ETL Phase 2c) not running on production — **done** (1,036 purged on 17 Nov, count 0) | Low | 0.25 | — |
 
 Item 25 is the ER dashboard only (operator, 2026-11-14): the ORU tab stays a standalone page,
 out of scope.
@@ -271,11 +271,14 @@ read; radiologists approve or finalise (check both).
    takes the first open or lock by a resident or radiologist (`utils/pacs_roles`) for every
    study the copy covers, the nightly snapshot for earlier ones. Tests:
    `tests/test_pacs_audit_etl.py`, `tests/test_report_37_audit_open.py`.
-   **To go live:** (1) the PACS DBA grants `SELECT ON AUDITING.AUDIT_LOG` to RAYD's PACS
-   account (`db_params`, name like oracle_PACS); (2) deploy; (3) after the next 05:00 run,
-   check `etl_job_log` job `PACS_AUDIT_OPENS_ETL` and the settings
-   `pacs_audit_copied_from/until`; (4) regenerate October and November from Report 37's
-   panel; (5) spot-check a few studies against the audit on Oracle.
+   **Deployed 2026-11-17** (`update.sh LAUMC`, migration 0155 applied). No grant needed:
+   RAYD's PACS connection (`db_params.oracle_PACS`) signs in as **SYS**, which reads the
+   audit. (SYS for an application is a risk to raise with the operator later: a read-only
+   account with SELECT on the tables the ETL reads would be safer.) One night's read, the
+   ETL's exact query for 16 Nov: 6,948 rows on 2,357 studies. **Next:** after the 05:00 run
+   of 18 Nov (backfill from 1 Oct), check `etl_job_log` job `PACS_AUDIT_OPENS_ETL` (status,
+   rows, duration), the settings `pacs_audit_copied_from/until` and the rows per kind; then
+   regenerate October from Report 37's panel and spot-check a few studies on Oracle.
 3. **Report 22: filtering on one or more AE titles shows 0.** Then stress-test every filter on
    every report so this bug does not come back.
    **AE part fixed 2026-11-14 (code + tests, no server needed).** Could not be reproduced
@@ -710,7 +713,8 @@ pages and reports ticked per site in its drawer.
     2026-07-28 to 2026-11-13, so 2c has been off since about late July and new ones still
     arrive every day. The `.env` change was made the same day; recreating the container
     starts no ETL (that happens only when a table is empty), so 2c first runs at 05:00 on
-    2026-11-17. They are SJH rows
+    2026-11-17. **Done:** counted 0 on 2026-11-17 after that run, and the deploy the same
+    day kept `2c` and `18` in the phase list. They were SJH rows
     (RH reports never showed them), but they inflate SJH's census and 13b must not move them
     (CARD is always dropped, 13c). **On the server:** first count what 2c will delete
     (read-only, through psql in the database container), then change the line and recreate
