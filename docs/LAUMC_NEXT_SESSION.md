@@ -96,7 +96,25 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     SJHCSAPWFMFIR middleware; the real device is `MEDISTORE.DIDB_STUDIES.ORIGINAL_STORING_AE`,
     which RAYD does not copy yet. Plan: copy it nightly (and once for the gateway studies
     already loaded), and take the device from it when the storing AE is a gateway; it should
-    also name LAUMCWFM1AR's devices. Waits on one Oracle query showing what it holds. SJH XA with
+    also name LAUMCWFM1AR's devices. Waits on one Oracle query showing what it holds.
+    **Oracle, last ~60,000 studies (17 Nov):** behind SJH's middleware the original AE is the
+    real device for all but 17 studies: DR300_StoreSCU 6,306, CM_CT_CMW_V1 2,758, kizuna 1,628,
+    EPIQCVX 1,472, AFFINITI1 1,412, AFFINITI 941, CANON_CXDI 745, MAMMOPRISTINA 560, AZURION 339,
+    MEDISON 31. All are RIS AE titles except EPIQCVX (Philips EPIQ CVx, cardiac echo, not on the
+    RIS: cardiology) and MEDISON (the RIS has MEDISON-1). AZURION is SJH's cath lab: 339 studies,
+    12 with a RIS exam (the XA with no accession). LAUMCWFM2FIR names MR450W, ct99, CTHD.
+    LAUMCWFM1AR keeps itself as original AE (422): its devices come from the RIS exam only.
+    ARTIS121403, LEO22529, AWPETCT, AWS, BAY85CT store directly. SVSM (outside studies from CDs:
+    Italian, French and other hospitals' devices) is already left out by the study ETL (operator,
+    2026-07-27).
+    **Plan (next session, with 13b, deploy Thu 26 before the move):** copy ORIGINAL_STORING_AE
+    nightly plus a one-time fill of the gateway studies already loaded (chunked in the nightly
+    ETL, no extra PACS job); device = original AE for gateway studies; links MR750W → GEHCGEHC,
+    MR450W → MR45W, AWPETCT and BAY85CT → BAY87CT, AWS → CTHD, SYMBIANET → SYMBIA, MEDISON →
+    MEDISON-1; LAUMCWFM1AR per exam from its RIS room. The mechanism (view or column) after
+    reading the six files that use the gateway AE titles (site resolver, report filters,
+    Report 22, AI report). ~1.5–2 days. After the 18 Nov deploy, re-run Q1 for ARTIS121403 and
+    LEO22529: the accession link may now reach their RIS exams (IR2-NX). SJH XA with
     no accession (241 in 90 days), institution spelled "LAU MC - SJH": no RIS order at all,
     likely the cath lab doing cardiology outside the radiology RIS (cardiology is out of scope;
     Phase 2c purges only CARD-family modalities).
