@@ -122,7 +122,13 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     column once (PACS read by study ID ranges, resumable, settings `original_ae_filled*`), then
     `purge_cardiology` deletes their cardiology studies (RIS steps unlinked first). AZURION7FLEXARM
     (Rizk's hybrid OR) stays. Tests: `tests/test_cardiology_out.py`. The first night after the
-    deploy logs "N cardiology studies purged". SJH XA with
+    deploy logs "N cardiology studies purged".
+    **On PACS (Oracle, 17 Nov):** AZURION 3,396 studies (Aug 2021 – today, XA); EPIQCVX 14,993,
+    of which 14,432 are labelled SJH_CARD/CARD (already removed by Phase 2c) and 561 are labelled
+    US (Jul 2021 – Apr 2022, before the echo was relabelled: in RAYD today). RAYD baseline, SJH
+    middleware: XA 3,514, US 1,924. **Expected after the first night:** about 3,950 purged; SJH
+    XA down to about 120, US to about 1,360. Left for later: the cath lab's few RIS steps (about
+    12 in 90 days) still count in RIS-side device figures. SJH XA with
     no accession (241 in 90 days), institution spelled "LAU MC - SJH": no RIS order at all,
     likely the cath lab doing cardiology outside the radiology RIS (cardiology is out of scope;
     Phase 2c purges only CARD-family modalities).
