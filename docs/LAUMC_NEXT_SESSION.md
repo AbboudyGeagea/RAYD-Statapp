@@ -161,8 +161,8 @@ only at weekends, which can add calendar time.
 | 12 | Chart explanations (~150 notes, 16 pages) — **done** | Low–Medium | 0.5 | 2.5–3.5 | 0.5 | 3.5–4.5 | — |
 | 13 | SJH database, all parts (13f roles and access **built**; 13a **built** but BRAYN routing by site) | High | 3–4 | 14–18 | 2–3 | 19–25 | BRAYN on; site-ID walkthrough |
 | 14 | Radiologist TAT and report counts on PACS | High | 2 | 4–5 | 1–2 | 7–9 | shares item 8’s PACS copy |
-| 14A | Radiologist TAT, two charts: RIS exam done → signature, PACS arrival → signature (added 2026-11-17; planned 23–26 Nov) | Low–Medium | 0.25 | 1–1.5 | 0.5 | 1.75–2.25 | sign events proven on Oracle; item 2's audit copy live |
-| 14B | Reporting time: first open → signature (added 2026-11-17; planned 23–26 Nov, with 14A) | Low | 0.1 | 0.5 | 0.25 | 0.75–1 | item 2 live; 14A's signature |
+| 14A | Radiologist TAT, two charts: RIS exam done → signature, PACS arrival → signature (added 2026-11-17) — **built** (Report 32) | Low–Medium | 0.25 | 1–1.5 | 0.5 | 1.75–2.25 | Oracle check of the ETL query; deploy; one night |
+| 14B | Reporting time: first open → signature (added 2026-11-17) — **built** with 14A | Low | 0.1 | 0.5 | 0.25 | 0.75–1 | as 14A |
 
 Item 13 splits into: second database, per-request switch, migrations and SJH ETL (6–8);
 migrate, count and delete SJH rows (2–3); site dropdown (1); RH vs SJH per-modality views
@@ -646,6 +646,19 @@ read; radiologists approve or finalise (check both).
       studies than the ApprovedSign rows. **Tied out 2026-11-17:** `DIDB_STUDIES_VIEW`
       shows 455 studies approved on 16 Nov by 13 radiologists, against 458 studies and 13
       logins in the audit (the view keeps only each study's latest approval).
+    - **Built 2026-11-17** (not deployed; signature = the approve click, operator "let's do
+      next"): migration 0156 renames the copy `etl_pacs_audit_events` and allows `approve`
+      and `wetread`; the nightly audit step copies them (login from the tags when the row
+      has none; the description is read only inside Oracle) and, being a new version,
+      re-reads from 1 October once; `utils/sign_tat.py` (four clocks, median and p90 overall
+      and per signing radiologist, only studies the copy covers); Report 32's new card
+      "Signature Turnaround (PACS audit trail)": tiles, chart 1 RIS exam done → signature,
+      chart 2 images reach PACS → signature (14A), chart 3 first open → signature from the
+      first reader's open and from the signer's own (14B). Tests: `tests/test_sign_tat.py`,
+      `tests/test_pacs_audit_etl.py`. Report 37 reads opens and locks only.
+      **To check on Oracle before relying on it** (operator rule): the ETL's query for one
+      day, counted per kind (message of 2026-11-17); then, after deploy and one night,
+      spot-check a few radiologists' medians against the audit.
     - **Plan:** Wed 18 – Thu 19, the Oracle proof query (which sign events exist, how many);
       after item 2 is live, build Mon 23 – Tue 24, validate against Oracle on random dates
       Wed 25, deploy Thu 26.
