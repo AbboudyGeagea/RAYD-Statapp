@@ -5,6 +5,14 @@ to the screen. No assembly needed — each box runs on its own.
 
 ---
 
+## 0b. Re-checked 2026-11-17 — the copy matches the RIS
+
+Per RIS STATUS_KEY, scheduled 2026-01-01 .. yesterday, RAYD `etl_orders` (05:00 copy) against
+the live RIS with a `changed_since_copy` column (LAST_UPDATE_DATE after 05:00). Rizk: RAYD
+81,567, RIS 81,560; SJH 60,311 / 60,300. Each status matches but for rows changed after the
+copy (reports approved, exams done, cancellations, a few reschedules out of the window). The
+screen equals the copy plus today's rows. 19,706 past Rizk exams are still Scheduled on the RIS.
+
 ## 0. RESOLVED — measured on LAUMC, 2026-09-18
 
 Range 2026-01-01 .. 2026-09-18, live RIS Oracle vs the rendered chart:

@@ -278,7 +278,7 @@ only at weekends, which can add calendar time.
 | 4 | RIS room names everywhere — **done** 2026-11-17 (room links, migration 0161; SJH's devices behind its middleware continue in item 13) | Medium | 0.5 | 3–4 | 0.5–1 | 4–5.5 | confirm LEO22529 and ARTIS121403 (IR2-NX?) |
 | 5 | ORU severity on a standard | Medium | 1–2 | 2–3 | 1–2 | 4–7 | chief radiologist |
 | 6 | Report 27 hourly load, scheduled vs started — **done** ("started" = the RIS performed step's start) | Low | 0.25 | 0.5–1 | 0.25 | 1–1.5 | — |
-| 7 | Report 27 status mix check | Low–Medium | 0.5 | 0–2 | 0.5 | 1–3 | Tuesday session |
+| 7 | Report 27 status mix check — **done** 2026-11-17 (tied out per RIS status; differences = changes after the 05:00 copy) | Low–Medium | 0.5 | 0–2 | 0.5 | 1–3 | — |
 | 8 | Super Report residents by wet read (PACS) | Medium–High | 1–1.5 | 2–2.5 | 0.5–1 | 3.5–5 | PACS timestamp check |
 | 9 | Staff who left, hidden from KPIs — **built** 2026-11-17 (migration 0157, Report 39; ships off) | Medium | 1 | 2.5–3 | 0.5 | 4–4.5 | deploy; Report 39 check on production; switch on |
 | 10 | Modality "PACS" samples | Low | 0.25 | 0–1 | 0.25 | 0.5–1.5 | operator’s review |
@@ -501,6 +501,14 @@ read; radiologists approve or finalise (check both).
    Tuesday 2026-11-17, mainly the scheduled status. Compare at the same cut-off time (RAYD
    copies nightly, Oracle is live). Last tied out 2026-09-18, see
    `docs/LAUMC_REPORT27_STATUS_MIX_DIAGNOSTIC.md`.
+   **Done 2026-11-17:** RAYD's `etl_orders` against the live RIS, per RIS status, scheduled
+   1 Jan to yesterday. Rizk: RAYD 81,567, RIS 81,560 (Completed 58,250 / 58,253, Scheduled
+   19,708 / 19,700, Cancelled 3,593 / 3,595, Arrived 12 / 8, In progress 4 / 4); SJH 60,311 /
+   60,300. Every difference is a change made on the RIS after the 05:00 copy (statuses moving
+   on, a few reschedules); the chart equals the copy (no double counting). Finding for the
+   manager: 19,706 past Rizk exams are still "Scheduled" on the RIS (about a quarter): the
+   split into done on PACS (status not moved on) vs no PACS study (no-show not cancelled) is a
+   query in the reply of 17 Nov.
 8. **Super Report, residents: count reports by wet read**, rebuilt from PACS (see the rule
    above), tested and validated before deploy. Report events only (status, who signed, when);
    the report text on the ORU tab stays from the RIS. PACS `DIDB_STUDIES_VIEW` has
