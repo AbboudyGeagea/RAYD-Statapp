@@ -531,8 +531,9 @@ read; radiologists approve or finalise (check both).
       Approving saves the report pending for 900 s (grace period) before APPROVED.
       **Signature = the radiologist's approve: the first status → PENDING APPROVED (or
       ApprovedSign Complete/Completed) with its login**, proposed; it covers 80 more
-      studies than the ApprovedSign rows. To tie out with `DIDB_STUDIES_VIEW`
-      before building.
+      studies than the ApprovedSign rows. **Tied out 2026-11-17:** `DIDB_STUDIES_VIEW`
+      shows 455 studies approved on 16 Nov by 13 radiologists, against 458 studies and 13
+      logins in the audit (the view keeps only each study's latest approval).
     - **Plan:** Wed 18 – Thu 19, the Oracle proof query (which sign events exist, how many);
       after item 2 is live, build Mon 23 – Tue 24, validate against Oracle on random dates
       Wed 25, deploy Thu 26.
