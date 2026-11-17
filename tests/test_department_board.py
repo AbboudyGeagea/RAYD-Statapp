@@ -196,8 +196,10 @@ def test_done_today_and_utilization(app, devices):
 
 
 def test_an_exception_closes_a_device(app, devices):
+    # the hospital's date, as the board reads it: the database's CURRENT_DATE is UTC, a day
+    # behind between midnight and 02:00 in Beirut
     devices.exec("""INSERT INTO device_exceptions (aetitle, exception_date, actual_opening_minutes, reason)
-                    VALUES ('CT2_RH', CURRENT_DATE, 0, 'Service visit')""")
+                    VALUES ('CT2_RH', :d, 0, 'Service visit')""", d=datetime.now().date())
     d = device(get_board(app), 'CT2_RH')
     assert (d['status'], d['exception'], d['open_min'], d['utilization_pct']) == \
            ('closed', 'Service visit', 0, None)

@@ -195,6 +195,17 @@ _ENRICH_PRIMARY_SQL = text("""
       AND eo.accession_number IS NOT NULL
 """)
 
+# The order's site, from its RIS issuer (sites.ris_issuer: SAP_PROD = RH, SAP_SJH = SJH). Nothing
+# set it before 2026-11-18, so Report 27's RIS-vs-PACS card counted no RIS order since its site
+# filter arrived, and std_reports, which inherits its site from here, had none either.
+_ENRICH_ORDER_SITE_SQL = text("""
+    UPDATE etl_orders o
+    SET site_id = s.id
+    FROM sites s
+    WHERE s.ris_issuer = o.order_control
+      AND o.site_id IS DISTINCT FROM s.id
+""")
+
 _ENRICH_LINKED_FALLBACK_SQL = text("""
     UPDATE etl_orders eo
     SET study_db_uid        = sib.study_db_uid,
@@ -393,6 +404,11 @@ def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_l
 
             if batch_num % 50 == 0:
                 print(f"[Orders ETL] 📦 {total:,} rows loaded{f', {skipped} skipped' if skipped else ''}")
+
+        with pg_engine.begin() as conn:
+            sited = conn.execute(_ENRICH_ORDER_SITE_SQL).rowcount
+        if sited:
+            print(f"[Orders ETL] 🏥 site set on {sited:,} rows from their RIS issuer")
 
         # Enrichment pass — resolve study_db_uid now that both sides are loaded.
         with pg_engine.begin() as conn:

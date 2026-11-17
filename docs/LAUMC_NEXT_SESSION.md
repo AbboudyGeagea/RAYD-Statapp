@@ -27,6 +27,12 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
   25,000 steps of other devices that write their own study UID; staff status rebuilt (480).
   Left for 18 Nov: the check line (audit events, settings, SJH XA/US), regenerate October in
   Report 37, the HIS-number twin query, the staff PACS check then switch item 9 on.
+- **Bug found 2026-11-18 (Report 27, RIS vs PACS card: 0 RIS exams every month):**
+  `etl_orders.site_id` was never filled (the orders copy never set it; the site resolution does
+  PACS studies only), and the card keeps this site's orders by it; `std_reports.site_id`,
+  inherited from the order, was empty too (also Report 27's export site and the Super Report's
+  order site filter). Migration 0163 fills both from the RIS issuer (SAP_PROD = RH, SAP_SJH =
+  SJH); the orders copy sets it every night. Test: `tests/test_report_27_hourly.py`.
 - **Operator's answers, 2026-11-17 evening** (to the questions drafted for the system admin):
   - Item 2 readers: PACS groups radiologists, residents **and mammography** (built: mammography
     counts as radiologists in `utils/pacs_roles.py`); cardiologists are out of scope.

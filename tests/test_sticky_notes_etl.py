@@ -270,6 +270,10 @@ def test_the_orders_pull_stores_the_ordering_organization(engine, monkeypatch):
                                 'FROM etl_orders WHERE order_dbid = 5001')).one()
     # the HIS order number (ORC-2) and the booking time, migration 0160
     assert tuple(row) == (4242, 'HIS-778899', NIGHT - timedelta(days=3))
+    with engine.connect() as conn:
+        site = conn.execute(text("SELECT o.site_id = s.id FROM etl_orders o JOIN sites s ON s.code = 'RH' "
+                                 "WHERE o.order_dbid = 5001")).scalar()
+    assert site is True                                  # from its RIS issuer, SAP_PROD (0163)
 
 
 def test_orders_loaded_before_0160_get_their_his_number_and_booking_time_once(engine, monkeypatch):

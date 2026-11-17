@@ -77,3 +77,25 @@ def test_busiest_days_rank_weekdays_and_keep_the_weekend_apart():
     assert [w['day'] for w in b['weekdays'][:2]] == ['Wednesday', 'Monday']
     assert len(b['weekdays']) == 5
     assert (b['saturday'], b['sunday']) == (1.0, 1.0)
+
+
+def test_the_ris_vs_pacs_card_counts_this_sites_ris_exams(app):
+    """Bug of 2026-11-18: the card keeps this site's orders by etl_orders.site_id, which nothing
+    filled, so it read 0 RIS exams every month. The orders copy now sets the site from the RIS
+    issuer (SAP_PROD = RH, SAP_SJH = SJH)."""
+    from db import db
+    from ETL_JOBS.etl_orders import _ENRICH_ORDER_SITE_SQL
+    from routes.report_27 import _build_system_agreement
+    sql("""INSERT INTO etl_orders (order_dbid, order_status, status_key, scheduled_datetime, order_control, linked_id)
+           VALUES (21, 'CM', 160, '2026-10-05 09:00', 'SAP_PROD', NULL),
+                  (22, 'CM', 160, '2026-10-05 09:30', 'SAP_PROD', 900), (23, 'CM', 160, '2026-10-05 09:30', 'SAP_PROD', 900),
+                  (24, 'CM', 160, '2026-10-06 10:00', 'SAP_SJH', NULL)""")
+    with db.engine.begin() as conn:
+        conn.execute(_ENRICH_ORDER_SITE_SQL)
+
+    with app.test_request_context('/'):
+        card = _build_system_agreement('2026-10-01', '2026-10-31')
+        db.session.rollback()
+
+    october = next(m for m in card['months'] if m['month'] == '2026-10')
+    assert (october['ris_steps'], october['ris_studies']) == (3, 2)     # SJH's order is not RH's
