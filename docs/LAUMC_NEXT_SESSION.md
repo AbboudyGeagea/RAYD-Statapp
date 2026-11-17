@@ -50,6 +50,22 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     NM, RF; counted aside in Report 22); LAUMCWFM2FIR 7 (CT, MR, last 13 Oct); NONDICOMAGENT 1
     (OT); the other 8 sent nothing. The station clock check returned nothing: the first audit
     copy runs at 05:00 on 18 Nov.
+  - **Second round, 17 Nov:** AAP is not tied to the PACS addendum flag (2 of 11 AAP, 2 of 4,240
+    FAP; PACS rarely sets the flag), so AAP's meaning is still open; no preliminary status in
+    any case. PACS `DIDB_SERIESES.STATION_NAME` is empty on production too: the device behind a
+    gateway cannot come from PACS. **It comes from the RIS:** linking each PACS study to the RIS
+    exam (`std_pps.study_db_uid`) gives the room that performed it. Laptop sample: MR750W →
+    GEHCGEHC (149 of 155), MR450W → MR45W (116 of 123), AWPETCT → BAY87CT (47/47), BAY85CT →
+    BAY87CT (19/19, the PET-CT's CT), AWS → CTHD (13/13); LAUMCWFM1AR carries several devices
+    (CARM3-VX, SPECT-CT, IR-1). LEO22529 and ARTIS121403 have no RIS exam linked; both carry the
+    institution "Lebanese American University", used by no other device: one Siemens system,
+    IR2-NX (INTERAET) with its Leonardo workstation. AWPETCT also holds a few outside PET-CTs
+    (St George, Hotel Dieu de France).
+    **Plan for item 4 (next session):** (a) a link PACS AE → RIS room, proposed from that
+    evidence (one RIS room for ≥ 90 % of a PACS AE's exams) and confirmed on the Mapping page,
+    which the nightly RIS copy follows (~0.5–1 day); (b) gateways (LAUMCWFM1AR, LAUMCWFM2FIR,
+    SJH's SJHCSAPWFMFIR): the device of each exam from its RIS performed step, needed before
+    SJH's database has device reports (1–2 days, with item 13).
 - **Monday 2026-11-16, 10:00: run the two room-name queries (item 4)** and compare the RIS
   room names with the labels RAYD shows. Then a working session on the PACS audit table
   (item 2). Sessions start at 9:30.
