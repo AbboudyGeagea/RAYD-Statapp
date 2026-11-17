@@ -19,6 +19,10 @@ Sources, in precedence order:
    ETL_JOBS/etl_ris_resources.py) and has already misclassified a real radiologist as
    Resident -- precisely the direction that would make this worse.
 
+The readers are the PACS groups radiologists, residents and mammography (operator,
+2026-11-17); a member of mammography counts as a radiologist. The cardiologists group is out
+of RAYD's scope.
+
 Within source 2, 'residents' beats 'radiologists' when a login somehow holds both.
 Measured on LAUMC 2026-09-21, nobody currently does (the only multi-row logins are the
 same role across two domains, e.g. radiologists@ad + radiologists@SJ), but the DISTINCT
@@ -48,11 +52,12 @@ _ROLE_LOOKUP_BODY = """
         UNION ALL
 
         SELECT UPPER(BTRIM(g.login_id))   AS login_id,
-               LOWER(BTRIM(g.group_name)) AS role,
+               CASE LOWER(BTRIM(g.group_name)) WHEN 'mammography' THEN 'radiologists'
+                    ELSE LOWER(BTRIM(g.group_name)) END AS role,
                2                          AS src_rank
         FROM std_pacs_user_groups g
         WHERE g.login_id IS NOT NULL
-          AND LOWER(BTRIM(g.group_name)) IN ('radiologists', 'residents')
+          AND LOWER(BTRIM(g.group_name)) IN ('radiologists', 'residents', 'mammography')
     ) src
     ORDER BY login_id,
              src_rank,

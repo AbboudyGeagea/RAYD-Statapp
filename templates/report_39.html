@@ -57,7 +57,7 @@
         {% else %}
 
         <div class="card p-4 mb-6 text-xs text-slate-400 leading-relaxed">
-            <p><i class="bi bi-info-circle mr-1" style="color:var(--accent);"></i><strong class="text-white">Left</strong> means inactive on the RIS (no active row, and no active person shares the login), or PACS accounts none of which is ACTIVE. Having no PACS account does not count.
+            <p><i class="bi bi-info-circle mr-1" style="color:var(--accent);"></i><strong class="text-white">Left</strong> means inactive on the RIS (no active row, and no active person shares the login), or every PACS account set to {{ summary.pacs_left_statuses }}. A lock after wrong passwords does not count, nor does having no PACS account.
             {% if not summary.pacs_status_copied %}PACS account status arrives with the next nightly copy; until then only the RIS decides.{% endif %}</p>
             <p class="mt-1"><strong class="text-white">On reports:</strong>
             {% if summary.hidden_on_reports %}

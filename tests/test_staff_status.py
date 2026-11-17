@@ -130,6 +130,28 @@ def test_pacs_not_active_makes_someone_left_and_no_pacs_account_does_not():
     assert by_login('no.account')['pacs_active'] is None
 
 
+def test_a_pacs_lock_after_wrong_passwords_is_not_leaving_and_the_list_can_change():
+    ris(5, 'RAD', True, 'locked.rad@ad.umcrh.com_9')
+    pacs('locked.rad', 'radiologists', 'LOCKED')
+    pacs('timeout.res', 'residents', 'TIMEOUT')
+
+    assert by_login('locked.rad')['is_left'] is False
+    assert status()['pacs:timeout.res']['is_left'] is False
+
+    sql("UPDATE settings SET value = 'SUSPENDED, locked' WHERE key = 'staff_pacs_left_statuses'")
+    assert by_login('locked.rad')['left_reason'] == 'Not active on PACS'
+
+
+def test_the_mammography_group_reads_as_radiologists_and_cardiologists_are_out():
+    from utils.pacs_roles import role_lookup_cte
+    pacs('mammo.reader', 'mammography')
+    pacs('cardio.doc', 'cardiologists')
+
+    got = {r['login_id']: r['role'] for r in rows(f"WITH {role_lookup_cte()} SELECT * FROM role_lookup")}
+
+    assert got.get('MAMMO.READER') == 'radiologists' and 'CARDIO.DOC' not in got
+
+
 def test_a_pacs_login_is_linked_by_email_when_the_ris_id_holds_no_login():
     ris(7, 'RAD', False, 'kt', mail='Kamal.T@umcrh.com')
     pacs('kamal.t', email='kamal.t@umcrh.com')

@@ -20,6 +20,27 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
   | Thu 26 | deploy 14A/14B and 13b's code | — |
   | Sat 28 – Sun 29 | **13b on production**: copy SJH, compare counts, delete from RH, SJH's first ETL | on call |
   | through Nov | CRN go-live on site: Email Server, CRN gateway + firewall, fallback contact, wording, test, switch on | — |
+- **Operator's answers, 2026-11-17 evening** (to the questions drafted for the system admin):
+  - Item 2 readers: PACS groups radiologists, residents **and mammography** (built: mammography
+    counts as radiologists in `utils/pacs_roles.py`); cardiologists are out of scope.
+  - Items 2/14: the 15-minute grace only keeps a re-sign from becoming an addendum; reading the
+    signature from the audit is right. **The audit time is the reading station's clock**, not
+    the server's: check per login that stations agree (query in the reply of 17 Nov, run after
+    the first copy).
+  - Item 9: a leaver is set inactive on both systems by hand; either one inactive = left (as
+    built). PACS locks an account after wrong passwords: migration 0158 counts only statuses in
+    `settings.staff_pacs_left_statuses` (SUSPENDED, DISABLED, INACTIVE, DELETED). Jessica Saad
+    left (now at Intermedic): her PACS RadAdmin account is still active. Tanios Jalkh: the
+    operator checks with the new manager. The AAA/JJJ/YYY/ZZZ, LDAP and vendor accounts are tests.
+  - `@sj` logins signing RH studies: open, for the chief radiologist.
+  - Item 4: the operator sends the PACS DICOM node list to verify the AE pairs. Idle devices:
+    our homework first (biomedical is slow).
+  - Item 10: look at each gateway alone, from sample accessions, then escalate; most are PACS
+    internal services.
+  - Item 1: match on ORC-2 (confirmed). Item 21: "booked" = `ORDERS.CREATED_ON_DATE`.
+    Item 7: the status is Scheduled (key in the lookup table RAYD has).
+  - Item 19: one test patient ID, from the operator on 18 Nov. Item 18: the operator checks
+    `FAP` on 18 Nov, from sample accessions.
 - **Monday 2026-11-16, 10:00: run the two room-name queries (item 4)** and compare the RIS
   room names with the labels RAYD shows. Then a working session on the PACS audit table
   (item 2). Sessions start at 9:30.

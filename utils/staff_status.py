@@ -8,7 +8,9 @@ is deleted.
 
 Who left is worked out in Postgres, in the materialized view public.staff_status (one row per
 RIS person, and one per PACS login no RIS person holds), rebuilt after every nightly ETL
-(refresh_all). Migration 0157 explains the rule. While the switch is on
+(refresh_all). Migration 0157 explains the rule; 0158 counts a PACS account as left only on a
+status a leaver is set to by hand (settings.staff_pacs_left_statuses), never a lock after wrong
+passwords (operator, 2026-11-17). While the switch is on
 (settings.staff_left_hidden), the rh views every page reads replace a leaver's login and name
 with FORMER on studies and RIS staff rows, so each per-person list shows one "Former staff"
 line and every count and total stays whole. What the views do not reach is masked in code
@@ -209,6 +211,8 @@ def build(start, end, chosen=None):
     status_copied = db.session.execute(text(
         "SELECT EXISTS (SELECT 1 FROM std_pacs_user_groups WHERE user_status IS NOT NULL)")).scalar()
     built_from = db.session.execute(text("SELECT MAX(last_update) FROM std_resources_ris")).scalar()
+    left_statuses = db.session.execute(text(
+        "SELECT value FROM settings WHERE key = 'staff_pacs_left_statuses'")).scalar()
     summary = {
         'listed': len(kept),
         'current': sum(not r['is_left'] for r in kept),
@@ -220,6 +224,7 @@ def build(start, end, chosen=None):
         'hidden_on_reports': is_on(),
         'pacs_status_copied': bool(status_copied),
         'ris_copied_at': built_from.strftime('%Y-%m-%d %H:%M') if built_from else None,
+        'pacs_left_statuses': ', '.join(_split((left_statuses or 'SUSPENDED,DISABLED,INACTIVE,DELETED').upper())),
         'roles': sorted({v for r in rows for v in r['role_list']}),
         'groups': sorted({v for r in rows for v in r['group_list']}, key=str.lower),
     }
