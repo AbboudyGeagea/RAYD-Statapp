@@ -3,8 +3,9 @@ routes/report_cache.py
 ──────────────────────
 Thread-safe in-memory TTL cache for report query results.
 
-Keyed on (report_id, site, MD5 of form params): the site, because RH and SJH read
-different databases (utils/site_db.py, item 13a). Avoids redundant DB hits
+Keyed on (report_id, site, the "Former staff" switch, MD5 of form params): the site, because
+RH and SJH read different databases (utils/site_db.py, item 13a); the switch, because it
+changes the names a report shows (item 9, utils/staff_status.py). Avoids redundant DB hits
 when the same report is run twice with identical settings within TTL.
 
 A background daemon thread runs every 5 minutes to evict entries whose
@@ -49,7 +50,7 @@ def _make_key(report_id: int, form_data) -> str:
     except Exception:
         serialized = str(form_data)
     h = hashlib.md5(serialized.encode()).hexdigest()
-    return f"r{report_id}:s{_site()}:{h}"
+    return f"r{report_id}:s{_site()}:f{_former()}:{h}"
 
 
 def _site():
@@ -57,6 +58,16 @@ def _site():
     try:
         from utils.site_db import current_site_id
         return current_site_id()
+    except Exception:
+        return None
+
+
+def _former():
+    """Whether staff who left read "Former staff" (item 9, utils/staff_status.py): a figure
+    cached before the switch is never served after it, in any worker."""
+    try:
+        from utils.staff_status import is_on
+        return int(is_on())
     except Exception:
         return None
 

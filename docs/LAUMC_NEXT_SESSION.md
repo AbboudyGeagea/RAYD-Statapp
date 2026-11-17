@@ -396,10 +396,13 @@ read; radiologists approve or finalise (check both).
    **Report 39, Staff status:** everyone by PACS group and RIS role, RIS and PACS status, how
    they are linked, studies signed and exams performed in the period, Excel for the manager, and
    the switch (Super user, CHT, Administrator). **Ships OFF.** Laptop sample: 480 listed, 42
-   left (all "inactive on the RIS"), none of them signed a study in 1–14 Oct.
-   **After the deploy:** open Report 39 for the last 30 days, filter Status = "Left, but worked
-   in the period"; it should be empty (that is the check: the RIS flag is reliable). Then switch
-   on in Report 39, or on the server:
+   left (all "inactive on the RIS"), none of them signed a study in 1–14 Oct; one technologist
+   inactive on the RIS (Tanios Jalkh) performed 99 exams up to 14 Oct, the sample's last day
+   (the staff list is mid-November's, so he may have left since).
+   **After the deploy:** open Report 39 for the **last 7 days**, filter Status = "Left, but
+   worked in the period". Anyone there worked this week while inactive on the RIS or PACS: the
+   flag is wrong for them (fix it on the RIS or PACS) or they left this week. Work weeks ago
+   only means they left since. Then switch on in Report 39, or on the server:
    `sudo docker exec rayd_db psql -U etl_user -d etl_db -c "UPDATE settings SET value = 'true' WHERE key = 'staff_left_hidden';"`
    Not covered yet: SJH's own database has no rh views (as for placeholders), so leavers keep
    their names there once SJH moves (28 Nov). Referring doctors are not touched.

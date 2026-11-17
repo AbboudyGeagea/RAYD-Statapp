@@ -226,9 +226,10 @@ def test_report_39_excel_and_access(client):
     from io import BytesIO
     from openpyxl import load_workbook
     ws = load_workbook(BytesIO(xlsx.data)).active
-    names = [ws.cell(row=r, column=1).value for r in range(5, ws.max_row + 1)]
+    cells = [ws.cell(row=r, column=1) for r in range(5, ws.max_row + 1)]
 
-    assert xlsx.status_code == 200 and "'=Gone Rad" in names     # never a formula
+    assert xlsx.status_code == 200
+    assert [(c.value, c.data_type) for c in cells] == [('=Gone Rad', 's')]     # text, never a formula
     assert client.get('/report/39', headers={'X-Test-Role': 'user'}).status_code == 403
 
 
@@ -245,6 +246,16 @@ def test_the_switch_is_for_administrators_and_rebuilds_the_list_first(client, ap
     assert on.get_json() == {'status': 'success', 'on': True} and shown == 'Former staff'
     assert off.status_code == 200
     assert in_request(app, "SELECT rep_study_last_composed_by AS s FROM etl_didb_studies")[0]['s'] == 'gone.rad@ad'
+
+
+def test_a_report_cached_before_the_switch_is_not_served_after_it(app):
+    from routes import report_cache
+    with app.test_request_context('/'):
+        off = report_cache._make_key(35, {'start_date': DAY})
+        switch(True)
+        on = report_cache._make_key(35, {'start_date': DAY})
+
+    assert off != on
 
 
 # ── where the views do not reach ──────────────────────────────────────────────

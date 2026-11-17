@@ -99,39 +99,31 @@ def report_39():
                            former=staff_status.FORMER, can_switch=can(current_user, 'settings'))
 
 
-def _cell(value):
-    """Keeps a spreadsheet from running a cell as a formula."""
-    if isinstance(value, str) and value[:1] in ('=', '+', '-', '@'):
-        return "'" + value
-    return value
-
-
 @report_39_bp.route('/report/39/export.xlsx', methods=['POST'])
 @login_required
 def export_xlsx():
     _require_access()
     start, end, chosen = _read_filters()
     rows, summary = staff_status.build(start, end, chosen)
-    from openpyxl import Workbook
-    from openpyxl.styles import Font
-    wb = Workbook()
-    ws = wb.active
-    ws.title = 'Staff status'
-    ws.append([f'Staff status, RIS and PACS: activity {start} to {end}'])
-    ws.append([f"{summary['listed']} people, {summary['left']} left, "
-               f"{summary['working']} left but worked in the period"])
-    ws.append([])
-    ws.append([header for header, _ in staff_status.COLUMNS])
-    for cell in ws[4]:
-        cell.font = Font(bold=True)
-    for r in rows:
-        ws.append([_cell(r[key]) for _, key in staff_status.COLUMNS])
-    ws.freeze_panes = 'A5'
-    ws.auto_filter.ref = f'A4:{ws.cell(row=4, column=len(staff_status.COLUMNS)).column_letter}{ws.max_row}'
-    for col, width in zip('ABCDEFGHIJKLM', (28, 22, 14, 26, 9, 22, 14, 9, 26, 9, 12, 9, 12)):
-        ws.column_dimensions[col].width = width
+    import xlsxwriter   # the app's Excel writer (requirements.txt), as Report Composer's emails
     out = io.BytesIO()
-    wb.save(out)
+    # Text stays text: a name typed into the RIS must not run as a formula.
+    book = xlsxwriter.Workbook(out, {'in_memory': True, 'strings_to_formulas': False,
+                                     'strings_to_urls': False, 'strings_to_numbers': False})
+    sheet = book.add_worksheet('Staff status')
+    bold = book.add_format({'bold': True})
+    headers = [header for header, _ in staff_status.COLUMNS]
+    sheet.write(0, 0, f'Staff status, RIS and PACS: activity {start} to {end}', bold)
+    sheet.write(1, 0, f"{summary['listed']} people, {summary['left']} left, "
+                      f"{summary['working']} left but worked in the period")
+    sheet.write_row(3, 0, headers, bold)
+    for i, r in enumerate(rows, 4):
+        sheet.write_row(i, 0, [r[key] for _, key in staff_status.COLUMNS])
+    sheet.freeze_panes(4, 0)
+    sheet.autofilter(3, 0, 3 + len(rows), len(headers) - 1)
+    for col, width in enumerate((28, 22, 14, 26, 9, 22, 14, 9, 26, 9, 12, 9, 12)):
+        sheet.set_column(col, col, width)
+    book.close()
     from utils.audit import log_event
     log_event('report_export', category='report', resource_type='report_39',
               detail={'from': start.isoformat(), 'to': end.isoformat(), 'rows': len(rows)})
