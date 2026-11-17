@@ -237,6 +237,13 @@ read; radiologists approve or finalise (check both).
    cases (734 by location ER; 696 only through the RIS order's "Emergency room B1"). If the
    audit query works, the message to RAYD is HL7 to the listener (port 6661) with accession
    number, study UID, login and open time.
+   **Found 2026-11-17:** the audit is `AUDITING.AUDIT_LOG`, 217,776,000 rows, analysed
+   nightly (03:09), so written every day; `AUDIT_OFFLINE.AUDIT_LOG` exists too (not
+   analysed, probably the archived part). Readable as SYS (the operator's login), not by
+   RAYD's account. Other log-like tables: `MEDISTORE.DIDB_STUDY_EVENTS` (8.0 M) and
+   `_PREVIOUS` (11.7 M), the 14 event types, which have no open; `MEDILINK.SECM_SESSIONS`
+   (21,291, sign-ins). Next: AUDIT_LOG's columns and indexes, then the live open of
+   accession 1005003240136 by `trad` found in it.
 3. **Report 22: filtering on one or more AE titles shows 0.** Then stress-test every filter on
    every report so this bug does not come back.
    **AE part fixed 2026-11-14 (code + tests, no server needed).** Could not be reproduced
