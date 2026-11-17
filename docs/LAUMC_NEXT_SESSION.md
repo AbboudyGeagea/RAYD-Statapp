@@ -10,6 +10,16 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 ## Deadline and sessions
 
 - **Deadline for this list: 2026-11-30.** Item 2 (first open) has its own deadline, 2026-11-20.
+- **Plan to 30 November (set 2026-11-17):**
+
+  | When | Server (operator) | Laptop (build) |
+  |---|---|---|
+  | Tue 17 – Wed 18 | item 2 timing query, PACS account, grant; item 29 check; **deploy** (0154, 0155, CRN, item 6, item 2) | 13b: the SJH move script, rehearsed on the local sample |
+  | Thu 19 – Fri 20 | 05:00 copies the audit from 1 Oct; regenerate Oct/Nov in Report 37; spot-check (**item 2 due Fri**) | 13b: RH's ETL stops loading SJH, SJH's own nightly ETL |
+  | Mon 23 – Wed 25 | 14A/14B validation against Oracle (Wed) | 14A and 14B in Report 32 |
+  | Thu 26 | deploy 14A/14B and 13b's code | — |
+  | Sat 28 – Sun 29 | **13b on production**: copy SJH, compare counts, delete from RH, SJH's first ETL | on call |
+  | through Nov | CRN go-live on site: Email Server, CRN gateway + firewall, fallback contact, wording, test, switch on | — |
 - **Monday 2026-11-16, 10:00: run the two room-name queries (item 4)** and compare the RIS
   room names with the labels RAYD shows. Then a working session on the PACS audit table
   (item 2). Sessions start at 9:30.
