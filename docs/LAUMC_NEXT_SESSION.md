@@ -20,6 +20,13 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
   | Thu 26 | deploy item 13's device rule and item 21 | — |
   | Sat 28 – Sun 29 | **13b on production**: copy SJH, compare counts, delete from RH, SJH's first ETL | on call |
   | through Nov | CRN go-live on site: Email Server, CRN gateway + firewall, fallback contact, wording, test, switch on | — |
+- **Deployed 2026-11-17 night (0157–0162), then a manual ETL (23:58–00:23, no failures):**
+  original storing AE filled on 187,065 middleware studies; 3,948 cardiology studies purged
+  (estimate 3,950); HIS order number and booking time filled on 906,623 older orders; RIS steps
+  linked to PACS by accession 74,832 (+50 in the final pass; 336 by UID): SJH's CT and about
+  25,000 steps of other devices that write their own study UID; staff status rebuilt (480).
+  Left for 18 Nov: the check line (audit events, settings, SJH XA/US), regenerate October in
+  Report 37, the HIS-number twin query, the staff PACS check then switch item 9 on.
 - **Operator's answers, 2026-11-17 evening** (to the questions drafted for the system admin):
   - Item 2 readers: PACS groups radiologists, residents **and mammography** (built: mammography
     counts as radiologists in `utils/pacs_roles.py`); cardiologists are out of scope.
