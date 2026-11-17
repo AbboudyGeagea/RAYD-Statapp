@@ -521,6 +521,18 @@ read; radiologists approve or finalise (check both).
       WETREAD, PENDING APPROVED, APPROVED), better than `DIDB_STUDIES_VIEW`, which keeps
       only the latest value per study. Extend item 2's nightly copy with these events
       (login taken from the tags when the row has none), never the description itself.
+    - **Proof query run 2026-11-17** (Vue PACS Client, Monday 16 Nov, both sites): status →
+      PENDING APPROVED 469 rows / 458 studies / 13 logins, never without a login;
+      ApprovedSign Started 386 / 376; ApprovedSign Complete 342 / 332 (13 logins) plus
+      "ApprovedSign Completed" 46 / 46 (one login, whose studies then show PROCESSING
+      APPROVED and APPROVED with no login); WETREAD 421 / 400 / 12 logins, 273 rows without
+      a login (the login is in the tags `(07a1,42)`/`(07a1,d6)`); UNREAD 43; PRELIM and
+      PreliminarySign under 15. No FINAL status: at LAUMC approved is the final signature.
+      Approving saves the report pending for 900 s (grace period) before APPROVED.
+      **Signature = the radiologist's approve: the first status → PENDING APPROVED (or
+      ApprovedSign Complete/Completed) with its login**, proposed; it covers 80 more
+      studies than the ApprovedSign rows. To tie out with `DIDB_STUDIES_VIEW`
+      before building.
     - **Plan:** Wed 18 – Thu 19, the Oracle proof query (which sign events exist, how many);
       after item 2 is live, build Mon 23 – Tue 24, validate against Oracle on random dates
       Wed 25, deploy Thu 26.
