@@ -339,6 +339,16 @@ read; radiologists approve or finalise (check both).
    financial, ORU analytics, referring intel (AE titles in joins only); the BRAYN console
    (admin tool, AE titles identify messages). **Left:** the AE sidebar filters show
    "Room (AE)", and stay keyed on the AE; Monday's comparison of RIS and RAYD names.
+   **Compared on production 2026-11-17:** no room has several AE titles. 31 active devices
+   have no RIS room: 20 sent nothing in 90 days; 4 are workstations/software (AWS, RAPID,
+   AWMR450W, AWMR750W). The rest send to PACS under another AE title than the RIS knows, and
+   RAYD matches on AE title only, so one device is two rows (RIS-side figures say "MRI 3T",
+   PACS-side say MR750W): MR750W = RIS GEHCGEHC (MRI 3T, 1,070 studies/90 d), MR450W = RIS
+   MR45W (MRI 1.5T, 851). To confirm with the operator: AWPETCT (317) = PET-CT bay87ct?
+   BAY85CT (139) = ?; ARTIS121403 (29) = IR2-NX INTERAET?; LEO22529 (45) = IR2-NX (Siemens
+   Leonardo)?; SYMBIANET (6) = SPECT-CT SYMBIA? **Proposed:** no AE title renamed on the RIS
+   (the scanner may query its worklist with the RIS one); a link "PACS AE → RIS device" on the
+   Mapping page, which the nightly RIS copy follows for room name, code and site (~0.5 day).
 5. **ORU tab severity — on hold until the chief radiologist answers.** It is RAYD's own
    rule-based score (`nlp_worker/clustering.py`, `classify_report`), averaged per modality in
    `routes/oru_analytics.py`, with no published medical reference. It must follow a recognised
@@ -404,6 +414,9 @@ read; radiologists approve or finalise (check both).
    flag is wrong for them (fix it on the RIS or PACS) or they left this week. Work weeks ago
    only means they left since. Then switch on in Report 39, or on the server:
    `sudo docker exec rayd_db psql -U etl_user -d etl_db -c "UPDATE settings SET value = 'true' WHERE key = 'staff_left_hidden';"`
+   **Deployed 2026-11-17; check passed:** none of the 42 leavers signed or performed in the last
+   7 days (most are test or vendor accounts: AAA, ZZZ, JJJ, YYY, LDAP RAD/TECH, two vendor
+   names). Jessica Saad: inactive on the RIS, still in PACS RadAdmin, for the manager to confirm.
    Not covered yet: SJH's own database has no rh views (as for placeholders), so leavers keep
    their names there once SJH moves (28 Nov). Referring doctors are not touched.
 10. **Modality "PACS": share sample studies** to decide whether to remove it. These are the
