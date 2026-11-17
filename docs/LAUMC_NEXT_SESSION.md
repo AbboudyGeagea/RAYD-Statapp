@@ -518,6 +518,13 @@ read; radiologists approve or finalise (check both).
    bookings stay; the real table keeps every row. Report 27's Scheduled bar and Total Orders
    drop by about a quarter at Rizk after the deploy. `tests/test_his_duplicate_orders.py`.
    SJH's own database has no rh views yet (as for placeholders and staff who left): item 13.
+   **Production, October:** Rizk 2,033 still Scheduled: 1,536 (76 %) the same exam done for the
+   same patient within 7 days (the HIS duplicate), 120 (6 %) another exam of that modality,
+   377 (18.5 %) nothing done (genuine no-shows, about 5 % of Rizk's orders). SJH 1,401: only 31
+   (2 %) match by patient, modality and 7 days, although its share is the same quarter: the twin
+   differs there (patient key, modality type or date). Check on Thu 19 by the HIS order number
+   (`placer_order_number`, 0160): both copies should share it (query in the reply of 17 Nov).
+   0162 drops both sites' past Scheduled orders either way.
 8. **Super Report, residents: count reports by wet read**, rebuilt from PACS (see the rule
    above), tested and validated before deploy. Report events only (status, who signed, when);
    the report text on the ORU tab stays from the RIS. PACS `DIDB_STUDIES_VIEW` has
