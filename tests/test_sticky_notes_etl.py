@@ -199,7 +199,7 @@ def pacs_study_row(sql, locked, lock_time, login):
     row = [None] * _select_columns(sql)
     row[0], row[1], row[6] = 100, 100, TODAY            # study, patient, study date
     row[30], row[39], row[40] = 'false', 'false', 'false'   # the three required flags
-    row[-4:] = [locked, lock_time, login, 'MSU7']
+    row[-5:] = [locked, lock_time, login, 'MSU7', None]     # ..., patient_location_full, original_storing_ae
     return tuple(row)
 
 

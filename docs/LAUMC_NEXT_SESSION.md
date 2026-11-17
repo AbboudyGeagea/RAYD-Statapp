@@ -114,7 +114,15 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     MEDISON-1; LAUMCWFM1AR per exam from its RIS room. The mechanism (view or column) after
     reading the six files that use the gateway AE titles (site resolver, report filters,
     Report 22, AI report). ~1.5–2 days. After the 18 Nov deploy, re-run Q1 for ARTIS121403 and
-    LEO22529: the accession link may now reach their RIS exams (IR2-NX). SJH XA with
+    LEO22529: the accession link may now reach their RIS exams (IR2-NX).
+    **Cardiology out (operator, 17 Nov: "leave cardiology out, filter them from ETL level";
+    the cath lab "is sending now to CVIS") — built the same night (migration 0159):**
+    `etl_didb_studies.original_storing_ae` is copied nightly; the study copy skips EPIQCVX and
+    AZURION as storing or original AE (NULL-guarded); the gateway studies already loaded get the
+    column once (PACS read by study ID ranges, resumable, settings `original_ae_filled*`), then
+    `purge_cardiology` deletes their cardiology studies (RIS steps unlinked first). AZURION7FLEXARM
+    (Rizk's hybrid OR) stays. Tests: `tests/test_cardiology_out.py`. The first night after the
+    deploy logs "N cardiology studies purged". SJH XA with
     no accession (241 in 90 days), institution spelled "LAU MC - SJH": no RIS order at all,
     likely the cath lab doing cardiology outside the radiology RIS (cardiology is out of scope;
     Phase 2c purges only CARD-family modalities).

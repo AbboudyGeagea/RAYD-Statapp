@@ -106,7 +106,7 @@ except ImportError:
     from etl_settings import ETL_GEAR
 
 # Worker imports
-from etl_didb_studies      import run_studies_etl
+from etl_didb_studies      import run_studies_etl, fill_original_ae, purge_cardiology
 from etl_series            import run_series_etl
 from etl_didb_raw_images   import run_raw_images_etl
 from etl_image_locations   import run_images_etl
@@ -426,6 +426,26 @@ def _perform_migration(engine):
             except Exception as _e:
                 _phase_failures.append("1 (Studies)")
                 logger.error(f"🛑 Phase 1 (Studies) failed — continuing to next phase: {_e}", exc_info=True)
+            # Cardiology out (operator, 2026-11-17): the gateway studies loaded before migration
+            # 0159 get their original storing AE (once, by study ID ranges), then every study of
+            # a cardiology device goes, before any later phase reads them.
+            try:
+                filled = fill_original_ae(engine, src)
+                logger.info(f"✅ Original storing AE filled on {filled:,} gateway studies")
+            except Exception as _e:
+                _phase_failures.append("Original storing AE")
+                logger.error(f"🛑 Original storing AE not filled — continuing: {_e}", exc_info=True)
+            try:
+                purged = purge_cardiology(engine)
+                logger.info(f"✅ {purged:,} cardiology studies purged")
+                if purged and active_ids:
+                    with engine.connect() as _c:
+                        active_ids = _c.execute(
+                            text("SELECT study_db_uid FROM etl_didb_studies WHERE study_db_uid = ANY(:ids)"),
+                            {"ids": active_ids}).scalars().all()
+            except Exception as _e:
+                _phase_failures.append("Cardiology purge")
+                logger.error(f"🛑 Cardiology purge failed — continuing: {_e}", exc_info=True)
             # Right after the load, so a new SJH study is on screen for as short a time as possible.
             _resolve_study_sites(engine, _phase_failures)
 

@@ -3,6 +3,100 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 from db import OracleConnector
 
+# Cardiology devices: out of RAYD's scope (operator, 2026-11-17: "leave cardiology out, filter
+# them from ETL level"). Both reach PACS through SJH's middleware, so they show as its original
+# storing AE, not as the storing AE: EPIQCVX, Philips EPIQ CVx cardiac echo (1,472 of the last
+# ~60,000 studies, not on the RIS); AZURION, SJH's cath lab (339, 12 with a RIS exam; it now
+# sends to the CVIS). Not AZURION7FLEXARM, Rizk's hybrid OR. The dedicated cardiology AEs that
+# store directly are in _EXCLUDED_AE_SQL; CARD-labelled studies of the gateways go in Phase 2c.
+CARDIOLOGY_AES = ('EPIQCVX', 'AZURION')
+_CARDIOLOGY_LIST = ", ".join(f"'{ae}'" for ae in CARDIOLOGY_AES)
+# Each check keeps its NULL guard: a NOT IN on a NULL column drops the row (the 2026-07-30 bug
+# below), and most studies have no original storing AE.
+_CARDIOLOGY_SQL = (
+    f" AND UPPER(TRIM(s.STORING_AE)) NOT IN ({_CARDIOLOGY_LIST})"
+    f" AND (s.ORIGINAL_STORING_AE IS NULL OR UPPER(TRIM(s.ORIGINAL_STORING_AE)) NOT IN ({_CARDIOLOGY_LIST}))"
+)
+
+# Studies loaded before migration 0159 have no original storing AE. It matters only behind a
+# gateway (a device mapped to modality 'PACS'), so those are filled once, a range of study IDs
+# per query through the primary key, a few nights at most; the progress is kept in settings.
+_FILL_DONE_KEY = 'original_ae_filled'
+_FILL_UPTO_KEY = 'original_ae_filled_upto'
+_FILL_CHUNK = 50_000
+_FILL_MAX_CHUNKS = 40
+
+
+def _setting(conn, key):
+    return conn.execute(text("SELECT value FROM settings WHERE key = :k"), {'k': key}).scalar()
+
+
+def _save(conn, key, value):
+    conn.execute(text("INSERT INTO settings (key, value) VALUES (:k, :v) "
+                      "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"), {'k': key, 'v': str(value)})
+
+
+def fill_original_ae(pg_engine, oracle_source, chunk=_FILL_CHUNK, max_chunks=_FILL_MAX_CHUNKS):
+    """Fill original_storing_ae on gateway studies already loaded (once). Returns rows filled."""
+    with pg_engine.begin() as conn:
+        if _setting(conn, _FILL_DONE_KEY) == 'true':
+            return 0
+        gateways = conn.execute(text(
+            "SELECT DISTINCT UPPER(TRIM(aetitle)) FROM aetitle_modality_map WHERE modality = 'PACS'")).scalars().all()
+        lo, hi = conn.execute(text(
+            "SELECT MIN(study_db_uid), MAX(study_db_uid) FROM etl_didb_studies "
+            "WHERE UPPER(TRIM(storing_ae)) = ANY(:g) AND original_storing_ae IS NULL"),
+            {'g': list(gateways)}).one()
+        upto = int(_setting(conn, _FILL_UPTO_KEY) or 0)
+        if lo is None or not gateways:
+            _save(conn, _FILL_DONE_KEY, 'true')
+            return 0
+    start = max(int(lo), upto + 1)
+    binds = {f'g{i}': g for i, g in enumerate(gateways)}
+    query = ("SELECT STUDY_DB_UID, UPPER(TRIM(ORIGINAL_STORING_AE)) FROM medistore.didb_studies "
+             "WHERE STUDY_DB_UID BETWEEN :lo AND :hi AND UPPER(TRIM(STORING_AE)) IN ("
+             + ", ".join(f':{k}' for k in binds) + ") AND ORIGINAL_STORING_AE IS NOT NULL")
+    filled = 0
+    ora = OracleConnector.get_connection(oracle_source)
+    cursor = ora.cursor()
+    try:
+        for _ in range(max_chunks):
+            end = start + chunk - 1
+            cursor.execute(query, {'lo': start, 'hi': end, **binds})
+            rows = cursor.fetchall()
+            with pg_engine.begin() as conn:
+                if rows:
+                    filled += conn.execute(text("""
+                        UPDATE etl_didb_studies s SET original_storing_ae = u.ae
+                        FROM unnest(CAST(:uids AS bigint[]), CAST(:aes AS text[])) AS u(uid, ae)
+                        WHERE s.study_db_uid = u.uid AND s.original_storing_ae IS NULL
+                    """), {'uids': [int(r[0]) for r in rows], 'aes': [r[1] for r in rows]}).rowcount
+                _save(conn, _FILL_UPTO_KEY, end)
+                if end >= int(hi):
+                    _save(conn, _FILL_DONE_KEY, 'true')
+                    break
+            start = end + 1
+    finally:
+        cursor.close()
+        ora.close()
+    logging.info(f"Original storing AE filled on {filled:,} gateway studies (up to study {start - 1:,})")
+    return filled
+
+
+def purge_cardiology(pg_engine):
+    """Delete the cardiology studies already loaded (CARDIOLOGY_AES as storing or original AE).
+    Their series and images go with them (ON DELETE CASCADE); a RIS step pointing at one is
+    unlinked first, as Phase 2c does. Returns the studies deleted."""
+    cardio = (f"UPPER(TRIM(COALESCE(original_storing_ae, ''))) IN ({_CARDIOLOGY_LIST}) "
+              f"OR UPPER(TRIM(storing_ae)) IN ({_CARDIOLOGY_LIST})")
+    with pg_engine.begin() as conn:
+        conn.execute(text(f"UPDATE std_pps SET study_db_uid = NULL WHERE study_db_uid IN "
+                          f"(SELECT study_db_uid FROM etl_didb_studies WHERE {cardio})"))
+        deleted = conn.execute(text(f"DELETE FROM etl_didb_studies WHERE {cardio}")).rowcount
+    logging.info(f"Cardiology studies purged: {deleted:,}")
+    return deleted
+
+
 def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_live_date, force_ae=None):
     """force_ae: one-off backfill mode (see backfill_ae_studies.py). When set, pulls the
     FULL history for that single AE since go_live_date, ignoring the incremental
@@ -80,7 +174,10 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             # The latest lock on the study, for the JCI urgent read measure (migration 0143).
             'study_locked', 'study_lock_time', 'rep_last_accessed_by',
             # patient_location above is cut to 3 characters; this is the whole value (0144).
-            'patient_location_full'
+            'patient_location_full',
+            # The device behind a gateway: SJH's studies all reach PACS through its middleware
+            # (SJHCSAPWFMFIR), which keeps the real device here (migration 0159).
+            'original_storing_ae'
         ]
 
         ora_conn = OracleConnector.get_connection(oracle_source)
@@ -121,7 +218,8 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                     TO_CHAR(s.SITE_ID),
                     s.REP_STUDY_LAST_COMPOSED_BY, s.REP_STUDY_LAST_COMPOSED_TS,
                     s.STUDY_LOCKED, s.STUDY_LOCK_TIME, s.REP_LAST_ACCESSED_BY,
-                    s.PATIENT_LOCATION
+                    s.PATIENT_LOCATION,
+                    UPPER(TRIM(s.ORIGINAL_STORING_AE))
                 FROM medistore.didb_studies s
                 LEFT JOIN medistore.didb_patients_view p ON p.PATIENT_DB_UID = s.PATIENT_DB_UID
         """
@@ -152,7 +250,8 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
                     TO_CHAR(s.SITE_ID),
                     s.REP_STUDY_LAST_COMPOSED_BY, s.REP_STUDY_LAST_COMPOSED_TS,
                     s.STUDY_LOCKED, s.STUDY_LOCK_TIME, s.REP_LAST_ACCESSED_BY,
-                    s.PATIENT_LOCATION
+                    s.PATIENT_LOCATION,
+                    UPPER(TRIM(s.ORIGINAL_STORING_AE))
                 FROM medistore.didb_studies s
         """
 
@@ -168,7 +267,9 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
         # SJHCSAPWFMFIR / LAUMCWFM2FIR — those are shared SJH gateway AEs that also
         # carry ~182,700 legitimate non-Cardiology studies, so they can't be excluded
         # by AE alone; see etl_runner.py Phase 2c, which excludes only their
-        # CARD-family-tagged rows post-modality-backfill.
+        # CARD-family-tagged rows post-modality-backfill. Since 2026-11-17 the cardiology
+        # devices behind those gateways are also left out by their original storing AE
+        # (_CARDIOLOGY_SQL, CARDIOLOGY_AES at the top of this file).
         #
         # 'DEFINIUM1' REMOVED 2026-09-04: it was bundled into this list alongside the
         # echo/cath/angio devices, but it's a GE Definium general digital-radiography
@@ -183,7 +284,7 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             'LAUMC', 'SVSM',
             'ECHOPAC-PC', 'ADW_8', 'AETITLE', 'VIVIDE9-003168', 'VIVID_S5-050514', 'TERRA',
             'VIVIDS70-003049', 'TERRA2', 'AWVASC', 'AWCTHD1', 'PHCARDIO', 'LOGIQV2-01'
-        )"""
+        )""" + _CARDIOLOGY_SQL
 
         # Operator instruction (2026-07-29, extended 2026-07-31): '@dn'-suffixed signer
         # values (akehdi@dn, eva.d@dn, mi70@dn, ...) are not real LAUMC data — confirmed
