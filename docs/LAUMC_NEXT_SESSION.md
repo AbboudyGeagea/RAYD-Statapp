@@ -14,10 +14,10 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 
   | When | Server (operator) | Laptop (build) |
   |---|---|---|
-  | Tue 17 – Wed 18 | item 2 timing query, PACS account, grant; item 29 check; **deploy** (0154, 0155, CRN, item 6, item 2) | 13b: the SJH move script, rehearsed on the local sample |
-  | Thu 19 – Fri 20 | 05:00 copies the audit from 1 Oct; regenerate Oct/Nov in Report 37; spot-check (**item 2 due Fri**) | 13b: RH's ETL stops loading SJH, SJH's own nightly ETL |
-  | Mon 23 – Wed 25 | 14A/14B validation against Oracle (Wed) | 14A and 14B in Report 32 |
-  | Thu 26 | deploy 14A/14B and 13b's code | — |
+  | Tue 17 – Wed 18 | item 2 timing query, PACS account, grant; item 29 check; **deploy** (0154, 0155, CRN, item 6, item 2); **Wed 18 deploy** (0156–0161) | 13b move script; 14A/14B; items 9, 4, 31, groundwork 1/21 (all built 17 Nov) |
+  | Thu 19 – Fri 20 | 05:00 copies the audit from 1 Oct; regenerate Oct/Nov in Report 37; spot-check (**item 2 due Fri**); cardiology purge and 14A/14B checks | 13: SJH devices from the original storing AE (device rule), the cath lab's RIS side |
+  | Mon 23 – Wed 25 | — | **item 21**, patient schedule lead time report (operator, 17 Nov: add it) |
+  | Thu 26 | deploy item 13's device rule and item 21 | — |
   | Sat 28 – Sun 29 | **13b on production**: copy SJH, compare counts, delete from RH, SJH's first ETL | on call |
   | through Nov | CRN go-live on site: Email Server, CRN gateway + firewall, fallback contact, wording, test, switch on | — |
 - **Operator's answers, 2026-11-17 evening** (to the questions drafted for the system admin):
@@ -113,7 +113,15 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     MR450W → MR45W, AWPETCT and BAY85CT → BAY87CT, AWS → CTHD, SYMBIANET → SYMBIA, MEDISON →
     MEDISON-1; LAUMCWFM1AR per exam from its RIS room. The mechanism (view or column) after
     reading the six files that use the gateway AE titles (site resolver, report filters,
-    Report 22, AI report). ~1.5–2 days. After the 18 Nov deploy, re-run Q1 for ARTIS121403 and
+    Report 22, AI report). ~1.5–2 days.
+    **Item 4 closed 2026-11-17 (migration 0161):** `aetitle_modality_map.ris_aetitle` links a PACS
+    AE title to the RIS device it is; `rayd_apply_room_links()` copies that device's room name,
+    code and site (never the modality), at the migration and after every nightly RIS copy, and
+    adds " · <AE>" where two PACS AEs share the room. Seeded: MR750W → GEHCGEHC, MR450W → MR45W,
+    AWPETCT and BAY85CT → BAY87CT, AWS → CTHD, SYMBIANET → SYMBIA (migration 0083's descriptions
+    had already named three). Open: LEO22529 and ARTIS121403, likely IR2-NX (INTERAET): Q1 again
+    after the 18 Nov deploy, or the DICOM node list; then one UPDATE of ris_aetitle. The 20 idle
+    devices send nothing and need nothing. SJH's devices continue in item 13. After the 18 Nov deploy, re-run Q1 for ARTIS121403 and
     LEO22529: the accession link may now reach their RIS exams (IR2-NX).
     **Cardiology out (operator, 17 Nov: "leave cardiology out, filter them from ETL level";
     the cath lab "is sending now to CVIS") — built the same night (migration 0159):**
@@ -267,7 +275,7 @@ only at weekends, which can add calendar time.
 | 1 | HIS vs RIS orders (Report 27) | Medium | 0.5–1 | 2–3 | 0.5–1 | 3–5 | Mirth ORM forwarding; RIS column for ORC-2 |
 | 2 | First open from PACS audit (due 2026-11-20) — audit found and proven, built, **deployed** 2026-11-17 | High | 1–2 | 2–3 | 0.5–1 | 3.5–6 | the 05:00 copy of 18 Nov; regenerate October |
 | 3 | Report 22 AE filter + stress test of all filters — **done** | Medium | 0.5 | 3–4 | 0.5 | 4–5 | — |
-| 4 | RIS room names everywhere — **built** | Medium | 0.5 | 3–4 | 0.5–1 | 4–5.5 | RIS data fixed after the Monday queries |
+| 4 | RIS room names everywhere — **done** 2026-11-17 (room links, migration 0161; SJH's devices behind its middleware continue in item 13) | Medium | 0.5 | 3–4 | 0.5–1 | 4–5.5 | confirm LEO22529 and ARTIS121403 (IR2-NX?) |
 | 5 | ORU severity on a standard | Medium | 1–2 | 2–3 | 1–2 | 4–7 | chief radiologist |
 | 6 | Report 27 hourly load, scheduled vs started — **done** ("started" = the RIS performed step's start) | Low | 0.25 | 0.5–1 | 0.25 | 1–1.5 | — |
 | 7 | Report 27 status mix check | Low–Medium | 0.5 | 0–2 | 0.5 | 1–3 | Tuesday session |
@@ -293,13 +301,13 @@ share about one day. Doing item 3 together with the shared filter panel saves 1�
 
 | # | Earlier and added items | Difficulty | Total | Waits on |
 |---|---|---|---|---|
-| 15 | Urgent emergent in HL7 | Low | 2 | end user and HIS answer |
+| 15 | Urgent emergent — **done**: not HL7 any more, it comes through the ETL (operator, 2026-11-17; Report 37 reads PACS notes, locks and the audit trail nightly) | Low | — | — |
 | 16 | Shared filter panel, 6 reports | Medium | 4–5.5 | — |
 | 17 | R2I and BRAYN switch-on checks | Medium | 2 | feed live |
 | 18 | ORU final-only via BRAYN | Low–Medium | 2 | meaning of `FAP` or a prelim sample |
 | 19 | Placeholders via BRAYN — **done** (test patient IDs on Monday) | Low | 1.5–2 | — |
 | 20 | CRN go-live — **this month** (operator, 2026-11-15); email-to-SMS sender and hospital name **built** | Medium | 2–3 left | Email Server, CRN gateway, fallback contact, wording |
-| 21 | Patient schedule lead time (very low) | Low–Medium | 2.5–3 | which moment counts as "booked" |
+| 21 | Patient schedule lead time — **scheduled** Mon 23 – Wed 25 (operator, 17 Nov: add it); booked = `ORDERS.CREATED_ON_DATE`, copied from migration 0160 | Low–Medium | 2 left | — |
 | 22 | Daily Briefing snapshot RH only (found 2026-11-14) — **done** | Low | 1 | — (counts checked on the server) |
 | 23 | Yesterday tab Orders ↔ PACS reconciliation (found 2026-11-14) — **done** | Low | 0.5–1 | — |
 | 24 | Deploy — **done** 2026-11-17 (`update.sh LAUMC`: 0154, 0155, CRN email to SMS, item 6, item 2) | Low | 0.5 | after-deploy: test patients on BRAYN (item 19) |
@@ -834,8 +842,8 @@ read; radiologists approve or finalise (check both).
 
 ## Earlier items, still open
 
-- **Urgent emergent in HL7.** Check with the end user and HIS whether urgent emergent can be
-  sent in the HL7 messages.
+- **Urgent emergent — done (operator, 2026-11-17):** no longer through HL7; it comes through the
+  ETL. Report 37 (JCI urgent emergent) reads the PACS sticky notes, locks and audit trail nightly.
 - **Shared filter panel (item 16).** Move Reports 22, 25, 34, 35, 36 and the Super Report onto
   `templates/_report_filter_panel.html`, one at a time, each tested (CLAUDE.md rule 8).
   **Done 2026-11-14**, not deployed (`tests/test_report_filter_panel.py`). Fixed on the way:

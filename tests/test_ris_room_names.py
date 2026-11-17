@@ -95,6 +95,50 @@ def load(monkeypatch, *rows):
     return etl_ris_modality.run_ris_modality_etl(db.engine, 'RIS')
 
 
+# ── PACS AE titles linked to their RIS device (migration 0161) ─────────────────
+
+def link(pacs_ae, ris_ae, modality='MR'):
+    existing(pacs_ae, modality=modality, name=None)
+    sql("UPDATE aetitle_modality_map SET ris_aetitle = :r WHERE aetitle = :p", r=ris_ae, p=pacs_ae)
+
+
+def test_a_pacs_ae_takes_the_room_of_the_ris_device_it_is_and_keeps_its_modality(monkeypatch):
+    link('MRPACS1', 'MRRIS1')
+    load(monkeypatch, ris(201, 'MRRIS1', 'MRI 3T', code='MRI 3T', modality_type='MR'))
+
+    d = device_row('MRPACS1')
+    assert (d['station_name'], d['room_name'], d['room_code']) == ('MRI 3T', 'MRI 3T', 'MRI 3T')
+    assert d['modality'] == 'MR' and d['site_id'] == site('RH')
+
+
+def test_two_pacs_aes_of_one_room_are_told_apart(monkeypatch):
+    link('PETWS1', 'PETRIS1', modality='PT')
+    link('PETCT1', 'PETRIS1', modality='CT')
+    load(monkeypatch, ris(202, 'PETRIS1', 'PET-CT', code='PET-CT', modality_type='PT'))
+
+    assert device_row('PETWS1')['station_name'] == 'PET-CT · PETWS1'
+    assert (device_row('PETCT1')['station_name'], device_row('PETCT1')['modality']) == ('PET-CT · PETCT1', 'CT')
+
+
+def test_a_link_to_a_ris_device_that_stores_to_pacs_itself_is_told_apart(monkeypatch):
+    link('AWSRV1', 'CTRIS1', modality='CT')
+    sql("""INSERT INTO etl_didb_studies (study_db_uid, patient_db_uid, storing_ae, study_date, study_modality)
+           VALUES (1, 1, 'CTRIS1', current_date, 'CT')""")
+    load(monkeypatch, ris(203, 'CTRIS1', 'CT64'))
+
+    assert device_row('AWSRV1')['station_name'] == 'CT64 · AWSRV1'
+
+
+def test_the_six_proven_links_are_seeded():
+    from db import db
+    got = dict(db.session.execute(text(
+        "SELECT UPPER(aetitle), UPPER(ris_aetitle) FROM aetitle_modality_map WHERE ris_aetitle IS NOT NULL")).all())
+    db.session.commit()
+    # migration 0083 seeded these AE titles (its descriptions already named three of the RIS AEs)
+    assert got == {'MR750W': 'GEHCGEHC', 'MR450W': 'MR45W', 'AWPETCT': 'BAY87CT',
+                   'BAY85CT': 'BAY87CT', 'AWS': 'CTHD', 'SYMBIANET': 'SYMBIA'}
+
+
 # ── the nightly RIS load ────────────────────────────────────────────────────────
 
 def test_a_room_corrected_on_the_ris_reaches_rayd(monkeypatch):

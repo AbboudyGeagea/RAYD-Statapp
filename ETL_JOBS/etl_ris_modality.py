@@ -206,6 +206,13 @@ def run_ris_modality_etl(pg_engine, oracle_source):
                 conn.execute(_UPSERT_SQL, params)
             total = len(params)
 
+        # A PACS AE title linked to its RIS device (migration 0161, item 4) takes that device's
+        # room, so a room renamed on the RIS tonight reaches it tonight too.
+        with pg_engine.begin() as conn:
+            linked = conn.execute(text("SELECT public.rayd_apply_room_links()")).scalar()
+        if linked:
+            logging.info(f"RIS Modality ETL: {linked} linked PACS AE title(s) took their RIS room")
+
         status = "SUCCESS"
         print(f"[RIS Modality ETL] ✅ Done — {total:,} devices from the RIS (room names, codes, "
               f"descriptions, sites and active flags refreshed; gateways untouched), "
