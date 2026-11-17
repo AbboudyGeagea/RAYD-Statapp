@@ -151,6 +151,8 @@ only at weekends, which can add calendar time.
 | 12 | Chart explanations (~150 notes, 16 pages) — **done** | Low–Medium | 0.5 | 2.5–3.5 | 0.5 | 3.5–4.5 | — |
 | 13 | SJH database, all parts (13f roles and access **built**; 13a **built** but BRAYN routing by site) | High | 3–4 | 14–18 | 2–3 | 19–25 | BRAYN on; site-ID walkthrough |
 | 14 | Radiologist TAT and report counts on PACS | High | 2 | 4–5 | 1–2 | 7–9 | shares item 8’s PACS copy |
+| 14A | Radiologist TAT, two charts: RIS exam done → signature, PACS arrival → signature (added 2026-11-17; planned 23–26 Nov) | Low–Medium | 0.25 | 1–1.5 | 0.5 | 1.75–2.25 | sign events proven on Oracle; item 2's audit copy live |
+| 14B | Reporting time: first open → signature (added 2026-11-17; planned 23–26 Nov, with 14A) | Low | 0.1 | 0.5 | 0.25 | 0.75–1 | item 2 live; 14A's signature |
 
 Item 13 splits into: second database, per-request switch, migrations and SJH ETL (6–8);
 migrate, count and delete SJH rows (2–3); site dropdown (1); RH vs SJH per-modality views
@@ -505,6 +507,23 @@ read; radiologists approve or finalise (check both).
     3. Report count per radiologist, per day, per modality.
 
     Report 32 is Radiologists Performance; Resident vs Radiologist TAT is in Report 36.
+
+    **14A and 14B (operator, 2026-11-17), in Report 32:**
+    - **A. Two TAT charts:** (1) RIS exam done → signature; (2) PACS arrival
+      (`insert_time`) → signature. Both start clocks are in Postgres: exam done exists for
+      97% of RH studies (2,363 of 2,435, production's 1–14 October), arrival for all.
+    - **B. Reporting time:** first open → signature. Shown twice: from the first reader's
+      open (the whole read, resident included) and from the signing radiologist's own first
+      open (the radiologist's part). Possible extra: time actually spent in the study, the
+      sum of the audit's LOCKED → UNLOCKED sessions.
+    - **Signature from PACS** (operator rule): the audit trail has every approve/sign event
+      with its login and second ("ApprovedSign Complete", report status tag `(07a1,2a)`:
+      WETREAD, PENDING APPROVED, APPROVED), better than `DIDB_STUDIES_VIEW`, which keeps
+      only the latest value per study. Extend item 2's nightly copy with these events
+      (login taken from the tags when the row has none), never the description itself.
+    - **Plan:** Wed 18 – Thu 19, the Oracle proof query (which sign events exist, how many);
+      after item 2 is live, build Mon 23 – Tue 24, validate against Oracle on random dates
+      Wed 25, deploy Thu 26.
 
 ## Earlier items, still open
 
