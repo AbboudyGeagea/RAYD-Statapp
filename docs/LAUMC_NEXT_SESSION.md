@@ -541,6 +541,31 @@ read; radiologists approve or finalise (check both).
     from its device after the load).
     **To decide:** (1) no-site rows stay on RH; (2) A or B; (3) SJH's raw images not copied.
     Then: build and rehearse on the local sample, deploy Thu 26, production move Sat 28.
+    **Decided 2026-11-17 (operator):** (1) yes, and they stay flagged (site still empty, every
+    run reports how many remain); (2) **A**: the ETL decides where each row belongs and
+    stores SJH's rows in SJH's database; (3) yes: locally the databases are filled from the
+    sample, on production by the ETL.
+    **Engineering notes (2026-11-17):**
+    - Rows are matched on their natural keys, never on generated ids: every RIS table is
+      upserted on one (`site_worklist_key`+time, `report_key`+`version`, `visit_key`,
+      `patient_person_key`, `resource_id_key`, ORU `accession_number`, ...). Surrogate ids
+      are not copied (SJH's database gets its own writes after 13d, so ids would collide);
+      ORU children (NLP analysis, AI cache, rule cache) find their report by accession.
+    - Parents are upserted, never deleted and re-inserted in SJH's database: a cascade
+      would drop children that RH no longer holds.
+    - The studies ETL re-reads the last 10 days every night (`study_db_uid > max` or the
+      lookback), so recent SJH studies come back to RH nightly: the nightly step updates
+      them in SJH's database and removes them from RH again (about 1,000 studies a night).
+      Images load on a watermark, so only new images come.
+    - The nightly step runs at the very end of the ETL, so the series, RIS rows and ORU of
+      later phases go with their study.
+    - RH's storage rollup (Phase 7) already leaves SJH's devices out, so there is no SJH
+      storage summary to copy: the one-time move computes SJH's history once from SJH's
+      images (same formula), before deleting them; afterwards SJH's own rollup builds the
+      new days from the images the nightly step moves. The rollup (and any other "this
+      site" code in the ETL) must use the site its database serves (rule 10).
+    - Key sets are taken once at the start (SJH studies, orders, accessions, PPS keys), so
+      copying and deleting see the same rows whatever order the tables go in.
 14. **Radiologists TAT and radiologists' number of reports: revamp and validate thoroughly;
     this is the selling point.** Source is PACS Oracle (rule above). Show both start clocks,
     RIS exam done and PACS insert time (`DIDB_STUDIES.INSERT_TIME`), because they disagree.
