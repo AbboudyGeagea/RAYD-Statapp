@@ -1,6 +1,6 @@
 # LAUMC — To do
 
-Updated 2026-11-16. This file holds only what is still open. What was built is in the commit
+Updated 2026-11-17. This file holds only what is still open. What was built is in the commit
 messages, and the July version of this file (history, punch list round 2) is in git history.
 Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 `LAUMC_OPEN_QUESTIONS.md` (vendor questions), `LAUMC_DATA_REQUEST.md` (discovery record).
@@ -155,7 +155,7 @@ only at weekends, which can add calendar time.
 | 6 | Report 27 hourly load, scheduled vs started — **done** ("started" = the RIS performed step's start) | Low | 0.25 | 0.5–1 | 0.25 | 1–1.5 | — |
 | 7 | Report 27 status mix check | Low–Medium | 0.5 | 0–2 | 0.5 | 1–3 | Tuesday session |
 | 8 | Super Report residents by wet read (PACS) | Medium–High | 1–1.5 | 2–2.5 | 0.5–1 | 3.5–5 | PACS timestamp check |
-| 9 | Staff who left, hidden from KPIs | Medium | 1 | 2.5–3 | 0.5 | 4–4.5 | Tuesday session; manager’s list |
+| 9 | Staff who left, hidden from KPIs — **built** 2026-11-17 (migration 0157, Report 39; ships off) | Medium | 1 | 2.5–3 | 0.5 | 4–4.5 | deploy; Report 39 check on production; switch on |
 | 10 | Modality "PACS" samples | Low | 0.25 | 0–1 | 0.25 | 0.5–1.5 | operator’s review |
 | 11 | Report start date setting — **done** | Low | 0.1 | 1 | 0.25 | 1–1.5 | — |
 | 12 | Chart explanations (~150 notes, 16 pages) — **done** | Low–Medium | 0.5 | 2.5–3.5 | 0.5 | 3.5–4.5 | — |
@@ -376,6 +376,33 @@ read; radiologists approve or finalise (check both).
    every period; department totals still include their studies. Having no PACS account does
    not count as inactive. Nothing is deleted from RAYD. Session on the PACS user columns
    Tuesday 2026-11-17.
+   **Found 2026-11-17 (server):** PACS `SECM_USERS.STATUS` is ACTIVE on every staff account
+   (only patient-portal accounts are SUSPENDED/TIMEOUT); `IS_EXPIRED` is the password and
+   `LAST_LOGIN` is unused (directory sign-in), so PACS has no "left" signal yet. RIS `active` is
+   kept (radiologists 52 inactive rows of 102, technologists 50 of 136), but per row: 32 of the
+   52 inactive radiologist rows belong to someone with an active row, and two RIS person records
+   can share one login. The RIS resource ID holds the PACS login
+   (`first.last@ad.umcrh.com_123`): on the laptop sample it links 112/136 technologists, 86/102
+   radiologists, 32/32 residents (e-mail alone: 105, 62, 32 on the server).
+   **Built 2026-11-17 (migration 0157, not deployed):** `public.staff_status` (materialized,
+   rebuilt after every nightly ETL): one row per RIS person (any role but DOC) and per PACS
+   login no RIS person holds. Left = no active RIS row and no active person shares the login,
+   or PACS accounts none of which is ACTIVE; no PACS account does not count. The nightly PACS
+   copy now brings `STATUS` and `IN_STATE_SINCE`. While `settings.staff_left_hidden` = 'true'
+   the rh views read "Former staff" for a leaver's login and name on studies and RIS staff rows,
+   so every report (and Report Composer) shows one "Former staff" line instead of the people and
+   every total keeps their studies; Report 32's turnaround card does the same in code. Report 37's
+   case list keeps who opened and who wrote the note (a JCI record, tables outside the views).
+   **Report 39, Staff status:** everyone by PACS group and RIS role, RIS and PACS status, how
+   they are linked, studies signed and exams performed in the period, Excel for the manager, and
+   the switch (Super user, CHT, Administrator). **Ships OFF.** Laptop sample: 480 listed, 42
+   left (all "inactive on the RIS"), none of them signed a study in 1–14 Oct.
+   **After the deploy:** open Report 39 for the last 30 days, filter Status = "Left, but worked
+   in the period"; it should be empty (that is the check: the RIS flag is reliable). Then switch
+   on in Report 39, or on the server:
+   `sudo docker exec rayd_db psql -U etl_user -d etl_db -c "UPDATE settings SET value = 'true' WHERE key = 'staff_left_hidden';"`
+   Not covered yet: SJH's own database has no rh views (as for placeholders), so leavers keep
+   their names there once SJH moves (28 Nov). Referring doctors are not touched.
 10. **Modality "PACS": share sample studies** to decide whether to remove it. These are the
     gateway and router AE titles seeded in `migrations/0083`.
 11. **New global setting "report start date" = 2026-01-01**, editable on the ETL page, used as

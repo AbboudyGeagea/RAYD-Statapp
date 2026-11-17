@@ -66,7 +66,8 @@ DATA_TABLES = [
     # before the PACS studies they point at (std_pps.study_db_uid)
     'std_pps_person_reference', 'std_worklist_scheduled', 'std_worklist_arrivals',
     'std_worklist_exam_done', 'std_worklist_cancellations', 'std_reports', 'std_pps',
-    'std_patient_ids', 'std_patients_ris', 'std_resources_ris', 'std_procedure_priorities',
+    'std_patient_ids', 'std_patients_ris', 'std_resources_ris', 'std_pacs_user_groups',
+    'std_procedure_priorities',
     'etl_didb_serieses', 'summary_storage_daily', 'fact_exam',
     'etl_didb_studies', 'etl_patient_view', 'etl_orders', 'etl_excluded_orders',
     # BRAYN (migration 0133), children of the archive first
@@ -279,6 +280,9 @@ def app(database_url):
     # Report 32, Radiologists Performance: the signature turnaround (items 14A, 14B)
     from routes.report_32 import report_32_bp
     flask_app.register_blueprint(report_32_bp)
+    # Report 39, staff status (item 9)
+    from routes.report_39 import report_39_bp
+    flask_app.register_blueprint(report_39_bp)
     # the home page's daily briefing and Yesterday tab
     from routes.viewer_controller import viewer_bp
     flask_app.register_blueprint(viewer_bp, url_prefix='/viewer')

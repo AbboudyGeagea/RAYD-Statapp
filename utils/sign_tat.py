@@ -19,6 +19,9 @@ whose start is missing, or later than the signature, is left out of that clock o
 
 Only studies that arrived while the audit copy holds them count (settings
 pacs_audit_copied_from/until): before that RAYD has no approvals. Reads Postgres only.
+
+A signer who left (item 9, utils/staff_status.py) reads "Former staff" while that switch is on;
+the audit copy has no rh view to do it, so it is done here.
 """
 import statistics
 
@@ -26,6 +29,7 @@ from sqlalchemy import text
 
 from db import db
 from ETL_JOBS.etl_pacs_audit import coverage as audit_coverage
+from utils import staff_status
 from utils.pacs_roles import role_lookup_cte
 
 MEASURES = (
@@ -62,6 +66,7 @@ signed AS MATERIALIZED (
 )
 SELECT g.study_db_uid, g.arrived_at, g.signed_at, g.signer,
        alias.canonical_name AS signer_alias,
+       {signer_login} IN {left_logins} AS signer_left,
        (SELECT MIN(w.exam_done_at) FROM etl_orders o
           JOIN std_worklist_exam_done w ON w.site_worklist_key = o.order_dbid
          WHERE o.study_db_uid = g.study_db_uid) AS exam_done_at,
@@ -105,15 +110,19 @@ def build(start, end, params=None, filters=''):
     bind = {**(params or {}), 'start': start, 'end': end, 'audit_from': audit_from, 'audit_until': audit_until}
     out['studies'] = int(db.session.execute(text(
         'WITH ' + _STUDIES.format(filters=filters or '') + ' SELECT COUNT(*) FROM studies'), bind).scalar() or 0)
-    rows = db.session.execute(text(_SQL.format(roles=role_lookup_cte('role_lookup'), filters=filters or '')),
-                              bind).mappings().all()
+    rows = db.session.execute(text(_SQL.format(
+        roles=role_lookup_cte('role_lookup'), filters=filters or '',
+        signer_login=staff_status.login_sql('g.signer'), left_logins=staff_status.left_logins_sql())),
+        bind).mappings().all()
     out['signed'] = len(rows)
     if not rows:
         return out
 
     cases = []
     for r in rows:
-        case = {'signer': person_name(r['signer_alias'], r['signer']), 'login': r['signer']}
+        # The audit copy has no rh view: someone who left is masked here (item 9)
+        case = ({'signer': staff_status.FORMER, 'login': None} if r['signer_left']
+                else {'signer': person_name(r['signer_alias'], r['signer']), 'login': r['signer']})
         for key, start_col, _ in MEASURES:
             case[key] = _minutes(r[start_col], r['signed_at'])
         cases.append(case)

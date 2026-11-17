@@ -46,6 +46,11 @@ routes/
   report_38.py                  — Report 38, the ER dashboard (until 2026-11-14 the page /er,
                                    routes/er_dashboard.py; /er redirects): TAT, target compliance,
                                    unread ER studies; migration 0150
+  report_39.py                  — Report 39, Staff status (item 9, migration 0157): everyone on the
+                                   RIS and PACS by PACS group and RIS role, who left (inactive on
+                                   the RIS and/or PACS, utils/staff_status.py), their activity in
+                                   the period, Excel for the manager, and the switch (settings
+                                   capability) that makes every report read "Former staff" for them
   report_37.py                  — Report 37, JCI urgent emergent (the former Sticky Notes page,
                                    /sticky-notes redirects; report card next to ER in Clinical KPIs;
                                    per-user report access; report_template row + licence in migration
@@ -271,6 +276,13 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    The same views leave out BRAYN's placeholder list (`brayn_placeholders`, migration 0151, kept on
    the BRAYN console): a test patient's rows; a placeholder referrer's name ("Referring, Generic":
    the exam still counts, the referrer reads blank); service accounts in `std_resources_ris`.
+   They also replace staff who left (item 9, migration 0157, `utils/staff_status.py`): while
+   `settings.staff_left_hidden` = 'true', a leaver's login and name on studies and RIS staff rows
+   read 'Former staff' (every count stays). A new `etl_didb_studies` column holding a staff login
+   goes in `login_cols` of `rh_refresh_views()`; a table outside the views that names staff (the
+   PACS audit copy) masks in code with `staff_status.left_logins_sql()`. Who left is the
+   materialized view `public.staff_status`, rebuilt after the nightly ETL: a migration that drops
+   or retypes a column of `std_resources_ris` or `std_pacs_user_groups` must drop it first.
    Code that runs in a request creates tables as `public.x`. A migration that drops or retypes a
    column of a filtered table must drop its `rh` view first. To decide a study's site use
    `utils/report_filters.study_site_sql`, never the PACS label alone: double reading stamps RH

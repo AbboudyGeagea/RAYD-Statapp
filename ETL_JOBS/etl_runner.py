@@ -289,6 +289,19 @@ def _resolve_study_sites(engine, failures):
         logger.error(f"🛑 Study sites not resolved — continuing: {_e}", exc_info=True)
 
 
+def _refresh_staff_status(engine, failures):
+    """public.staff_status (migration 0157, utils/staff_status.py): who left, from the RIS staff
+    list and the PACS accounts just copied. A failure keeps yesterday's list and shows in the
+    sync's status."""
+    try:
+        from utils.staff_status import refresh_all
+        counts = refresh_all(engine)
+        logger.info(f"✅ Staff status rebuilt — {counts}")
+    except Exception as _e:
+        failures.append("Staff status")
+        logger.error(f"🛑 Staff status not rebuilt — continuing: {_e}", exc_info=True)
+
+
 def _route_sites(engine, failures):
     """SJH's rows (any site with its own database) into that database, Postgres only
     (ETL_JOBS/etl_site_route.py). Off until POSTGRES_DB_<SITE> is set, and for a site until
@@ -948,6 +961,10 @@ def _perform_migration(engine):
         # hospitals into this database; SJH's rows now go to SJH's, after every phase and
         # the site resolution, so a study's series, RIS rows and ORU go with it.
         _route_sites(engine, _phase_failures)
+
+        # ── Staff who left (item 9): rebuilt from tonight's RIS staff and PACS accounts, in
+        # every database, outside any phase like the two steps above.
+        _refresh_staff_status(engine, _phase_failures)
 
         # ── Mark overall sync SUCCESS (or PARTIAL if any phase failed but the
         # run still made it to the end — each phase is now isolated by its own

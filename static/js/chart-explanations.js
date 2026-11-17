@@ -411,6 +411,12 @@ const ChartExplanations = {
       valueMeaning: 'Green: from the first open by any resident or radiologist (the PACS reading groups). Amber: from the signing radiologist\'s own first open. Opens are the audit trail\'s image displays and reading locks, the same as Report 37\'s first open. Median hours per signing radiologist.',
       interpretation: 'Green much longer than amber: the study waits between the resident\'s read and the radiologist\'s. Amber is the radiologist\'s own reading-to-signing time; it includes time the study stayed open or was reopened.'
     },
+    'r39-staff': {
+      title: 'Staff status',
+      purpose: 'Everyone on the RIS and PACS, grouped by PACS group and RIS role, with whether they count as having left. Built every night from the RIS staff list and the PACS accounts.',
+      valueMeaning: 'Left = no active row on the RIS (and no active person shares the login), or PACS accounts none of which is ACTIVE. Having no PACS account does not count. A RIS person and a PACS login are linked by the login in the RIS resource ID, else by e-mail. Signed = studies whose report the login last composed, in the period; performed = RIS exams the person is on, in the period.',
+      interpretation: 'Left but signed or performed in the period: the RIS or PACS still has them inactive by mistake, or a shared account; fix the RIS or PACS before switching on. Once on, they read "Former staff" on every report, and every total keeps their studies.'
+    },
     'r32-addendum': {
       title: 'Addendum Rate by Radiologist',
       purpose: 'For each reader with at least 5 reported studies in the period, the share of studies that carry an addendum.',

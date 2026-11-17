@@ -1,0 +1,144 @@
+{% from '_report_filter_panel.html' import filter_panel_head, filter_panel %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Staff Status (RIS and PACS)</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
+    {{ filter_panel_head() }}
+    <style>
+        :root { --accent:#60a5fa; }
+        body  { font-family:'Inter',sans-serif; background:#181f1c; color:#e2e8f0; }
+        .card { background:#232b28; border:1px solid #28332e; border-radius:1.25rem; }
+        .kpi-card { background:#232b28; border:1px solid #28332e; border-radius:1rem; padding:1.25rem 1.5rem; }
+        .kpi-card.red { border-color:rgba(244,63,94,0.35); background:rgba(244,63,94,0.06); }
+        .kpi-label { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; color:#64748b; margin-bottom:0.25rem; }
+        .kpi-value { font-size:1.75rem; font-weight:900; color:#fff; line-height:1.2; }
+        .kpi-sub   { font-size:10px; color:#64748b; margin-top:0.25rem; }
+        .section-title { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.15em; color:var(--accent); margin-bottom:0.75rem; }
+        th { white-space:nowrap; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em; color:#64748b; padding:0.5rem 0.6rem; }
+        td { padding:0.45rem 0.6rem; font-size:12px; vertical-align:top; }
+        tbody tr { border-top:1px solid #28332e; }
+        tr.left td { color:#94a3b8; }
+        tr.working td { background:rgba(244,63,94,0.07); }
+        .tag { font-size:9px; font-weight:900; padding:2px 7px; border-radius:4px; text-transform:uppercase; letter-spacing:0.06em; white-space:nowrap; }
+        .tag.cur  { background:rgba(52,211,153,0.12); color:#34d399; }
+        .tag.left { background:rgba(244,63,94,0.12); color:#fb7185; }
+        .switch-on  { background:#f43f5e; color:#fff; }
+        .switch-off { background:#2563eb; color:#fff; }
+        .btn { font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; border-radius:0.5rem; padding:0.5rem 1rem; }
+        body.light { background:#f0f4f8; color:#1a202c; }
+        body.light main { background:#f0f4f8!important; }
+        body.light .card, body.light .kpi-card { background:#ffffff; border-color:#e2e8f0; }
+        body.light .kpi-card.red { background:#fff5f5; border-color:#fca5a5; }
+        body.light .kpi-value, body.light .text-white { color:#1a202c!important; }
+        body.light .text-slate-400 { color:#4a5568!important; }
+        body.light tbody tr { border-color:#e2e8f0; }
+        body.light tr.left td { color:#718096; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+{% include '_header.html' %}
+
+<div class="flex flex-1 overflow-hidden">
+    {{ filter_panel(start, end, filters, export_url=url_for('report_39.export_xlsx')) }}
+
+    <main class="flex-1 overflow-y-auto bg-[#181f1c] p-8">
+        <div class="mb-6">
+            <h1 class="text-2xl font-black text-white tracking-tight">Staff Status (RIS and PACS)</h1>
+            <p class="text-slate-400 text-sm">Everyone on the RIS and PACS, grouped by PACS group and RIS role. The dates set the activity columns only; the status is as of the last nightly copy.</p>
+        </div>
+
+        {% if summary is none %}
+        <div class="card p-6 text-sm text-slate-400">The report could not be loaded.</div>
+        {% else %}
+
+        <div class="card p-4 mb-6 text-xs text-slate-400 leading-relaxed">
+            <p><i class="bi bi-info-circle mr-1" style="color:var(--accent);"></i><strong class="text-white">Left</strong> means inactive on the RIS (no active row, and no active person shares the login), or PACS accounts none of which is ACTIVE. Having no PACS account does not count.
+            {% if not summary.pacs_status_copied %}PACS account status arrives with the next nightly copy; until then only the RIS decides.{% endif %}</p>
+            <p class="mt-1"><strong class="text-white">On reports:</strong>
+            {% if summary.hidden_on_reports %}
+                <span style="color:#fb7185;font-weight:800;">on</span>: the {{ summary.everyone_left }} people who left read "{{ former }}" on every report; department totals keep their studies.
+            {% else %}
+                <span style="color:#34d399;font-weight:800;">off</span>: every report still shows everyone by name. Check the people marked Left first, mainly any who still worked in the period.
+            {% endif %}
+            {% if summary.ris_copied_at %}RIS staff list copied {{ summary.ris_copied_at }}.{% endif %}</p>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+            <div class="kpi-card"><p class="kpi-label">Listed</p><p class="kpi-value">{{ '{:,}'.format(summary.listed) }}</p></div>
+            <div class="kpi-card"><p class="kpi-label">Current</p><p class="kpi-value">{{ '{:,}'.format(summary.current) }}</p></div>
+            <div class="kpi-card"><p class="kpi-label">Left</p><p class="kpi-value">{{ '{:,}'.format(summary.left) }}</p></div>
+            <div class="kpi-card{% if summary.working %} red{% endif %}"><p class="kpi-label">Left, still working</p><p class="kpi-value">{{ '{:,}'.format(summary.working) }}</p><p class="kpi-sub">signed or performed in the period</p></div>
+            <div class="kpi-card"><p class="kpi-label">PACS login only</p><p class="kpi-value">{{ '{:,}'.format(summary.pacs_only) }}</p><p class="kpi-sub">no RIS person found</p></div>
+            <div class="kpi-card"><p class="kpi-label">RIS only</p><p class="kpi-value">{{ '{:,}'.format(summary.ris_only) }}</p><p class="kpi-sub">no PACS login found</p></div>
+        </div>
+
+        {% if can_switch %}
+        <div class="card p-5 mb-6">
+            <p class="section-title"><i class="bi bi-toggles mr-1"></i>Staff who left, on every report (administrators)</p>
+            <div class="flex flex-wrap items-center gap-4">
+                {% if summary.hidden_on_reports %}
+                <button type="button" class="btn switch-off" onclick="setSwitch(false)">Show them by name again</button>
+                {% else %}
+                <button type="button" class="btn switch-on" onclick="setSwitch(true)">Show them as "{{ former }}"</button>
+                {% endif %}
+                <p id="switch-msg" class="text-xs text-slate-400" role="status"></p>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-2">Takes effect at once on every report and on Report Composer. Nothing is deleted: switching off brings every name back.</p>
+        </div>
+        {% endif %}
+
+        <div class="card p-5">
+            <p class="section-title">Staff<i class="bi bi-info-circle chart-info-icon ml-1" data-explain="r39-staff" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></p>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead><tr>{% for header, _ in columns %}<th scope="col">{{ header }}</th>{% endfor %}</tr></thead>
+                    <tbody>
+                    {% for r in rows %}
+                    <tr class="{% if r.is_left %}left{% endif %}{% if r.working %} working{% endif %}">
+                        <td class="font-bold text-white">{{ r.name }}</td>
+                        <td>{{ r.pacs_groups }}</td>
+                        <td>{{ r.ris_roles }}</td>
+                        <td>{{ r.logins }}</td>
+                        <td>{{ r.ris }}</td>
+                        <td>{{ r.pacs }}</td>
+                        <td>{{ r.linked_by }}</td>
+                        <td><span class="tag {{ 'left' if r.is_left else 'cur' }}">{{ r.status }}</span></td>
+                        <td>{{ r.reason }}</td>
+                        <td class="text-right">{{ '{:,}'.format(r.signed) if r.signed else '' }}</td>
+                        <td>{{ r.last_signed or '' }}</td>
+                        <td class="text-right">{{ '{:,}'.format(r.performed) if r.performed else '' }}</td>
+                        <td>{{ r.last_performed or '' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="{{ columns|length }}" class="text-slate-400 py-6">Nobody matches these filters.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    </main>
+</div>
+
+<script>
+    async function setSwitch(on) {
+        const msg = document.getElementById('switch-msg');
+        msg.textContent = 'Saving…';
+        try {
+            const r = await fetch('{{ url_for('report_39.switch') }}', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: on }) });
+            const d = await r.json();
+            if (!r.ok || d.status !== 'success') { msg.textContent = d.message || 'Not saved.'; return; }
+            location.reload();
+        } catch (e) {
+            msg.textContent = 'Not saved: ' + e;
+        }
+    }
+</script>
+</body>
+</html>

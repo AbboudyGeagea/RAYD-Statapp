@@ -20,6 +20,12 @@ turned out to be nearly empty on real data (1 row total). SECM_USERS.SECURITY_GR
 primary group; SECM_USER_IN_GROUP only covers rare secondary memberships. Both are
 pulled now (see _QUERY).
 
+Account status (item 9, migration 0157): SECM_USERS.STATUS and IN_STATE_SINCE come along, so
+a login whose accounts are no longer ACTIVE counts as staff who left (public.staff_status).
+Every staff account was ACTIVE on 2026-11-17; IS_EXPIRED (the password) and LAST_LOGIN (unused:
+staff sign in through the hospital directory) are not read. No password, salt or recovery
+column is read.
+
 No date/whitelist filter — this is master/reference data (who's in which group right
 now), not transactional, and there's no meaningful "new since last run" concept for
 group membership; a full pull every run is fine at this table's size (tens to low
@@ -49,15 +55,16 @@ def _safe_str(val, max_len=None):
 _UPSERT_SQL = text("""
     INSERT INTO std_pacs_user_groups (
         membership_dbid, user_dbid, login_id, email, group_dbid, group_name,
-        group_domain, last_update
+        group_domain, user_status, status_since, last_update
     ) VALUES (
         :membership_dbid, :user_dbid, :login_id, :email, :group_dbid, :group_name,
-        :group_domain, :last_update
+        :group_domain, :user_status, :status_since, :last_update
     )
     ON CONFLICT (membership_dbid) DO UPDATE SET
         user_dbid    = EXCLUDED.user_dbid,    login_id    = EXCLUDED.login_id,
         email        = EXCLUDED.email,        group_dbid  = EXCLUDED.group_dbid,
         group_name   = EXCLUDED.group_name,   group_domain = EXCLUDED.group_domain,
+        user_status  = EXCLUDED.user_status,  status_since = EXCLUDED.status_since,
         last_update  = EXCLUDED.last_update
 """)
 
@@ -69,7 +76,8 @@ _UPSERT_SQL = text("""
 # can never collide with a real (positive) SECM_USER_IN_GROUP.DBID on upsert.
 _QUERY = f"""
     SELECT
-        uig.DBID, u.DBID, u.LOGIN_ID, u.EMAIL, g.DBID, g.GROUP_NAME, g.DOMAIN
+        uig.DBID, u.DBID, u.LOGIN_ID, u.EMAIL, g.DBID, g.GROUP_NAME, g.DOMAIN,
+        u.STATUS, u.IN_STATE_SINCE
     FROM {_SECM_USER_IN_GROUP_TABLE} uig
     JOIN {_SECM_USERS_TABLE}  u ON u.DBID = uig.USER_DBID
     JOIN {_SECM_GROUPS_TABLE} g ON g.DBID = uig.GROUP_DBID
@@ -77,7 +85,8 @@ _QUERY = f"""
     UNION ALL
 
     SELECT
-        -u.DBID, u.DBID, u.LOGIN_ID, u.EMAIL, g.DBID, g.GROUP_NAME, g.DOMAIN
+        -u.DBID, u.DBID, u.LOGIN_ID, u.EMAIL, g.DBID, g.GROUP_NAME, g.DOMAIN,
+        u.STATUS, u.IN_STATE_SINCE
     FROM {_SECM_USERS_TABLE} u
     JOIN {_SECM_GROUPS_TABLE} g ON g.DBID = u.SECURITY_GROUP_ID
     WHERE u.SECURITY_GROUP_ID IS NOT NULL
@@ -122,7 +131,7 @@ def run_pacs_user_groups_etl(pg_engine, oracle_source):
             params = []
             for row in batch:
                 (membership_dbid, user_dbid, login_id, email,
-                 group_dbid, group_name, group_domain) = row
+                 group_dbid, group_name, group_domain, user_status, status_since) = row
 
                 if membership_dbid is None:
                     skipped += 1
@@ -133,6 +142,7 @@ def run_pacs_user_groups_etl(pg_engine, oracle_source):
                     "login_id": _safe_str(login_id), "email": _safe_str(email),
                     "group_dbid": group_dbid, "group_name": _safe_str(group_name),
                     "group_domain": _safe_str(group_domain),
+                    "user_status": _safe_str(user_status, 50), "status_since": status_since,
                     "last_update": datetime.now(),
                 })
 
