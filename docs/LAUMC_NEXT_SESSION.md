@@ -85,7 +85,18 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     Instance UID only (`etl_ris_pps.py`): either the CT's study UIDs differ from the RIS's or the
     link broke at some date. Until fixed, SJH CT has no technologist, scan start or room per
     exam. Diagnostic queries in the reply of 17 Nov (per month: steps, with UID, linked, UID
-    found in PACS; and whether order → arrival → step reaches them by accession). SJH XA with
+    found in PACS; and whether order → arrival → step reaches them by accession).
+    **Result:** never linked, all year (every step has a UID, none is in PACS): the CT writes its
+    own study UID (Canon root 1.2.392.200036.9116) instead of the RIS's (1.2.840.113564...
+    <accession>). 2,208 of 2,219 are reached by accession. **Built 2026-11-17:** the RIS step
+    link falls back to the order's accession when it names exactly one non-SR PACS study (a
+    gateway's 'PACS' mapping no longer hides the dose report), and runs again after every phase
+    (`etl_ris_pps.py`, `tests/test_pps_study_link.py`).
+    **Devices behind SJH's middleware (operator):** SJH studies reach PACS through the
+    SJHCSAPWFMFIR middleware; the real device is `MEDISTORE.DIDB_STUDIES.ORIGINAL_STORING_AE`,
+    which RAYD does not copy yet. Plan: copy it nightly (and once for the gateway studies
+    already loaded), and take the device from it when the storing AE is a gateway; it should
+    also name LAUMCWFM1AR's devices. Waits on one Oracle query showing what it holds. SJH XA with
     no accession (241 in 90 days), institution spelled "LAU MC - SJH": no RIS order at all,
     likely the cath lab doing cardiology outside the radiology RIS (cardiology is out of scope;
     Phase 2c purges only CARD-family modalities).

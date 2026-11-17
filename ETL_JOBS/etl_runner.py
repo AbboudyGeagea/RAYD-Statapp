@@ -957,6 +957,14 @@ def _perform_migration(engine):
         # runs, and a device moved on the Mapping screen should take effect the same night.
         _resolve_study_sites(engine, _phase_failures)
 
+        # ── RIS steps to PACS studies, once more now that Phase 17's worklist rows are in: the
+        # accession fallback needs them, and the site route below moves a step with its study.
+        try:
+            run_pps_study_enrichment(engine)
+        except Exception as _e:
+            _phase_failures.append("RIS step links")
+            logger.error(f"🛑 RIS step links not refreshed — continuing: {_e}", exc_info=True)
+
         # ── Each site's rows into its own database (item 13b, option A): the run read both
         # hospitals into this database; SJH's rows now go to SJH's, after every phase and
         # the site resolution, so a study's series, RIS rows and ORU go with it.

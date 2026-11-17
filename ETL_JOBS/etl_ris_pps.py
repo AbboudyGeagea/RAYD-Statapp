@@ -21,7 +21,9 @@ The enrichment pass (run_pps_study_enrichment) is the actual empirical test of w
 PPS.STUDY_INSTANCE_UID is the clean RIS<->PACS join docs/LAUMC_NEXT_SESSION.md's blocked
 item #4 was after — a real DICOM UID match, not an inferred accession/linked_id one. The
 match-rate it reports (rows resolved vs total std_pps rows with a study_instance_uid) is
-the actual answer, not a guess.
+the actual answer, not a guess. A device that writes its own study UID instead of the
+worklist's never matches (SJH's CT, found 2026-11-17), so a step left unlinked is then linked
+through its order's accession when that names exactly one PACS study (_ENRICH_BY_ACCESSION_SQL).
 """
 import os
 import logging
@@ -125,6 +127,36 @@ _ENRICH_STUDY_UID_SQL = text("""
     WHERE p.study_instance_uid = s.study_instance_uid
       AND p.study_db_uid IS NULL
       AND p.study_instance_uid IS NOT NULL
+""")
+
+# When the study UIDs differ: the step's order, by accession (2026-11-17). SJH's CT (RIS
+# CM_CT_CMW_V1, a Canon) writes its own study UID (root 1.2.392.200036.9116) instead of the
+# worklist's (1.2.840.113564...<accession>), so none of its 49,742 RIS steps ever linked, while
+# 2,208 of its 2,219 PACS studies of 90 days are reached step -> worklist row -> order ->
+# accession. Only a step still unlinked after the UID pass, and only when the accession names
+# exactly one PACS study that is not a structured report: an accession shared by two studies
+# is left alone rather than guessed.
+_ENRICH_BY_ACCESSION_SQL = text("""
+    UPDATE std_pps p
+    SET study_db_uid = m.study_db_uid
+    FROM (
+        SELECT w.pps_key, MIN(s.study_db_uid) AS study_db_uid
+        FROM (SELECT pps_key, site_worklist_key FROM std_worklist_arrivals
+              UNION SELECT pps_key, site_worklist_key FROM std_worklist_exam_done
+              UNION SELECT pps_key, site_worklist_key FROM std_worklist_scheduled) w
+        JOIN etl_orders o ON o.order_dbid = w.site_worklist_key
+        JOIN etl_didb_studies s ON s.accession_number = o.accession_number
+        LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
+        WHERE w.pps_key IN (SELECT pps_key FROM std_pps WHERE study_db_uid IS NULL)
+          AND NULLIF(BTRIM(o.accession_number), '') IS NOT NULL
+          -- a gateway AE is mapped to 'PACS', so its studies keep their own modality here:
+          -- otherwise the dose report next to every CT study would make each accession look shared
+          AND COALESCE(NULLIF(am.modality, 'PACS'), s.study_modality, '') <> 'SR'
+        GROUP BY w.pps_key
+        HAVING COUNT(DISTINCT s.study_db_uid) = 1
+    ) m
+    WHERE p.pps_key = m.pps_key
+      AND p.study_db_uid IS NULL
 """)
 
 
@@ -308,10 +340,13 @@ def run_ris_pps_etl(pg_engine, oracle_source, go_live_date):
 
 
 def run_pps_study_enrichment(pg_engine):
-    """The empirical RIS<->PACS join test — see module docstring. Returns the match count."""
+    """The empirical RIS<->PACS join test — see module docstring — then the accession
+    fallback for steps whose study UID PACS does not hold. Returns the match count. Runs in
+    Phase 14 and again after every phase (etl_runner), when tonight's worklist rows are in."""
     with pg_engine.begin() as conn:
-        result = conn.execute(_ENRICH_STUDY_UID_SQL)
-    matched = result.rowcount
-    print(f"[RIS PPS ETL] 🔗 STUDY_INSTANCE_UID enrichment: {matched:,} std_pps rows matched to a PACS study")
-    logging.info(f"RIS PPS study enrichment: {matched:,} rows matched")
-    return matched
+        by_uid = conn.execute(_ENRICH_STUDY_UID_SQL).rowcount
+        by_accession = conn.execute(_ENRICH_BY_ACCESSION_SQL).rowcount
+    print(f"[RIS PPS ETL] 🔗 study link: {by_uid:,} std_pps rows by STUDY_INSTANCE_UID, "
+          f"{by_accession:,} by accession")
+    logging.info(f"RIS PPS study enrichment: {by_uid:,} by UID, {by_accession:,} by accession")
+    return by_uid + by_accession
