@@ -61,6 +61,18 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     institution "Lebanese American University", used by no other device: one Siemens system,
     IR2-NX (INTERAET) with its Leonardo workstation. AWPETCT also holds a few outside PET-CTs
     (St George, Hotel Dieu de France).
+    **Production, 90 days (17 Nov):** MR750W → MRI 3T 902 of 961 linked exams (94 %), MR450W →
+    MRI 1.5T 766 of 810 (95 %), AWPETCT → PET-CT 308/308, BAY85CT → PET-CT 130/132, AWS → CTHD
+    43/43, SYMBIANET → SPECT-CT 6/6. About 5 % of MR exams are on the other MRI's room in the RIS
+    (59 + 44): the RIS room is not updated when a patient moves scanner, so RIS-side device
+    figures misplace them. LEO22529 (45) and ARTIS121403 (29) have no RIS exam at all.
+    LAUMCWFM1AR: CARM3-VX 46, SPECT-CT 7, IR-1 2, none 39. SJHCSAPWFMFIR: Shimadzu XR/fluoro
+    4,863, MRI Kizuna 1,261, mobile XR 585, mammo 449, US 104, Azurion 12, C-arm 2, **no RIS exam
+    2,623 (26 %)**; SJH's CT is not among the linked rooms.
+    AAP: 5 of 11 follow an FAP of the same accession (same day to 11 days later); the other 6
+    are older accessions whose FAP may predate the archive: AAP is likely an amended report
+    after approval. RAYD keeps the first ORU of an accession (fill-only), so an amendment's
+    text never reaches the ORU tab: a decision for the operator.
     **Plan for item 4 (next session):** (a) a link PACS AE → RIS room, proposed from that
     evidence (one RIS room for ≥ 90 % of a PACS AE's exams) and confirmed on the Mapping page,
     which the nightly RIS copy follows (~0.5–1 day); (b) gateways (LAUMCWFM1AR, LAUMCWFM2FIR,
