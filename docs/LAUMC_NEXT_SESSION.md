@@ -506,6 +506,41 @@ read; radiologists approve or finalise (check both).
       the Live board, CRN) stays on RH's database, so SJH's board is empty.
     - On SJH the ETL Control Room shows SJH's (empty) job history, but its triggers still run
       RH's ETL: SJH's own ETL comes with 13b.
+
+    **13b design, draft for the operator's review (2026-11-17).** One Python job reads RH's
+    database and writes SJH's (two connections on the same server; Postgres has no
+    cross-database query): for each table, in an order the foreign keys allow,
+    `COPY (SELECT … WHERE <SJH rule>) TO STDOUT` into SJH's database (through a staging
+    table, `ON CONFLICT DO NOTHING`, so a rerun is harmless), then counts both sides. A dry
+    run only counts (the census). Deleting from RH is a separate step, refused unless every
+    count matched, children before parents, in batches, then `VACUUM ANALYZE`.
+
+    | Data | SJH rule | In SJH's DB | In RH's DB after |
+    |---|---|---|---|
+    | studies, series | `site_id` = SJH (CARD never: Phase 2c) | copied | deleted |
+    | raw images, image locations | through the study | **not copied**: no page reads them, only the storage rollup | deleted with the study |
+    | daily storage summary | SJH devices | copied | deleted |
+    | sticky notes, access history, audit opens, CD log, exam facts | through the study | copied | deleted |
+    | patients | with an SJH study | copied | deleted unless also seen at RH (7,085 stay) |
+    | RIS orders, scheduled/arrivals/exam done/cancellations, status history | issuer SAP_SJH | copied | deleted |
+    | RIS reports | accession of an SJH order | copied | deleted |
+    | PPS (+ person reference, site extension) | SJH device or SJH study | copied | deleted |
+    | ORU reports (+ NLP, rule cache) | accession of an SJH order or study | copied | deleted (stops if a CRN row points at one) |
+    | RIS visits, RIS patients | SJH site / SJH orders | copied | deleted |
+    | devices and their schedules, exceptions | `site_id` = SJH | copied | kept (the site resolution needs them) |
+    | RIS staff, reference catalogs | all | copied | kept |
+    | studies and ORU with no site (9,221 / 20,706) | — | — | **stay on RH (proposed)** |
+    | HL7 orders, BRAYN tables, HL7 study events | — | — | stay on RH until 13d |
+    | daily briefing snapshots | — | rebuilt per site | kept |
+
+    **After the move (decision): (A, proposed)** RH's nightly ETL keeps its one PACS/RIS
+    pull for both sites, then the same job, Postgres only, moves the night's new SJH rows to
+    SJH's database: no extra load on PACS, nothing new to schedule. **(B)** Two ETLs filtered
+    at the source, SJH's reading Oracle again (the earlier plan): twice the PACS reads, and a
+    site filter in every Oracle query, which some cannot have (a study's site is resolved
+    from its device after the load).
+    **To decide:** (1) no-site rows stay on RH; (2) A or B; (3) SJH's raw images not copied.
+    Then: build and rehearse on the local sample, deploy Thu 26, production move Sat 28.
 14. **Radiologists TAT and radiologists' number of reports: revamp and validate thoroughly;
     this is the selling point.** Source is PACS Oracle (rule above). Show both start clocks,
     RIS exam done and PACS insert time (`DIDB_STUDIES.INSERT_TIME`), because they disagree.
