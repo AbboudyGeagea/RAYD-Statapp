@@ -583,12 +583,28 @@ read; radiologists approve or finalise (check both).
       studies, 2,800 orders, 1,813 ORU reports, 1,218 patients (15 seen at both sites kept
       on RH). Report 22 on RH still 2,363, Report 38 still 346; Report 22 on SJH 1,870; the
       Super Report side by side RH 2,363 | SJH 1,870.
-    **Left before the production move (Sat 28):** SJH's storage history, computed once from
-    SJH's images before they go (same formula as Phase 7), and Phase 7 run per database on
-    the site each serves; then the runbook: set `POSTGRES_DB_SJH`, restart (the app creates
-    SJH's database), `--dry-run` (compare with the census), `--copy`, check SJH's reports,
-    `--move` (about 182,000 studies, 92 batches; series and images by cascade), `VACUUM
-    ANALYZE` on RH, check RH's reports unchanged.
+    **13b part 2 built 2026-11-17** (storage; `tests/test_site_route.py`, 14 tests): the
+    one-time move computes SJH's daily storage from all of SJH's images on RH (the
+    rollup's formula, SJH's devices, from go-live) into SJH's `summary_storage_daily`,
+    before deleting them, and copies the images of the last 14 days of studies only
+    (`--image-days`), so a late image recomputes a complete day. `go_live_config` is copied.
+    The storage rollup now counts the site its database serves (`rayd_served_site_id()`),
+    and the ETL runs SJH's right after the nightly route, on SJH's database. (The local
+    sample has no images: covered by the tests only.)
+    **Production runbook (Sat 28), on the server:**
+    1. In `/opt/rayd/.env` set `POSTGRES_DB_SJH=etl_db_sjh`, then
+       `cd /opt/rayd && sudo docker compose up -d rayd-app`: the app creates, loads and
+       migrates SJH's database (`sudo docker logs rayd_service 2>&1 | grep "site SJH"` shows
+       "site SJH: database etl_db_sjh ready").
+    2. `sudo docker exec rayd_service python -m ETL_JOBS.etl_site_route --site SJH --dry-run`
+       and compare with the census (182,207 studies on 2026-11-15, plus what came since).
+    3. `... --copy`: every table verified; check SJH's reports with an account holding both
+       sites (Report 22, the Super Report side by side).
+    4. `... --move`: about 182,000 studies in 92 batches, series and images by cascade
+       (allow 1–2 hours); it records itself, and the nightly ETL takes over.
+    5. `sudo docker exec rayd_db psql -U etl_user -d etl_db -c "VACUUM ANALYZE;"`, then
+       check RH's reports unchanged (Report 22, 38, Super Report) against Friday's figures.
+    Never while the ETL runs (the job refuses); not before step 3 is checked.
 14. **Radiologists TAT and radiologists' number of reports: revamp and validate thoroughly;
     this is the selling point.** Source is PACS Oracle (rule above). Show both start clocks,
     RIS exam done and PACS insert time (`DIDB_STUDIES.INSERT_TIME`), because they disagree.
