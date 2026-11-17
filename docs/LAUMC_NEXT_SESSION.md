@@ -41,6 +41,15 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     Item 7: the status is Scheduled (key in the lookup table RAYD has).
   - Item 19: one test patient ID, from the operator on 18 Nov. Item 18: the operator checks
     `FAP` on 18 Nov, from sample accessions.
+  - **Production, 17 Nov evening:** the ORUs BRAYN archived carry OBR-25 `FAP` (4,241) or `AAP`
+    (11), no preliminary status: the RIS appears to send approved reports only (AAP may be an
+    addendum; check with OBR-3 accessions against the PACS addendum flag). `hl7_study_events`
+    holds no ORU rows on LAUMC (no projector), so accessions come from OBR-3. Gateways, 90 days:
+    SJHCSAPWFMFIR 9,899 studies, every modality (all of SJH arrives through it, so SJH's own
+    database will see one device unless the real station is found); LAUMCWFM1AR 94 (hybrid,
+    NM, RF; counted aside in Report 22); LAUMCWFM2FIR 7 (CT, MR, last 13 Oct); NONDICOMAGENT 1
+    (OT); the other 8 sent nothing. The station clock check returned nothing: the first audit
+    copy runs at 05:00 on 18 Nov.
 - **Monday 2026-11-16, 10:00: run the two room-name queries (item 4)** and compare the RIS
   room names with the labels RAYD shows. Then a working session on the PACS audit table
   (item 2). Sessions start at 9:30.
