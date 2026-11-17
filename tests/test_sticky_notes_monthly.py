@@ -221,7 +221,7 @@ def test_the_workbook_has_what_the_customer_asked_for(app, sql):
     case = dict(zip(header, cases[0]))
     assert case['Patient ID'] == 'MRN00001'
     assert case['Accession'] == '100501'
-    assert case['First open seen'] == '2026-10-15 09:10'
+    assert case['First open'] == '2026-10-15 09:10'
     assert case['Opened by'] == 'Rad Two'
     assert case['Sticky note inserted'] == '2026-10-15 09:30'
     assert case['Note by'] == 'Res One'

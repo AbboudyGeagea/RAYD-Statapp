@@ -98,7 +98,7 @@ def report_37():
     return render_template('report_37.html',
                            start=start.isoformat(), end=end.isoformat(), filters=_panel_filters(),
                            monthly_reports=monthly.list_reports(),
-                           clock_label=report.CLOCK_LABEL, open_seen_note=report.OPEN_SEEN_NOTE,
+                           clock_label=report.CLOCK_LABEL, open_seen_note=report.open_note(),
                            is_admin=can(current_user, 'settings'))
 
 

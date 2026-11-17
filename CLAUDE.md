@@ -46,11 +46,15 @@ routes/
                                    per-user report access; report_template row + licence in migration
                                    0147; shared filter panel), worked out in utils/sticky_notes.py,
                                    whose docstring holds the customer's request. Reads Postgres
-                                   only, a day late. PACS keeps no history of opens RAYD can read,
-                                   so "first open seen" is the earliest open a nightly copy caught
-                                   (blank if caught over 36 h after the study was last seen
-                                   unopened), and only the ETL may read the PACS server, so never
-                                   poll it.
+                                   only, a day late; only the ETL may read the PACS server, so
+                                   never poll it. First open (2026-11-17) = the first image open
+                                   or lock by a resident/radiologist in the PACS audit trail
+                                   (AUDITING.AUDIT_LOG, Carestream), copied nightly through its
+                                   EVENT_DATE index by ETL_JOBS/etl_pacs_audit.py into
+                                   etl_pacs_audit_opens (migration 0155; RAYD's PACS account needs
+                                   SELECT on it; never copies names, IDs or descriptions). Studies
+                                   before the copy keep "first open seen", the earliest open a
+                                   nightly snapshot caught.
                                    ETL_JOBS/etl_sticky_notes.py copies note times nightly; note
                                    text is never read. Its two tables are read through a study, so
                                    no rh view. utils/sticky_notes_monthly.py keeps each month's

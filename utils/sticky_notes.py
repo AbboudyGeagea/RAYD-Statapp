@@ -9,15 +9,21 @@ emergent in the preceding month, with the date and time the resident or radiolog
 opens the study and the date and time a sticky note is inserted, plus patient ID, accession
 number and the name of the user for each action.
 
-FIRST OPEN IS NOT FULLY AVAILABLE. PACS keeps only the latest open and overwrites it, and no
-history of opens is readable by RAYD. "First open seen" is the earliest open a nightly copy
-caught that has a login: the last open before that copy, so a study opened twice the same day
-shows the second. It stays blank when that open came after the note, because then the true
-first open is known to be gone. It also stays blank when the copy that caught it came more than
-36 hours after the study was last seen unopened, or arrived: the first copy (8 November 2026)
-reached back 10 days, so it caught late October opens days late, and a missed night would do
-the same. Its time is LAST_ACCESS_TIME, because closing a study moves STUDY_LOCK_TIME and
-leaves that one alone. Nothing exists from before the copy began.
+FIRST OPEN comes from the PACS audit trail (found 2026-11-17, migration 0155): the first time a
+resident or radiologist (utils/pacs_roles) displayed the images or locked the study for
+reading, to the second, in the Vue PACS workstation or Vue Motion. The nightly ETL copies it
+(ETL_JOBS/etl_pacs_audit.py); a study the copy covers but no reader opened before the last
+copy shows blank with that reason.
+
+Studies that arrived before the audit copy begins keep the older method. PACS keeps only the
+latest open on the study and overwrites it. "First open seen" is then the earliest open a
+nightly copy caught that has a login: the last open before that copy, so a study opened twice
+the same day shows the second. It stays blank when that open came after the note, because then
+the true first open is known to be gone. It also stays blank when the copy that caught it came
+more than 36 hours after the study was last seen unopened, or arrived: the first copy (8
+November 2026) reached back 10 days, so it caught late October opens days late, and a missed
+night would do the same. Its time is LAST_ACCESS_TIME, because closing a study moves
+STUDY_LOCK_TIME and leaves that one alone.
 
 NAMES. PACS records logins. A name comes from physician_alias_map, as in the other reports,
 otherwise from the login itself (first.last@ad becomes First Last), and the login stays
@@ -44,6 +50,7 @@ import xlsxwriter
 from sqlalchemy import text
 
 from db import db
+from ETL_JOBS.etl_pacs_audit import coverage as audit_coverage
 from utils import tat_sla
 from utils.pacs_roles import role_lookup_cte
 from utils.report_filters import REPORTS_WITHOUT_IMAGES_AES, study_site_sql
@@ -59,11 +66,15 @@ OPEN_SEEN_NOTE = ('First open seen is the earliest open a nightly copy caught. P
                   'blank when the study was reopened after the note, and when the copy that caught '
                   'it came more than 36 hours after the study was last seen unopened (or arrived), '
                   'which covers studies from before the copy began and nights it did not run.')
+AUDIT_OPEN_NOTE = ('First open is the first time a resident or radiologist displayed the images or '
+                   'opened the study for reading, to the second, from the PACS audit trail, copied '
+                   'nightly: studies that arrived from {start} to {end}.')
 OPEN_CAUGHT_WITHIN = timedelta(hours=36)
 OUTCOMES = {'within': 'Within limit', 'over': 'Over limit', 'no_note': 'No note', 'noted': 'Noted'}
 OPEN_BLANK_REASONS = {'late': 'Caught over 36 h after last seen unopened',
                       'overwritten': 'Reopened after the note',
-                      'none': 'No open caught'}
+                      'none': 'No open caught',
+                      'not_opened': 'Not opened by a resident or radiologist by the last nightly copy'}
 
 # The customer's fields first, in their order, then what the operator added.
 COLUMNS = (
@@ -71,7 +82,7 @@ COLUMNS = (
     ('Accession', 'accession'),
     ('Modality', 'modality'),
     ('Department', 'department'),
-    ('First open seen', 'open_at'),
+    ('First open', 'open_at'),
     ('Opened by', 'opened_by'),
     ('Opened by login', 'opened_by_login'),
     ('First open blank because', 'open_blank_reason'),
@@ -92,7 +103,7 @@ COLUMNS = (
 _CASES_SQL = """
 WITH {roles},
 candidates AS MATERIALIZED (
-    SELECT s.study_db_uid, s.patient_db_uid, s.accession_number, s.insert_time,
+    SELECT s.study_db_uid, s.patient_db_uid, s.accession_number, s.insert_time, s.study_instance_uid,
            COALESCE(NULLIF(m.modality, 'PACS'), s.study_modality, 'Unknown') AS modality,
            COALESCE(ris.name,
                     NULLIF(NULLIF(BTRIM(s.patient_location_full), ''), 'DEFLOC'),
@@ -127,6 +138,8 @@ SELECT c.accession_number, c.insert_time AS arrived_at, c.modality, c.department
        h.captured_at AS open_caught_at,
        GREATEST(c.insert_time, h.previous_copy_at) AS open_unwatched_since,
        open_name.canonical_name AS open_alias,
+       ao.event_at AS audit_open_at, ao.user_name AS audit_opened_by,
+       audit_name.canonical_name AS audit_open_alias,
        x.exam_done_at, sig.signed_at, sig.signed_by
 FROM candidates c
 LEFT JOIN etl_patient_view p ON p.patient_db_uid = c.patient_db_uid
@@ -155,6 +168,17 @@ LEFT JOIN LATERAL (
 ) h ON TRUE
 LEFT JOIN physician_alias_map open_name
        ON open_name.dismissed = false AND open_name.alias = h.rep_last_accessed_by
+LEFT JOIN LATERAL (
+    -- the PACS audit trail: the first open by a resident or radiologist
+    SELECT a.event_at, a.user_name
+    FROM etl_pacs_audit_opens a
+    JOIN role_lookup reader ON reader.login_id = UPPER(SPLIT_PART(a.user_name, '@', 1))
+    WHERE a.study_instance_uid = BTRIM(c.study_instance_uid)
+    ORDER BY a.event_at, a.log_dbid
+    LIMIT 1
+) ao ON TRUE
+LEFT JOIN physician_alias_map audit_name
+       ON audit_name.dismissed = false AND audit_name.alias = ao.user_name
 LEFT JOIN LATERAL (
     SELECT MIN(w.exam_done_at) AS exam_done_at
     FROM etl_orders o
@@ -273,7 +297,13 @@ def _caught_late(row):
     return row['open_caught_at'] - row['open_unwatched_since'] > OPEN_CAUGHT_WITHIN
 
 
-def _shape_case(row, limit):
+def _audit_covers(row, coverage):
+    """The PACS audit copy holds this study's opens: it arrived inside what the copy holds."""
+    start, end = coverage
+    return start is not None and row['arrived_at'] is not None and start <= row['arrived_at'] < end
+
+
+def _shape_case(row, limit, coverage=(None, None)):
     minutes = _minutes(row['arrived_at'], row['note_at'])
     if row['note_at'] is None:
         outcome = 'no_note'
@@ -282,18 +312,26 @@ def _shape_case(row, limit):
     else:
         outcome = 'within' if minutes <= limit else 'over'
 
-    late = _caught_late(row)
-    # An open after the note cannot be the first: whoever wrote it had the study open earlier.
-    overwritten = (not late and row['open_at'] is not None and row['note_at'] is not None
-                   and row['open_at'] > row['note_at'])
-    hidden = late or overwritten
-    open_at = None if hidden else row['open_at']
-    open_login = None if hidden else row['opened_by_login']
+    from_audit = _audit_covers(row, coverage)
+    if from_audit:
+        # Every open is in the audit, so the first is exact, whatever came after.
+        late = overwritten = False
+        open_at, open_login, open_alias = row['audit_open_at'], row['audit_opened_by'], row['audit_open_alias']
+    else:
+        late = _caught_late(row)
+        # An open after the note cannot be the first: whoever wrote it had the study open earlier.
+        overwritten = (not late and row['open_at'] is not None and row['note_at'] is not None
+                       and row['open_at'] > row['note_at'])
+        hidden = late or overwritten
+        open_at = None if hidden else row['open_at']
+        open_login = None if hidden else row['opened_by_login']
+        open_alias = row['open_alias']
     return {
         **row,
         'open_at': open_at,
         'opened_by_login': open_login,
-        'opened_by': person_name(row['open_alias'], open_login),
+        'opened_by': person_name(open_alias, open_login),
+        'open_from_audit': from_audit,
         'open_overwritten': overwritten,
         'open_caught_late': late,
         'note_by': person_name(row['note_alias'], row['note_author']),
@@ -394,7 +432,8 @@ def build(start, end, chosen=None):
     chosen = {field: set(values) for field, values in (chosen or {}).items()
               if field in FILTERED_FIELDS and values}
     urgent, limit = load_settings()
-    cases = [_shape_case(r, limit) for r in _fetch_cases(start, end, urgent)]
+    coverage = audit_coverage(db.session)
+    cases = [_shape_case(r, limit, coverage) for r in _fetch_cases(start, end, urgent)]
     kept = [c for c in cases if all(c[field] in values for field, values in chosen.items())]
     weekly = (end - start).days + 1 > WEEKLY_AFTER_DAYS
     for case in kept:
@@ -408,6 +447,7 @@ def build(start, end, chosen=None):
     sign_gaps = [c['minutes_exam_to_sign'] for c in kept]
     kpi.update({
         'open_seen': sum(c['open_at'] is not None for c in kept),
+        'open_from_audit': sum(c['open_from_audit'] for c in kept),
         'open_overwritten': sum(c['open_overwritten'] for c in kept),
         'open_caught_late': sum(c['open_caught_late'] for c in kept),
         'median_open_to_note': _median(open_gaps),
@@ -428,7 +468,18 @@ def build(start, end, chosen=None):
         'filters': {field: sorted(values) for field, values in chosen.items()},
         'limit_minutes': limit,
         'urgent_departments': urgent,
+        'open_note': open_note(coverage),
     }
+
+
+def open_note(coverage=None):
+    """What "first open" means, for the page and every export: the audit trail for the
+    studies the copy covers, the older nightly snapshot for the rest."""
+    start, end = coverage if coverage is not None else audit_coverage(db.session)
+    if start is None:
+        return OPEN_SEEN_NOTE
+    audit = AUDIT_OPEN_NOTE.format(start=start.strftime('%Y-%m-%d'), end=end.strftime('%Y-%m-%d %H:%M'))
+    return f'{audit} Studies that arrived earlier: {OPEN_SEEN_NOTE}'
 
 
 def _when(value):
@@ -438,6 +489,8 @@ def _when(value):
 def _open_blank_reason(case):
     if case['open_at'] is not None:
         return None
+    if case['open_from_audit']:
+        return OPEN_BLANK_REASONS['not_opened']
     if case['open_caught_late']:
         return OPEN_BLANK_REASONS['late']
     if case['open_overwritten']:
@@ -454,7 +507,8 @@ def case_row(case):
         'note_at': _when(case['note_at']), 'minutes_to_note': case['minutes_to_note'],
         'note_by': case['note_by'], 'note_author': case['note_author'], 'author_role': case['author_role'],
         'open_at': _when(case['open_at']), 'opened_by': case['opened_by'],
-        'opened_by_login': case['opened_by_login'], 'open_overwritten': case['open_overwritten'],
+        'opened_by_login': case['opened_by_login'], 'open_from_audit': case['open_from_audit'],
+        'open_overwritten': case['open_overwritten'],
         'open_caught_late': case['open_caught_late'], 'open_blank_reason': _open_blank_reason(case),
         'minutes_open_to_note': case['minutes_open_to_note'],
         'exam_done_at': _when(case['exam_done_at']), 'signed_at': _when(case['signed_at']),
@@ -477,7 +531,7 @@ def describe(start, end, summary):
         ('Urgent departments', ', '.join(['ER (always)'] + summary['urgent_departments'])),
         ('Clock', CLOCK_LABEL),
         ('Limit (minutes)', limit if limit is not None else 'not set'),
-        ('First open', OPEN_SEEN_NOTE),
+        ('First open', summary.get('open_note') or OPEN_SEEN_NOTE),
         ('Sticky note recipient', 'PACS cannot show who received a note.'),
     ]
 

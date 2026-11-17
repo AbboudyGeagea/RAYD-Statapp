@@ -243,7 +243,9 @@ function renderKpis(d) {
             ? kpi('Over the limit', k.over, `${k.within} of ${judged} noted cases within ${d.limit_minutes} min`, k.over ? 'red' : 'green')
             : kpi('Over the limit', '—', 'no limit set'),
         kpi('Exam done to signature', fmtTime(k.median_exam_to_sign), `median of ${k.exam_to_sign_cases} cases`),
-        kpi('First open seen', `${k.open_seen} of ${k.cases}`, `median ${fmtTime(k.median_open_to_note)} to note · ${k.open_overwritten} reopened after the note · ${k.open_caught_late} caught too late`),
+        kpi('First open', `${k.open_seen} of ${k.cases}`, k.open_from_audit === k.cases
+            ? `median ${fmtTime(k.median_open_to_note)} to note · from the PACS audit trail`
+            : `median ${fmtTime(k.median_open_to_note)} to note · ${k.open_from_audit} from the PACS audit trail · ${k.open_overwritten} reopened after the note · ${k.open_caught_late} caught too late`),
     ].join('');
 }
 
@@ -371,7 +373,8 @@ const ROLES = { residents: 'RES', radiologists: 'RAD' };
 const DRILL_COLUMNS = [
     ['Patient ID', c => c.patient_id], ['Accession', c => c.accession], ['Modality', c => c.modality],
     ['Department', c => c.department],
-    ['First open seen', c => c.open_caught_late ? 'Caught too late' : c.open_overwritten ? 'Not kept' : c.open_at],
+    ['First open', c => c.open_caught_late ? 'Caught too late' : c.open_overwritten ? 'Not kept'
+        : (c.open_at || (c.open_from_audit ? 'Not opened yet' : null))],
     ['Opened by', c => c.opened_by],
     ['Sticky note inserted', c => c.note_at],
     ['Note by', c => c.note_by ? c.note_by + (ROLES[c.author_role] ? ` (${ROLES[c.author_role]})` : '') : null],

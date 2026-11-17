@@ -113,6 +113,7 @@ from etl_image_locations   import run_images_etl
 from etl_patients_view     import run_patients_etl
 from etl_orders            import run_orders_etl
 from etl_sticky_notes      import run_sticky_notes_etl, record_access_history
+from etl_pacs_audit        import run_pacs_audit_etl
 from etl_analytics_refresh import refresh_storage_summary
 from etl_ris_oru_reports   import run_ris_oru_reports_etl
 from etl_ris_modality      import run_ris_modality_etl
@@ -376,6 +377,15 @@ def _perform_migration(engine):
             except Exception as _e:
                 _phase_failures.append("Sticky Notes")
                 logger.error(f"🛑 Sticky notes failed — continuing: {_e}", exc_info=True)
+            # First opens from the PACS audit trail (migration 0155), for the same report.
+            # Its own try: until RAYD's account may read AUDITING.AUDIT_LOG it fails, alone.
+            logger.info("📋 First opens from the PACS audit trail")
+            try:
+                a_total = run_pacs_audit_etl(engine, src)
+                logger.info(f"✅ PACS audit opens done — {a_total:,} rows")
+            except Exception as _e:
+                _phase_failures.append("PACS Audit Opens")
+                logger.error(f"🛑 PACS audit opens failed — continuing: {_e}", exc_info=True)
 
         # ── PHASE 2: Series ───────────────────────────────────────────────
         if _confirm_phase(2):
