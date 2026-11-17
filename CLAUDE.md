@@ -290,6 +290,9 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    PACS audit copy) masks in code with `staff_status.left_logins_sql()`. Who left is the
    materialized view `public.staff_status`, rebuilt after the nightly ETL: a migration that drops
    or retypes a column of `std_resources_ris` or `std_pacs_user_groups` must drop it first.
+   They also leave out the HIS's duplicate orders (migration 0162): the HIS sends every order to
+   the RIS twice and one copy stays Scheduled, so an order still `scheduled` once its day has
+   passed (Beirut date, worked out at each query) is left out, with its worklist events.
    Code that runs in a request creates tables as `public.x`. A migration that drops or retypes a
    column of a filtered table must drop its `rh` view first. To decide a study's site use
    `utils/report_filters.study_site_sql`, never the PACS label alone: double reading stamps RH

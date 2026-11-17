@@ -509,6 +509,15 @@ read; radiologists approve or finalise (check both).
    manager: 19,706 past Rizk exams are still "Scheduled" on the RIS (about a quarter): the
    split into done on PACS (status not moved on) vs no PACS study (no-show not cancelled) is a
    query in the reply of 17 Nov.
+   **Explained and fixed the same night:** 99 % of them have no PACS study, and in the October
+   sample about three quarters have the same exam done for the same patient within 7 days. The
+   operator: the HIS has a bug that sends every order to the RIS twice; one copy is reported,
+   the other stays Scheduled and the RIS screen filters it out ("update it each day if it >
+   today"). Migration 0162: the rh views leave out an order still Scheduled once its day has
+   passed (Beirut date, worked out at each query), with its worklist events; today's and future
+   bookings stay; the real table keeps every row. Report 27's Scheduled bar and Total Orders
+   drop by about a quarter at Rizk after the deploy. `tests/test_his_duplicate_orders.py`.
+   SJH's own database has no rh views yet (as for placeholders and staff who left): item 13.
 8. **Super Report, residents: count reports by wet read**, rebuilt from PACS (see the rule
    above), tested and validated before deploy. Report events only (status, who signed, when);
    the report text on the ORU tab stays from the RIS. PACS `DIDB_STUDIES_VIEW` has
