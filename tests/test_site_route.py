@@ -21,7 +21,7 @@ DATA = ('hl7_oru_rule_cache', 'hl7_oru_analysis', 'ai_nlp_cache', 'crn_events', 
         'crn_notifications', 'hl7_oru_reports', 'std_site_pps_ext', 'std_pps_person_reference', 'std_pps',
         'std_patient_ids', 'std_patients_ris', 'std_visits', 'std_reports', 'worklist_status_history',
         'std_worklist_scheduled', 'std_worklist_arrivals', 'std_worklist_exam_done', 'std_worklist_cancellations',
-        'etl_orders', 'fact_exam', 'cd_print_log', 'etl_pacs_audit_opens', 'study_access_history',
+        'etl_orders', 'fact_exam', 'cd_print_log', 'etl_pacs_audit_events', 'study_access_history',
         'etl_sticky_notes', 'etl_image_locations', 'etl_didb_raw_images', 'etl_didb_serieses',
         'etl_didb_studies', 'etl_patient_view')
 CATALOGS = tuple(t.name for t in route.TABLES if t.where == 'TRUE')

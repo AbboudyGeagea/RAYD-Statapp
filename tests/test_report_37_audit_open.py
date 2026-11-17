@@ -15,12 +15,12 @@ UNTIL = datetime.now().replace(microsecond=0)
 
 @pytest.fixture
 def audit(sql):  # noqa: F811
-    sql("DELETE FROM etl_pacs_audit_opens")
+    sql("DELETE FROM etl_pacs_audit_events")
     sql("DELETE FROM settings WHERE key LIKE 'pacs_audit_%'")
     sql("""INSERT INTO pacs_user_role_override (login_id, role)
            VALUES ('RES.ONE', 'residents'), ('RAD.TWO', 'radiologists') ON CONFLICT DO NOTHING""")
     yield sql
-    sql("DELETE FROM etl_pacs_audit_opens")
+    sql("DELETE FROM etl_pacs_audit_events")
     sql("DELETE FROM settings WHERE key LIKE 'pacs_audit_%'")
 
 
@@ -39,7 +39,7 @@ _next_id = iter(range(1, 10_000))
 
 
 def opened(sql, uid, minutes, login, kind='open', source='Vue PACS Client'):
-    sql("""INSERT INTO etl_pacs_audit_opens (log_dbid, event_at, kind, user_name, source, study_instance_uid)
+    sql("""INSERT INTO etl_pacs_audit_events (log_dbid, event_at, kind, user_name, source, study_instance_uid)
            VALUES (:i, :t, :k, :l, :s, :x)""",
         i=next(_next_id), t=m(minutes), k=kind, l=login, s=source, x=f'1.2.840.{uid}')
 

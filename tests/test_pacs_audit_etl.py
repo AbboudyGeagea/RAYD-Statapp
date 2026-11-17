@@ -58,7 +58,7 @@ def engine(app):
 
     def clean():
         with db.engine.begin() as conn:
-            conn.execute(text('DELETE FROM etl_pacs_audit_opens'))
+            conn.execute(text('DELETE FROM etl_pacs_audit_events'))
             conn.execute(text("DELETE FROM settings WHERE key LIKE 'pacs_audit_%'"))
     with app.app_context():
         clean()
@@ -82,7 +82,7 @@ def setting(engine, key, value=None):
 def copied(engine):
     with engine.connect() as conn:
         return conn.execute(text("SELECT log_dbid, event_at, kind, user_name, study_instance_uid "
-                                 "FROM etl_pacs_audit_opens ORDER BY log_dbid")).fetchall()
+                                 "FROM etl_pacs_audit_events ORDER BY log_dbid")).fetchall()
 
 
 def test_the_first_night_copies_from_the_start_day_by_day(engine, monkeypatch):
@@ -118,8 +118,43 @@ def test_each_query_reads_one_day_through_the_date_index_and_no_patient_data(eng
     assert "a.EVENT_DATE >= TO_DATE(:since, 'YYYY-MM-DD HH24:MI:SS')" in sql
     assert all(isinstance(v, str) for v in params.values())      # never a TIMESTAMP bind
     selected = re.search(r'SELECT(.*?)FROM', sql, re.S).group(1).upper()
+    # the description is only read inside Oracle, to tell the kind and find the login
+    selected = re.sub(r'(INSTR|REGEXP_LIKE|REGEXP_SUBSTR)\(A\.DESCRIPTION', '', selected)
     for column in ('LAST_NAME', 'FIRST_NAME', 'PATIENT_ID', 'DESCRIPTION', 'ADDITIONAL'):
         assert column not in selected
+
+
+def test_signatures_and_wet_reads_are_copied_and_a_row_with_no_login_is_not(engine, monkeypatch):
+    setting(engine, audit.SINCE_KEY, '2026-11-17')
+    at = datetime(2026, 11, 17, 11, 39)
+    pacs = FakeOracle(lambda since, until: [
+        (1, at, 'approve', 'julie.ferzli@ad', 'Vue PACS Client', 'CS-PACS63', '1.2.9', 'A9'),
+        (2, at, 'wetread', 'roy.ibrahim@ad', 'Vue PACS Client', '10.40.106.201', '1.2.9', 'A9'),   # from the tags
+        (3, at, 'wetread', None, 'Vue PACS Client', '10.40.106.201', '1.2.9', 'A9'),               # none at all
+    ] if since.day == 17 else [])
+
+    run(engine, monkeypatch, pacs)
+
+    assert [(r.kind, r.user_name) for r in copied(engine)] == [('approve', 'julie.ferzli@ad'), ('wetread', 'roy.ibrahim@ad')]
+    sql = pacs.queries[0][0]
+    assert "'ApprovedSign Complete'" in sql and 'PENDING APPROVED|WETREAD' in sql and '07a1,d6' in sql
+
+
+def test_a_copy_made_before_the_signatures_is_read_again_once(engine, monkeypatch):
+    """Migration 0156 adds the approvals: the opens copied since 1 October have none, so the
+    next night starts again at the start day, once."""
+    setting(engine, audit.SINCE_KEY, '2026-11-15')
+    setting(engine, audit.FROM_KEY, '2026-11-15')
+    setting(engine, audit.UNTIL_KEY, '2026-11-18 05:00:00')      # a version 1 copy: no version key
+    pacs = FakeOracle()
+
+    run(engine, monkeypatch, pacs, now=NOW + timedelta(days=1))
+
+    assert pacs.queries[0][1]['since'] == '2026-11-15 00:00:00'
+    assert setting(engine, audit.VERSION_KEY) == str(audit.AUDIT_VERSION)
+    pacs = FakeOracle()
+    run(engine, monkeypatch, pacs, now=NOW + timedelta(days=2))
+    assert pacs.queries[0][1]['since'] == '2026-11-18 05:00:00'
 
 
 def test_the_next_night_starts_a_day_before_the_last_copy_and_keeps_rows_once(engine, monkeypatch):

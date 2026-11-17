@@ -1,26 +1,34 @@
 """
-ETL_JOBS/etl_pacs_audit.py — first opens from the PACS audit trail (to-do item 2, Report 37).
+ETL_JOBS/etl_pacs_audit.py — opens and signatures from the PACS audit trail (item 2, Report
+37's first open; items 14A/14B, radiologist turnaround in Report 32).
 
 Once a night, after the studies load, copies from AUDITING.AUDIT_LOG (Carestream's audit,
-PACS Oracle) the rows that say a study was opened: the images displayed ("Instances Used /
-Access", Vue PACS workstation or Vue Motion) and the study locked for reading in the
-workstation ("Instances Used / Modify" whose tags set LOCKED). See migration 0155.
+PACS Oracle) into etl_pacs_audit_events (migrations 0155, 0156):
+  open      images displayed ("Instances Used / Access", Vue PACS workstation or Vue Motion)
+  lock      the study locked for reading in the workstation (tags set LOCKED)
+  approve   the radiologist's approval: status -> PENDING APPROVED, or ApprovedSign Complete(d)
+  wetread   the resident's wet read: status -> WETREAD
+The login is the row's user, else the one in the tags (07a1,d6), (07a1,4a) or (07a1,42), read
+in Oracle: two wet-read rows in three have no user. A row with no login is not kept.
 
 The audit holds 217.8 M rows (2026-11), so every read goes through its EVENT_DATE index, one
 day at a time, with the dates sent as text: a Python datetime binds as TIMESTAMP, and a DATE
 column compared with a TIMESTAMP loses its index. The hint names the index so a stale
 statistic cannot turn a day into a full scan. Only these columns are read: never the
-patient's name or ID, never the description text.
+patient's name or ID, never the description text (Oracle reads it only to tell the kind
+and find the login).
 
 Each night reads from the end of the last copy, less a day (a row committed late, a clock
 change), up to now; rows already copied are left as they are. The first night starts at
 settings pacs_audit_since (default 2026-10-01, the first month of Report 37's monthly
 workbook) and copies at most _MAX_DAYS_PER_RUN days, so a long backfill spreads over nights.
-Progress is saved after every day, so a run that dies keeps what it copied.
+Progress is saved after every day, so a run that dies keeps what it copied. When this file
+copies new kinds (AUDIT_VERSION), the next night starts again at pacs_audit_since, once, so
+the days already copied get them.
 
-RAYD's PACS account needs SELECT on AUDITING.AUDIT_LOG (granted by the PACS DBA). Without it
-the query fails, this step is recorded as failed and the rest of the ETL goes on; Report 37
-keeps its nightly-snapshot first open until the copy exists.
+RAYD's PACS account must be able to read AUDITING.AUDIT_LOG (at LAUMC it signs in as SYS).
+Without it the query fails, this step is recorded as failed and the rest of the ETL goes on;
+Report 37 keeps its nightly-snapshot first open until the copy exists.
 """
 import logging
 from datetime import date, datetime, time, timedelta
@@ -33,33 +41,45 @@ DEFAULT_SINCE = date(2026, 10, 1)
 SINCE_KEY = 'pacs_audit_since'
 FROM_KEY = 'pacs_audit_copied_from'
 UNTIL_KEY = 'pacs_audit_copied_until'
+VERSION_KEY = 'pacs_audit_version'
+AUDIT_VERSION = 2               # 1: open, lock (0155); 2: + approve, wetread (0156)
 
 _OVERLAP = timedelta(days=1)
 _MAX_DAYS_PER_RUN = 62
 _FETCH_BATCH = 2000
 _FMT = '%Y-%m-%d %H:%M:%S'
 
-AUDIT_QUERY = """
+_TAG = r"""LOWER(TRIM(REGEXP_SUBSTR(a.DESCRIPTION, '\({tag}\)[^"]*"([^"]*)"', 1, 1, NULL, 1)))"""
+_STATUS = r"""REGEXP_LIKE(a.DESCRIPTION, '\(07a1,2a\)[^"]*"({values}) *"')"""
+
+AUDIT_QUERY = f"""
     SELECT /*+ INDEX(a AUDIT_EVENT_DATE_INX) */
            a.LOG_DBID, a.EVENT_DATE,
-           CASE WHEN a.ACTION = 'Access' THEN 'open' ELSE 'lock' END,
-           LOWER(TRIM(a.USER_NAME)), a.SOURCE, a.LOCATION,
+           CASE WHEN a.ACTION = 'Access' THEN 'open'
+                WHEN INSTR(a.DESCRIPTION, 'ApprovedSign Complete') > 0
+                  OR {_STATUS.format(values='PENDING APPROVED')} THEN 'approve'
+                WHEN {_STATUS.format(values='WETREAD')} THEN 'wetread'
+                ELSE 'lock' END,
+           COALESCE(LOWER(TRIM(a.USER_NAME)), {_TAG.format(tag='07a1,d6')}, {_TAG.format(tag='07a1,4a')},
+                    NULLIF({_TAG.format(tag='07a1,42')}, 'not assigned')),
+           a.SOURCE, a.LOCATION,
            TRIM(a.STUDY_INSTANCE_UID), TRIM(a.STUDY_ACCESSION_NO)
     FROM auditing.audit_log a
     WHERE a.EVENT_DATE >= TO_DATE(:since, 'YYYY-MM-DD HH24:MI:SS')
       AND a.EVENT_DATE <  TO_DATE(:until, 'YYYY-MM-DD HH24:MI:SS')
       AND a.CATEGORY = 'PHI Access'
       AND a.SUB_CATEGORY = 'Instances Used'
-      AND a.USER_NAME IS NOT NULL
       AND a.STUDY_INSTANCE_UID IS NOT NULL
-      AND (a.ACTION = 'Access'
+      AND ((a.ACTION = 'Access' AND a.USER_NAME IS NOT NULL)
            OR (a.ACTION = 'Modify' AND a.SOURCE = 'Vue PACS Client'
-               AND INSTR(a.DESCRIPTION, 'Value: "LOCKED"') > 0))
+               AND (INSTR(a.DESCRIPTION, 'Value: "LOCKED"') > 0
+                    OR INSTR(a.DESCRIPTION, 'ApprovedSign Complete') > 0
+                    OR {_STATUS.format(values='PENDING APPROVED|WETREAD')})))
 """
 
 _INSERT_SQL = text("""
-    INSERT INTO etl_pacs_audit_opens (log_dbid, event_at, kind, user_name, source, location,
-                                      study_instance_uid, accession_number)
+    INSERT INTO etl_pacs_audit_events (log_dbid, event_at, kind, user_name, source, location,
+                                       study_instance_uid, accession_number)
     VALUES (:log_dbid, :event_at, :kind, :user_name, :source, :location,
             :study_instance_uid, :accession_number)
     ON CONFLICT (log_dbid) DO NOTHING
@@ -102,7 +122,9 @@ def _plan(pg_engine, now):
     with pg_engine.connect() as conn:
         since = _as_date(_setting(conn, SINCE_KEY)) or DEFAULT_SINCE
         copied_from, copied_until = _as_date(_setting(conn, FROM_KEY)), _as_ts(_setting(conn, UNTIL_KEY))
-    fresh = copied_from is None or copied_until is None or since < copied_from
+        version = _setting(conn, VERSION_KEY)
+    fresh = (copied_from is None or copied_until is None or since < copied_from
+             or str(version) != str(AUDIT_VERSION))
     start = datetime.combine(since, time.min) if fresh else copied_until - _OVERLAP
     end = min(now, start + timedelta(days=_MAX_DAYS_PER_RUN))
     return start, end, fresh
@@ -143,12 +165,13 @@ def run_pacs_audit_etl(pg_engine, oracle_source, now=None):
                 batch = cursor.fetchmany(_FETCH_BATCH)
                 if not batch:
                     break
-                rows.extend(_row(r) for r in batch)
+                rows.extend(_row(r) for r in batch if r[3])     # no login: not kept
             with pg_engine.begin() as conn:
                 if rows:
                     conn.execute(_INSERT_SQL, rows)
                 if fresh:
                     conn.execute(_SET_SQL, {'k': FROM_KEY, 'v': start.date().isoformat()})
+                    conn.execute(_SET_SQL, {'k': VERSION_KEY, 'v': str(AUDIT_VERSION)})
                     fresh = False
                 conn.execute(_SET_SQL, {'k': UNTIL_KEY, 'v': until.strftime(_FMT)})
             total += len(rows)

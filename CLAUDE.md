@@ -56,8 +56,9 @@ routes/
                                    or lock by a resident/radiologist in the PACS audit trail
                                    (AUDITING.AUDIT_LOG, Carestream), copied nightly through its
                                    EVENT_DATE index by ETL_JOBS/etl_pacs_audit.py into
-                                   etl_pacs_audit_opens (migration 0155; RAYD's PACS account needs
-                                   SELECT on it; never copies names, IDs or descriptions). Studies
+                                   etl_pacs_audit_events (migrations 0155, 0156: open, lock, and the
+                                   approve/wetread signatures that Report 32's turnaround reads,
+                                   utils/sign_tat.py; never copies names, IDs or descriptions). Studies
                                    before the copy keep "first open seen", the earliest open a
                                    nightly snapshot caught.
                                    ETL_JOBS/etl_sticky_notes.py copies note times nightly; note

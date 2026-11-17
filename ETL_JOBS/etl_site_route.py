@@ -140,7 +140,7 @@ TABLES = (
           "WHERE i.study_db_uid IN (SELECT study_db_uid FROM _r_image_studies))", 'cascade', images=True),
     Table('etl_sticky_notes', ('data_db_uid',), _STUDY),
     Table('study_access_history', ('study_db_uid', 'captured_at'), _STUDY),
-    Table('etl_pacs_audit_opens', ('log_dbid',), "BTRIM(t.study_instance_uid) IN (SELECT uid FROM _r_study_uids)"),
+    Table('etl_pacs_audit_events', ('log_dbid',), "BTRIM(t.study_instance_uid) IN (SELECT uid FROM _r_study_uids)"),
     Table('cd_print_log', ('task_id',), _STUDY, skip=('id',)),
     Table('fact_exam', ('study_db_uid',), _STUDY),
     # RIS: orders and their steps, reports, visits, patients
@@ -188,7 +188,7 @@ _DELETE_STEPS = (
     ('etl_orders', "DELETE FROM etl_orders WHERE order_dbid IN (SELECT order_dbid FROM _r_orders)"),
     ('fact_exam', "DELETE FROM fact_exam WHERE study_db_uid IN (SELECT study_db_uid FROM _r_studies)"),
     ('cd_print_log', "DELETE FROM cd_print_log WHERE study_db_uid IN (SELECT study_db_uid FROM _r_studies)"),
-    ('etl_pacs_audit_opens', "DELETE FROM etl_pacs_audit_opens WHERE BTRIM(study_instance_uid) IN (SELECT uid FROM _r_study_uids)"),
+    ('etl_pacs_audit_events', "DELETE FROM etl_pacs_audit_events WHERE BTRIM(study_instance_uid) IN (SELECT uid FROM _r_study_uids)"),
     ('study_access_history', "DELETE FROM study_access_history WHERE study_db_uid IN (SELECT study_db_uid FROM _r_studies)"),
     ('etl_sticky_notes', "DELETE FROM etl_sticky_notes WHERE study_db_uid IN (SELECT study_db_uid FROM _r_studies)"),
 )

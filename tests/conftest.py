@@ -276,6 +276,9 @@ def app(database_url):
     from routes.report_38 import report_38_bp
     for bp in (report_25_bp, report_34_bp, report_35_bp, report_36_bp, report_38_bp):
         flask_app.register_blueprint(bp)
+    # Report 32, Radiologists Performance: the signature turnaround (items 14A, 14B)
+    from routes.report_32 import report_32_bp
+    flask_app.register_blueprint(report_32_bp)
     # the home page's daily briefing and Yesterday tab
     from routes.viewer_controller import viewer_bp
     flask_app.register_blueprint(viewer_bp, url_prefix='/viewer')

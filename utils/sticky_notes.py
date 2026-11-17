@@ -171,9 +171,10 @@ LEFT JOIN physician_alias_map open_name
 LEFT JOIN LATERAL (
     -- the PACS audit trail: the first open by a resident or radiologist
     SELECT a.event_at, a.user_name
-    FROM etl_pacs_audit_opens a
+    FROM etl_pacs_audit_events a
     JOIN role_lookup reader ON reader.login_id = UPPER(SPLIT_PART(a.user_name, '@', 1))
     WHERE a.study_instance_uid = BTRIM(c.study_instance_uid)
+      AND a.kind IN ('open', 'lock')
     ORDER BY a.event_at, a.log_dbid
     LIMIT 1
 ) ao ON TRUE

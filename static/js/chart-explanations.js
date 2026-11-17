@@ -393,6 +393,24 @@ const ChartExplanations = {
       valueMeaning: 'Cell = distinct studies with a report time. Reader = the PACS signing physician’s name, else who last composed the report, else the PACS final signer, merged through the physician aliases. The procedure view covers the 60 most frequent procedures.',
       interpretation: 'Shows who carries which modality and how the load moves month to month. Unknown readers are left out, so the total can be below the page total.'
     },
+    'r32-sign-exam': {
+      title: 'RIS exam done → signature',
+      purpose: 'How long after the technologist marks the exam done on the RIS the radiologist approves the report, per signing radiologist.',
+      valueMeaning: 'Start = the first "exam done" step of the study\'s RIS order. End = the first approval in the PACS audit trail (status PENDING APPROVED or ApprovedSign Complete), with its login, to the second. Median hours per radiologist; the tooltip adds the 90th percentile and the study count. Studies with no exam done, or exam done after the approval, are left out of this chart.',
+      interpretation: 'The RIS clock: it starts when the patient has been scanned. A long bar means reports wait for that radiologist; compare with the PACS clock next to it, which starts when the images arrive.'
+    },
+    'r32-sign-arrival': {
+      title: 'Images reach PACS → signature',
+      purpose: 'How long after the images arrive on the PACS the radiologist approves the report, per signing radiologist.',
+      valueMeaning: 'Start = the time the PACS stored the study (insert time). End = the first approval in the PACS audit trail. Median hours per radiologist, 90th percentile and count in the tooltip. Only studies that arrived while the audit copy covers them (shown above the tiles).',
+      interpretation: 'The PACS clock: it does not depend on the RIS. When it differs a lot from the RIS clock, the exam-done step is entered late or early on the RIS.'
+    },
+    'r32-sign-open': {
+      title: 'Reporting time: first open → signature',
+      purpose: 'How long the report takes once someone starts reading: from the first open of the images to the approval.',
+      valueMeaning: 'Green: from the first open by any resident or radiologist (the PACS reading groups). Amber: from the signing radiologist\'s own first open. Opens are the audit trail\'s image displays and reading locks, the same as Report 37\'s first open. Median hours per signing radiologist.',
+      interpretation: 'Green much longer than amber: the study waits between the resident\'s read and the radiologist\'s. Amber is the radiologist\'s own reading-to-signing time; it includes time the study stayed open or was reopened.'
+    },
     'r32-addendum': {
       title: 'Addendum Rate by Radiologist',
       purpose: 'For each reader with at least 5 reported studies in the period, the share of studies that carry an addendum.',
