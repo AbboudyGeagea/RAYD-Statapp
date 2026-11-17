@@ -49,6 +49,9 @@ def wipe(engine):
             run(engine, f"DELETE FROM {t}")
     for t in ('device_weekly_schedule', 'aetitle_modality_map'):
         run(engine, f"DELETE FROM {t} WHERE aetitle IN :d".replace(':d', str(DEVICES)))
+    # a rollup's last success makes the next one incremental; each test starts without one
+    run(engine, "DELETE FROM etl_job_log WHERE job_name IN ('STORAGE_CUMULATIVE_SYNC', 'SITE_ROUTE_SJH')")
+    run(engine, "DELETE FROM summary_storage_daily")
 
 
 def _exists(engine, table):
@@ -72,6 +75,8 @@ def dbs(app):
 def two_hospitals(main):
     """RH study 101, SJH studies 201 and 202, study 301 with no site; patient 10 only at
     SJH, patient 11 at both; an RH and an SJH order; ORU reports; PPS."""
+    run(main, "INSERT INTO go_live_config (go_live_date) SELECT DATE '2019-01-01' "
+              "WHERE NOT EXISTS (SELECT 1 FROM go_live_config)")
     run(main, """INSERT INTO aetitle_modality_map (aetitle, modality, site_id)
                  VALUES ('CT_RH_T', 'CT', 1), ('CT_SJ_T', 'CT', 2)""")
     run(main, "INSERT INTO device_weekly_schedule (aetitle, day_of_week, std_opening_minutes) VALUES ('CT_SJ_T', 0, 600)")
@@ -277,6 +282,44 @@ def test_the_nightly_step_waits_for_the_one_time_move(dbs):
     assert rows(main, "SELECT status FROM etl_job_log WHERE job_name = 'SITE_ROUTE_SJH' ORDER BY id DESC LIMIT 1") \
         == [('SUCCESS',)]
     run(main, "DELETE FROM settings WHERE key = 'site_route_moved_SJH'")
+
+
+def test_the_move_takes_the_storage_history_and_only_the_recent_images(dbs):
+    """The image history is not copied (operator, 2026-11-17): the site's daily storage is
+    computed once from it, with the rollup's formula, and only the last days' images go."""
+    main, sjh = dbs
+    two_hospitals(main)
+    run(main, "UPDATE etl_didb_studies SET study_date = :old WHERE study_db_uid = 202", old=T.date().replace(month=6))
+    run(main, "UPDATE etl_didb_studies SET study_modality = 'CT', procedure_code = 'CT01' WHERE study_db_uid IN (201, 202)")
+    run(main, "INSERT INTO etl_didb_serieses (series_db_uid, study_db_uid) VALUES (2021, 202)")
+    run(main, """INSERT INTO etl_didb_raw_images (raw_image_db_uid, patient_db_uid, study_db_uid, series_db_uid,
+                                                  study_instance_uid, series_instance_uid)
+                 VALUES (90202, 11, 202, 2021, '1.2.202', '1.2.202.1')""")
+    run(main, "INSERT INTO etl_image_locations (raw_image_db_uid, image_size_kb) VALUES (90202, 1073741824)")  # 1 GB
+
+    report = move(main, sjh, images=False, images_since=T.date().replace(day=1))
+
+    assert keys(sjh, "SELECT raw_image_db_uid FROM etl_didb_raw_images") == [90201]       # October only
+    assert keys(main, "SELECT raw_image_db_uid FROM etl_didb_raw_images") == [90101]      # June's went
+    history = rows(sjh, "SELECT study_date, storing_ae, study_count, total_gb FROM summary_storage_daily ORDER BY 1")
+    assert [(d.month, ae, n, float(gb)) for d, ae, n, gb in history] == [(6, 'CT_SJ_T', 1, 1.0), (10, 'CT_SJ_T', 1, 0.0)]
+    assert next(r for r in report['tables'] if r['table'] == 'summary_storage_daily (history)')['missing'] == 0
+    assert rows(sjh, "SELECT COUNT(*) FROM go_live_config") == rows(main, "SELECT COUNT(*) FROM go_live_config")
+
+
+def test_the_storage_rollup_counts_the_site_its_database_serves(dbs):
+    from ETL_JOBS.etl_analytics_refresh import refresh_storage_summary
+    from utils import site_db
+    main, sjh = dbs
+    two_hospitals(main)
+    run(main, "UPDATE etl_didb_studies SET study_modality = 'CT', procedure_code = 'CT01'")
+    move(main, sjh)
+    run(sjh, "DELETE FROM summary_storage_daily")
+
+    with site_db.use_site(SJH):
+        refresh_storage_summary()
+
+    assert rows(sjh, "SELECT storing_ae, study_count FROM summary_storage_daily") == [('CT_SJ_T', 1)]
 
 
 def test_a_dry_run_counts_and_writes_nothing(dbs):

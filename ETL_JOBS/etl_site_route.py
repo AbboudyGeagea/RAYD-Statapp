@@ -24,8 +24,10 @@ How a run goes
 
 What stays on RH: rows with no site (operator, 2026-11-17: they stay flagged, so every run
 reports how many remain), and the HL7 data BRAYN owns until 13d. Raw images and image
-locations are copied only when asked (every night, for the night's new images); the
-one-time move leaves the history out (nothing reads them but the storage rollup).
+locations go every night (only the night's new images are on RH by then); the one-time move
+takes those of the last 14 days only (operator, 2026-11-17: the image history is not copied;
+nothing reads it but the storage rollup), after computing the site's storage history from
+all of them, with the rollup's formula, into the site database.
 
     python -m ETL_JOBS.etl_site_route --site SJH --dry-run      counts only
     python -m ETL_JOBS.etl_site_route --site SJH --copy         copy and verify
@@ -74,6 +76,10 @@ KEY_SETS = (
                      WHERE o.visit_dbid IS NOT NULL"""),
     ('_r_persons', """SELECT DISTINCT o.patient_dbid::text AS person FROM etl_orders o JOIN _r_orders r USING (order_dbid)
                       WHERE o.patient_dbid IS NOT NULL"""),
+    # studies whose raw images and image locations go too: all of them every night (only
+    # the night's new images are on RH by then); in the one-time move, the last days only
+    ('_r_image_studies', """SELECT s.study_db_uid FROM etl_didb_studies s JOIN _r_studies r USING (study_db_uid)
+                            WHERE %(images_all)s OR s.study_date >= %(images_since)s"""),
 )
 
 _DEVICE = "UPPER(TRIM(t.aetitle)) IN (SELECT ae FROM _r_devices)"
@@ -119,6 +125,7 @@ TABLES = (
     Table('std_procedure_priorities', ('priority_key',), 'TRUE', 'keep'),
     Table('std_dictations', ('dictation_key',), 'TRUE', 'keep'),
     Table('std_modality_schedule_groups', ('modality_schedule_group_key',), 'TRUE', 'keep'),
+    Table('go_live_config', ('id',), 'TRUE', 'keep'),          # the site's storage rollup needs it
     Table('physician_alias_map', ('alias',), 'TRUE', 'keep', nightly=False),
     Table('pacs_user_role_override', ('login_id',), 'TRUE', 'keep', nightly=False),
     # PACS: patients, studies and what hangs off a study
@@ -126,10 +133,11 @@ TABLES = (
           'unreferenced'),
     Table('etl_didb_studies', ('study_db_uid',), _STUDY),
     Table('etl_didb_serieses', ('series_db_uid',), _STUDY, 'cascade'),
-    Table('etl_didb_raw_images', ('raw_image_db_uid',), _STUDY, 'cascade', images=True),
+    Table('etl_didb_raw_images', ('raw_image_db_uid',),
+          "t.study_db_uid IN (SELECT study_db_uid FROM _r_image_studies)", 'cascade', images=True),
     Table('etl_image_locations', ('raw_image_db_uid',),
           "t.raw_image_db_uid IN (SELECT i.raw_image_db_uid FROM etl_didb_raw_images i "
-          "WHERE i.study_db_uid IN (SELECT study_db_uid FROM _r_studies))", 'cascade', images=True),
+          "WHERE i.study_db_uid IN (SELECT study_db_uid FROM _r_image_studies))", 'cascade', images=True),
     Table('etl_sticky_notes', ('data_db_uid',), _STUDY),
     Table('study_access_history', ('study_db_uid', 'captured_at'), _STUDY),
     Table('etl_pacs_audit_opens', ('log_dbid',), "BTRIM(t.study_instance_uid) IN (SELECT uid FROM _r_study_uids)"),
@@ -224,11 +232,15 @@ def record_moved(rh_engine, code, when):
 # ── the run ───────────────────────────────────────────────────────────────────
 
 def route_site(rh_engine, site_engine, site_id, *, delete=False, dry_run=False, images=False,
-               first_time=False, lock=True):
+               images_since=None, first_time=False, lock=True):
     """Copy (and with delete=True, move) one site's rows from RH's database into the site's
-    own. dry_run: counts only. images: also the raw images and image locations. first_time:
-    also the curated tables (alias names, role corrections), never overwritten afterwards.
-    lock: refuse while the ETL runs (the nightly call, made by the ETL itself, passes False).
+    own. dry_run: counts only. images: the raw images and image locations of every study
+    moved (the nightly run: only the night's new images are on RH); images_since: only those
+    of studies from that date (the one-time move keeps the last days, so a late image
+    recomputes a whole day). first_time: also the curated tables (alias names, role
+    corrections), never overwritten afterwards, and the site's storage history computed
+    from its images before they go. lock: refuse while the ETL runs (the nightly call, made
+    by the ETL itself, passes False).
     Returns a report: per table what was selected, copied, missing and deleted."""
     report = {'site_id': site_id, 'tables': [], 'verified': False, 'deleted': False,
               'blocked': [], 'no_site': {}}
@@ -240,9 +252,9 @@ def route_site(rh_engine, site_engine, site_id, *, delete=False, dry_run=False, 
             cur.execute("SELECT pg_try_advisory_lock(%s)", (_ETL_SYNC_LOCK_ID,))
             if not cur.fetchone()[0]:
                 raise RuntimeError("the ETL is running; try again when it has finished")
-        _key_sets(cur, site_id)
+        _key_sets(cur, {'site': site_id, 'images_all': bool(images), 'images_since': images_since})
         report['no_site'] = _no_site(cur)
-        chosen = [t for t in TABLES if (images or not t.images) and (first_time or t.nightly)]
+        chosen = [t for t in TABLES if first_time or t.nightly]
         if dry_run:
             for t in chosen:
                 cur.execute(f"SELECT COUNT(*) FROM public.{_q(t.name)} t WHERE {t.where}")
@@ -253,6 +265,8 @@ def route_site(rh_engine, site_engine, site_id, *, delete=False, dry_run=False, 
         dcur = dst.cursor()
         for t in chosen:
             report['tables'].append(_copy(cur, dcur, t))
+        if first_time:
+            report['tables'].append(_storage_history(cur, dcur, site_id))
         dst.commit()
         report['verified'] = all(r['missing'] == 0 for r in report['tables'])
         if delete and report['verified']:
@@ -280,11 +294,56 @@ def route_site(rh_engine, site_engine, site_id, *, delete=False, dry_run=False, 
             dst.close()
 
 
-def _key_sets(cur, site_id):
+def _key_sets(cur, params):
     for name, sql in KEY_SETS:
         cur.execute(f"DROP TABLE IF EXISTS {name}")
-        cur.execute(f"CREATE TEMP TABLE {name} AS {sql}", {'site': site_id})
+        cur.execute(f"CREATE TEMP TABLE {name} AS {sql}", params)
         cur.execute(f"ANALYZE {name}")
+
+
+# The site's daily storage, computed once from its images on RH before the move deletes
+# them: the formula of the storage rollup (ETL_JOBS/etl_analytics_refresh.py, bytes to GB,
+# SR left out, from go-live, the site's devices). RH's rollup never kept these rows (it
+# counts RH's devices only); afterwards the site's own rollup adds the new days.
+_STORAGE_HISTORY = """
+    SELECT s.study_date, COALESCE(s.storing_ae, 'UNKNOWN'), COALESCE(s.study_modality, 'UNKNOWN'),
+           COALESCE(s.procedure_code, 'UNKNOWN'),
+           ROUND(CAST(COALESCE(SUM(l.image_size_kb), 0) AS numeric) / 1073741824, 4),
+           COUNT(DISTINCT s.study_db_uid)
+    FROM etl_didb_studies s
+    JOIN etl_didb_raw_images i ON i.study_db_uid = s.study_db_uid
+    JOIN etl_image_locations l ON l.raw_image_db_uid = i.raw_image_db_uid
+    JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+    WHERE m.site_id = %(site)s
+      AND s.study_date >= (SELECT go_live_date FROM go_live_config ORDER BY id DESC LIMIT 1)
+      AND s.study_modality <> 'SR'
+    GROUP BY 1, 2, 3, 4
+"""
+_STORAGE_COLS = ('study_date', 'storing_ae', 'modality', 'procedure_code', 'total_gb', 'study_count')
+_STORAGE_KEY = ('study_date', 'storing_ae', 'modality', 'procedure_code')
+
+
+def _storage_history(cur, dcur, site_id):
+    cols = ', '.join(_STORAGE_COLS)
+    key = ', '.join(_STORAGE_KEY)
+    dcur.execute("DROP TABLE IF EXISTS _stage")
+    dcur.execute(f"CREATE TEMP TABLE _stage AS SELECT {cols} FROM public.summary_storage_daily WITH NO DATA")
+    with tempfile.SpooledTemporaryFile(max_size=_SPOOL, mode='w+b') as buf:
+        cur.copy_expert(f"COPY ({cur.mogrify(_STORAGE_HISTORY, {'site': site_id}).decode()}) TO STDOUT", buf)
+        buf.seek(0)
+        dcur.copy_expert(f"COPY _stage ({cols}) FROM STDIN", buf)
+    dcur.execute("SELECT COUNT(*) FROM _stage")
+    selected = dcur.fetchone()[0]
+    dcur.execute(f"INSERT INTO public.summary_storage_daily ({cols}) SELECT {cols} FROM _stage "
+                 f"ON CONFLICT ({key}) DO UPDATE SET total_gb = EXCLUDED.total_gb, study_count = EXCLUDED.study_count")
+    copied = dcur.rowcount
+    match = ' AND '.join(f'x.{k} = s.{k}' for k in _STORAGE_KEY)
+    dcur.execute(f"SELECT COUNT(*) FROM _stage s WHERE NOT EXISTS "
+                 f"(SELECT 1 FROM public.summary_storage_daily x WHERE {match} AND x.total_gb = s.total_gb)")
+    missing = dcur.fetchone()[0]
+    dcur.execute("DROP TABLE _stage")
+    return {'table': 'summary_storage_daily (history)', 'selected': selected, 'copied': copied,
+            'missing': missing, 'deleted': 0, 'after': 'keep'}
 
 
 def _no_site(cur):
@@ -439,12 +498,16 @@ def main(argv=None):
     mode.add_argument('--dry-run', action='store_true', help='count only')
     mode.add_argument('--copy', action='store_true', help='copy and verify, delete nothing')
     mode.add_argument('--move', action='store_true', help='copy, verify, then delete from RH')
-    p.add_argument('--images', action='store_true', help='also the raw images and image locations')
+    p.add_argument('--images', action='store_true', help='every image, not only the last days (not wanted at LAUMC)')
+    p.add_argument('--image-days', type=int, default=14,
+                   help="images of the last N days of studies go too (default 14), so a late image "
+                        "recomputes a whole day of the site's storage")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
+    from datetime import date, timedelta
     rh, site, site_id = _engines(args.site)
     report = route_site(rh, site, site_id, delete=args.move, dry_run=args.dry_run, images=args.images,
-                        first_time=True)
+                        images_since=date.today() - timedelta(days=args.image_days), first_time=True)
     print_report(report)
     if args.move and report['deleted']:
         from datetime import datetime

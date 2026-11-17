@@ -320,6 +320,14 @@ def _route_sites(engine, failures):
             if not report['verified']:
                 failures.append(f"Site route {code} (not verified, nothing deleted)")
             logger.info(f"✅ Site route {code} — {moved:,} rows moved; {note}")
+            if report['verified']:
+                # the site's storage rollup, on its database, now that tonight's images are there
+                from db import db as _db
+                try:
+                    with site_db.use_site(sid):
+                        refresh_storage_summary()
+                finally:
+                    _db.session.remove()
         except Exception as _e:
             moved, status, note = 0, 'FAILED', str(_e)[:500]
             failures.append(f"Site route {code}")

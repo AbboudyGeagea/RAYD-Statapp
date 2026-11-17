@@ -90,6 +90,17 @@ def _get_storage_watermark():
     return last_success - timedelta(minutes=_INCREMENTAL_OVERLAP_MINUTES)
 
 
+def _served_site():
+    """The site this database serves (CLAUDE.md rule 10): RH on the main database, SJH on
+    SJH's own (item 13b), so the same rollup runs on each. The default site where the
+    function is missing."""
+    try:
+        return db.session.execute(text("SELECT rayd_served_site_id()")).scalar()
+    except Exception:
+        db.session.rollback()
+        return default_site()
+
+
 def refresh_storage_summary():
     """
     Recalculates storage into summary_storage_daily.
@@ -132,7 +143,7 @@ def refresh_storage_summary():
         # never had the rule applied at all. default_site() resolves to None on a
         # non-LAUMC/single-site install (empty `sites` table), so the join/filter
         # below is skipped entirely there — never zeroes out a single-site deployment.
-        rh_site_id = default_site()
+        rh_site_id = _served_site()
 
         # Purge stale rows the site-scope filter below would no longer produce.
         # Found 2026-07-31: this rollup used to run with NO site filter at all
