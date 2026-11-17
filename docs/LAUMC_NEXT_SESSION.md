@@ -566,6 +566,29 @@ read; radiologists approve or finalise (check both).
       site" code in the ETL) must use the site its database serves (rule 10).
     - Key sets are taken once at the start (SJH studies, orders, accessions, PPS keys), so
       copying and deleting see the same rows whatever order the tables go in.
+
+    **13b part 1 built 2026-11-17** (not deployed; `tests/test_site_route.py`, 12 tests):
+    - `ETL_JOBS/etl_site_route.py`: the table list above as code (rule, natural key, what
+      happens on RH), `route_site()` (count / copy and verify / delete only if every table
+      verified; studies deleted 2,000 at a time, series and images by cascade; ORU kept on
+      RH while a CRN row points at one; a PPS on an SJH device for an RH study keeps no
+      link). Command line for the one-time move, refused while the ETL runs:
+      `python -m ETL_JOBS.etl_site_route --site SJH --dry-run | --copy | --move`.
+    - Nightly: last step of the ETL (`_route_sites` in `etl_runner.py`), with the night's
+      images, logged as job `SITE_ROUTE_SJH` (rows moved, no-site counts). Off until
+      `POSTGRES_DB_SJH` is set and the one-time `--move` has recorded itself
+      (`settings.site_route_moved_SJH`), so it can never copy the image history.
+    - **Rehearsed on the local sample** (1–14 Oct): dry run, copy (every table verified),
+      move. After: RH's database 2,445 studies (2,393 RH + 52 no site), 0 SJH; SJH's 1,870
+      studies, 2,800 orders, 1,813 ORU reports, 1,218 patients (15 seen at both sites kept
+      on RH). Report 22 on RH still 2,363, Report 38 still 346; Report 22 on SJH 1,870; the
+      Super Report side by side RH 2,363 | SJH 1,870.
+    **Left before the production move (Sat 28):** SJH's storage history, computed once from
+    SJH's images before they go (same formula as Phase 7), and Phase 7 run per database on
+    the site each serves; then the runbook: set `POSTGRES_DB_SJH`, restart (the app creates
+    SJH's database), `--dry-run` (compare with the census), `--copy`, check SJH's reports,
+    `--move` (about 182,000 studies, 92 batches; series and images by cascade), `VACUUM
+    ANALYZE` on RH, check RH's reports unchanged.
 14. **Radiologists TAT and radiologists' number of reports: revamp and validate thoroughly;
     this is the selling point.** Source is PACS Oracle (rule above). Show both start clocks,
     RIS exam done and PACS insert time (`DIDB_STUDIES.INSERT_TIME`), because they disagree.
