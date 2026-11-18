@@ -106,7 +106,8 @@ except ImportError:
     from etl_settings import ETL_GEAR
 
 # Worker imports
-from etl_didb_studies      import run_studies_etl, fill_original_ae, purge_cardiology
+from etl_didb_studies      import (run_studies_etl, fill_original_ae, purge_cardiology, GATEWAY_STUDY_SQL,
+                                   apply_gateway_devices)
 from etl_series            import run_series_etl
 from etl_didb_raw_images   import run_raw_images_etl
 from etl_image_locations   import run_images_etl
@@ -435,6 +436,16 @@ def _perform_migration(engine):
             except Exception as _e:
                 _phase_failures.append("Original storing AE")
                 logger.error(f"🛑 Original storing AE not filled — continuing: {_e}", exc_info=True)
+            # Item 13, migration 0164: a gateway study whose scanner is a mapped device gets it as
+            # its storing_ae. The copy does it for the studies it reads; this catches the ones
+            # the fill just completed and those of a scanner mapped since.
+            try:
+                with engine.begin() as _c:
+                    moved = apply_gateway_devices(_c)
+                logger.info(f"✅ {moved:,} gateway studies given their scanner as device")
+            except Exception as _e:
+                _phase_failures.append("Gateway devices")
+                logger.error(f"🛑 Gateway devices not applied — continuing: {_e}", exc_info=True)
             try:
                 purged = purge_cardiology(engine)
                 logger.info(f"✅ {purged:,} cardiology studies purged")
@@ -533,19 +544,15 @@ def _perform_migration(engine):
                     # clause -- an unrelated later phase (14, RIS PPS) can enrich a row
                     # between cycles before this phase catches it, so guard every run,
                     # not just the one-time migration 0111 cleanup this mirrors.
-                    _c.execute(text("""
+                    # GATEWAY_STUDY_SQL: through a gateway, also once its storing_ae is the
+                    # scanner (migration 0164).
+                    _card = f"""{GATEWAY_STUDY_SQL}
+                              AND UPPER(TRIM(study_modality)) IN ('CARD', 'SJH_CARD', 'CARDUS', 'SJHCARD')"""
+                    _c.execute(text(f"""
                         UPDATE std_pps SET study_db_uid = NULL
-                        WHERE study_db_uid IN (
-                            SELECT study_db_uid FROM etl_didb_studies
-                            WHERE UPPER(TRIM(storing_ae)) IN ('SJHCSAPWFMFIR', 'LAUMCWFM2FIR')
-                              AND UPPER(TRIM(study_modality)) IN ('CARD', 'SJH_CARD', 'CARDUS', 'SJHCARD')
-                        )
+                        WHERE study_db_uid IN (SELECT study_db_uid FROM etl_didb_studies WHERE {_card})
                     """))
-                    _r = _c.execute(text("""
-                        DELETE FROM etl_didb_studies
-                        WHERE UPPER(TRIM(storing_ae)) IN ('SJHCSAPWFMFIR', 'LAUMCWFM2FIR')
-                          AND UPPER(TRIM(study_modality)) IN ('CARD', 'SJH_CARD', 'CARDUS', 'SJHCARD')
-                    """))
+                    _r = _c.execute(text(f"DELETE FROM etl_didb_studies WHERE {_card}"))
                     logger.info(f"✅ Phase 2c done — {_r.rowcount:,} CARD-family studies purged")
                 if active_ids:
                     with engine.connect() as _c:

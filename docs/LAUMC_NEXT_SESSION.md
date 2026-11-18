@@ -63,15 +63,52 @@ wetread 14,821, all from 1 Oct; `pacs_audit_version` 2, `original_ae_filled` and
    Turnaround card against the audit trail.
 
 **Next builds (laptop):**
+- **18 Nov: (a) and (c) below are built** (migrations 0164, 0165; details in item 13). Left: the
+  scanner mapping from production, (b), (d).
 - Thu 19 – Tue 24, **item 13 before the SJH move (deploy Thu 26, move Sat 28):** (a) device
   rule: a gateway study's device is `etl_didb_studies.original_storing_ae` (filled, 0159);
   LAUMCWFM1AR keeps itself as original AE, so its devices come from each exam's RIS room; read
   the six files that use the gateway AE titles first (utils/site_resolver.py,
   utils/report_filters.py, Report 22, the AI report, report_cache); decide view or column.
-  Why it blocks SJH's reports (checked 18 Nov on the local SJH database): 1,864 of 1,870
-  studies show modality "PACS" on device SJHCSAPWFMFIR, and Report 25 leaves modality PACS
-  out, so SJH would show nothing there. The move itself is ready (on production since 17 Nov;
-  `tests/test_site_route.py` + `tests/test_site_databases.py` 42 passed on 18 Nov).
+  Why it blocks SJH's reports (checked 18 Nov on the local SJH database, whose sample predates
+  the original AE): 1,864 of 1,870 studies read modality "PACS" on device SJHCSAPWFMFIR; Report
+  25 put them all on that one device (its turnaround sections leave PACS out). The move itself
+  is ready (on production since 17 Nov; `tests/test_site_route.py` + `tests/test_site_databases.py`
+  42 passed on 18 Nov).
+  **(a) built 18 Nov (migration 0164, not deployed):** for a study through SJHCSAPWFMFIR or
+  LAUMCWFM2FIR with an original AE, `storing_ae` = the scanner and the new `gateway_ae` = the
+  gateway, at the nightly copy (`device_of`), the one-time fill, and the migration for what is
+  loaded (then sites re-resolved: the scanner's mapping decides). All ~70 device joins read the
+  scanner unchanged. Phase 2c reads `GATEWAY_STUDY_SQL`. LAUMCWFM1AR untouched. Undo: one
+  UPDATE (in the migration's header). Tests: `tests/test_gateway_device.py`, Report 25 on SJH's
+  database in `tests/test_site_databases.py` (device SJHCSAPWFMFIR/PACS → MR_SJH_T/MR).
+  **Scanners behind the gateways (production, 18 Nov):** SJHCSAPWFMFIR: DR300_STORESCU 75,860,
+  CM_CT_CMW_V1 30,506, KIZUNA 17,705, CANON_CXDI 9,826, AE_DBT 4,696, MAMMOPRISTINA 3,994,
+  ZIEHM-SOLO 1,239, KIZUNA_GOC 623, AFFINITI 602, AFFINITI1 582, no AE 258, XVIMPORT 231,
+  MEDISON 149, MEDISON-1 74, VIMS_AE 38, SENOIRIS 17, a few others; LAUMCWFM2FIR: ~560 studies
+  2019–2026, mostly RH devices (DEFINIUM1 149, MR750W 101, ...), a few SJH ones.
+  **Rule changed with it:** a study moves to its scanner only when the mapping knows it as a
+  device (a modality other than PACS); XVIMPORT (import agent), VIMS_AE, AW, CBOGT02, SVSM and
+  no AE stay on the gateway, as today, else SJH's Report 22/25 (mapped devices only) would lose
+  them. `apply_gateway_devices` runs after every load, so a scanner mapped later moves the next
+  night. 0164 maps KIZUNA_GOC (→ RIS KIZUNA, its earlier name), MEDISON (→ RIS MEDISON-1, its
+  name since May 2024), AFFINITI50 (US, SJH), PHILIPSCARM (RF, SJH, link to RIS PHILIPS "C-Arm 2"
+  to confirm).
+  **Item 31 closed:** the 232 SJH XA are 231 imports (XVIMPORT) and 1 with no AE, not cardiology.
+  **Before deploying:** AE_DBT (4,698) and SENOIRIS (17) are mapped to RH, but PACS labels all
+  their gateway studies SJH; with the device rule they would move into RH's reports. Check their
+  RIS orders' issuer (query in the reply of 18 Nov), then fix their mapped site in 0164 if SJH.
+  **(c) built 18 Nov (migration 0165, not deployed):** the rh views keep the site each database
+  serves (`rayd_served_site_id()`, written into the views as a number when they are rebuilt, since
+  Report Composer's role cannot read settings), so SJH's database gets the same rules; requests
+  on a site database read through them (`site_db._install_hooks` installs `rh_scope`); BRAYN's
+  placeholder list is a shared table (`@shared_write` on the console's two writes, 15-minute
+  sync). Found on the way: in SJH's database the views kept RH, so **Report Composer on SJH saw
+  0 studies**. Laptop after 0164+0165: SJH database 1,870 studies through the views (was 0),
+  Report Composer 1,870 (was 0), orders 2,800 → 2,182 (618 HIS duplicates out); main database
+  unchanged. Tests: `tests/test_site_databases.py` (SJH's rows through the same rules).
+  Staff who left was already per database (`staff_status.refresh_all`); the switch
+  (`staff_left_hidden`) is per database, so SJH's is switched on Report 39 with SJH picked.
   (b) the cath lab's RIS side (AZURION orders and steps) out, as its PACS studies are. (c) **SJH's
   own database has no rh views**: placeholders (0151), staff who left (0157) and HIS duplicate
   orders (0162) do not apply there yet; give the site databases the same rules before the move.
@@ -97,10 +134,10 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 | 2 | First open (**due Fri 20**) | deployed; audit re-read from 1 Oct (checked 18 Nov); October regenerated 18 Nov 01:02 after the re-read: 1,429 cases, all with a first open; no recipients, nothing emailed; monthly email no longer says "PACS keeps only the latest open" (f8c13210, next deploy) | spot-check with `scripts/sql/report_37_first_open_spotcheck.sql` | 18–20 Nov |
 | 32 | HIS duplicate orders | live (0162); Rizk October: 76 % twins, 18.5 % no-shows; SJH twins not matched by patient | checklist 5 (HIS order number) | 18 Nov |
 | 9 | Staff who left | deployed (0157, 0158), switch off | checklist 4, then switch on; Tanios Jalkh; Jessica Saad's PACS account | 18 Nov |
-| 31 | Cardiology out | 3,948 purged (0159); SJH US 1,361 as expected; SJH XA 232, expected about 120 | XA by original AE | 18 Nov |
+| 31 | Cardiology out | **done**: 3,948 purged; the 232 SJH XA left are imports (XVIMPORT 231) and 1 with no AE | — | done 18 Nov |
 | 14A/B | Signature turnaround | deployed; approvals re-read | spot-check Report 32; station clocks | 18–19 Nov |
 | 4 | RIS room names | done (0161, 6 links live) | checklist 6 for LEO22529/ARTIS121403 | 18–19 Nov |
-| 13 | SJH in its own database | CT and about 25,000 more RIS steps linked by accession; devices in `original_storing_ae`; cardiology out | device rule; cath lab RIS side; rh rules for SJH's database; 13d; move Sat 28 | build 19–24, deploy 26, move 28–29 |
+| 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | AE_DBT/SENOIRIS site (RIS issuer query); PHILIPSCARM = C-Arm 2?; deploy; cath lab RIS side; 13d; move Sat 28 | deploy as soon as checked, move 28–29 |
 | 21 | Patient schedule lead time | booking time filled (0160) | the report (about 2 days) | 23–25 Nov, deploy 26 |
 | 1 | HIS vs RIS orders | HIS order number filled (0160) | Mirth ORM forwarding; then the Report 27 tab (2–3 days) | after the ORMs |
 | 10 | Gateways | SJH and LAUMCWFM2FIR from the original AE; LAUMCWFM1AR from the RIS | built with 13 | with 13 |

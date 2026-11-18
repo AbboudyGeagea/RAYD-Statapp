@@ -40,6 +40,7 @@ from urllib.parse import quote
 from flask import Blueprint, render_template, request, jsonify, abort, redirect, g
 from flask_login import login_required, current_user
 from utils.roles import can
+from utils.site_db import shared_write   # the placeholder list goes to every site database (0165)
 from sqlalchemy import text
 
 from db import db
@@ -1172,6 +1173,7 @@ def save_rule():
 
 @brayn_bp.route('/brayn/placeholders/save', methods=['POST'])
 @login_required
+@shared_write
 def save_placeholder():
     """Add a placeholder record, or change one (with its id). Every page follows at once."""
     _require_access()
@@ -1220,6 +1222,7 @@ def save_placeholder():
 
 @brayn_bp.route('/brayn/placeholders/active', methods=['POST'])
 @login_required
+@shared_write
 def placeholder_active():
     """Switch a placeholder record on or off. Off: its data shows again everywhere."""
     _require_access()

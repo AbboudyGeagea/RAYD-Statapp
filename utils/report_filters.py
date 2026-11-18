@@ -58,6 +58,9 @@ def study_site_sql(param):
         gateway (modality  the study's PACS site. A gateway carries traffic for both
         'PACS'), unmapped  sites, so its mapped site says nothing about one study, and
         or no site         an unmapped device has no mapped site to read.
+    Since migration 0164 a gateway study whose scanner PACS names has the scanner as its
+    storing_ae, so the scanner's mapping decides; only gateway studies without one are left
+    to the label.
     """
     pacs_label = f"s.pacs_site_id_raw = (SELECT pacs_site_id FROM sites WHERE id = :{param})"
     return (f"(CASE WHEN m.site_id IS NULL OR m.modality = 'PACS' THEN {pacs_label} "

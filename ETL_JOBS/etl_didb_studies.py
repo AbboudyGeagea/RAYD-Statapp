@@ -18,6 +18,54 @@ _CARDIOLOGY_SQL = (
     f" AND (s.ORIGINAL_STORING_AE IS NULL OR UPPER(TRIM(s.ORIGINAL_STORING_AE)) NOT IN ({_CARDIOLOGY_LIST}))"
 )
 
+# Gateways (item 13, 2026-11-18): SJH's middleware and the second workflow manager forward
+# other devices' studies, so PACS names the gateway as the storing AE and keeps the scanner in
+# ORIGINAL_STORING_AE. RAYD stores the scanner as the study's storing_ae and the gateway in
+# gateway_ae (migration 0164): every report joins the device mapping on storing_ae (about 70
+# queries), so all of them read the scanner, its modality, room and site, unchanged.
+# Only when the original AE is a DEVICE the mapping knows (a modality other than 'PACS'): an
+# import agent (XVIMPORT), a workstation, an unmapped or empty AE keeps the gateway, as before,
+# because reports keep only the site's mapped devices and would lose those studies (production
+# list of 2026-11-18). Mapping a scanner later moves its studies the next night
+# (apply_gateway_devices runs after every load). LAUMCWFM1AR is not one of these: it names
+# itself as the original AE; its devices come from each exam's RIS room. To undo:
+# UPDATE etl_didb_studies SET storing_ae = gateway_ae, gateway_ae = NULL WHERE gateway_ae IS NOT NULL
+GATEWAY_AES = ('SJHCSAPWFMFIR', 'LAUMCWFM2FIR')
+_GATEWAY_LIST = ", ".join(f"'{ae}'" for ae in GATEWAY_AES)
+# A study that came through a gateway, whether its device was swapped or not.
+GATEWAY_STUDY_SQL = f"UPPER(TRIM(COALESCE(gateway_ae, storing_ae))) IN ({_GATEWAY_LIST})"
+# The AE titles mapped as a device (m.<column>); the same test in Python and SQL.
+_IS_DEVICE_SQL = "NULLIF(TRIM(m.modality), '') IS NOT NULL AND UPPER(TRIM(m.modality)) <> 'PACS'"
+_MAPPED_DEVICES_SQL = text(f"SELECT DISTINCT UPPER(TRIM(m.aetitle)) FROM aetitle_modality_map m WHERE {_IS_DEVICE_SQL}")
+_APPLY_GATEWAY_SQL = text(f"""
+    UPDATE etl_didb_studies s
+       SET gateway_ae = UPPER(TRIM(s.storing_ae)), storing_ae = UPPER(TRIM(s.original_storing_ae))
+     WHERE UPPER(TRIM(s.storing_ae)) IN ({_GATEWAY_LIST})
+       AND UPPER(TRIM(s.original_storing_ae)) <> UPPER(TRIM(s.storing_ae))
+       AND EXISTS (SELECT 1 FROM aetitle_modality_map m
+                   WHERE UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.original_storing_ae)) AND {_IS_DEVICE_SQL})
+""")
+
+
+def mapped_devices(conn):
+    """The AE titles the mapping knows as a device, upper-cased and trimmed."""
+    return set(conn.execute(_MAPPED_DEVICES_SQL).scalars())
+
+
+def device_of(storing_ae, original_ae, devices):
+    """(storing_ae, gateway_ae) as RAYD stores a study PACS gives with these two AEs, given
+    the mapped devices (mapped_devices())."""
+    if storing_ae in GATEWAY_AES and original_ae and original_ae != storing_ae and original_ae in devices:
+        return original_ae, storing_ae
+    return storing_ae, None
+
+
+def apply_gateway_devices(conn):
+    """Gateway studies already loaded whose original AE is a mapped device: the scanner becomes
+    their storing_ae. Idempotent; run after every load. Returns the studies changed."""
+    return conn.execute(_APPLY_GATEWAY_SQL).rowcount
+
+
 # Studies loaded before migration 0159 have no original storing AE. It matters only behind a
 # gateway (a device mapped to modality 'PACS'), so those are filled once, a range of study IDs
 # per query through the primary key, a few nights at most; the progress is kept in settings.
@@ -71,6 +119,7 @@ def fill_original_ae(pg_engine, oracle_source, chunk=_FILL_CHUNK, max_chunks=_FI
                         FROM unnest(CAST(:uids AS bigint[]), CAST(:aes AS text[])) AS u(uid, ae)
                         WHERE s.study_db_uid = u.uid AND s.original_storing_ae IS NULL
                     """), {'uids': [int(r[0]) for r in rows], 'aes': [r[1] for r in rows]}).rowcount
+                    apply_gateway_devices(conn)
                 _save(conn, _FILL_UPTO_KEY, end)
                 if end >= int(hi):
                     _save(conn, _FILL_DONE_KEY, 'true')
@@ -177,8 +226,23 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             'patient_location_full',
             # The device behind a gateway: SJH's studies all reach PACS through its middleware
             # (SJHCSAPWFMFIR), which keeps the real device here (migration 0159).
-            'original_storing_ae'
+            'original_storing_ae',
+            # Not read from PACS: set below, with storing_ae, by device_of() (migration 0164).
+            'gateway_ae'
         ]
+        _AE, _ORIGINAL = col_names.index('storing_ae'), col_names.index('original_storing_ae')
+        try:
+            with pg_engine.connect() as conn:
+                devices = mapped_devices(conn)
+        except Exception as dev_err:          # no swap tonight; apply_gateway_devices catches up
+            logging.warning(f"Studies ETL: mapped devices not read, gateway studies keep the gateway: {dev_err}")
+            devices = set()
+
+        def _with_device(row):
+            """The PACS row as RAYD stores it: a gateway study gets its scanner as storing_ae."""
+            row = list(row)
+            row[_AE], gateway = device_of(row[_AE], row[_ORIGINAL], devices)
+            return tuple(row) + (gateway,)
 
         ora_conn = OracleConnector.get_connection(oracle_source)
         cursor = ora_conn.cursor()
@@ -392,6 +456,7 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
             batch = cursor.fetchmany(1000)
             if not batch:
                 break
+            batch = [_with_device(row) for row in batch]
             batch_num += 1
 
             try:

@@ -54,6 +54,9 @@ MAIN_TABLES = frozenset({
 SHARED_TABLES = (
     'procedure_canonical_groups', 'procedure_duration_map', 'procedure_canonical_members',
     'procedure_duplicate_candidates', 'procedure_fuzzy_candidates', 'procedure_modality_conflicts',
+    # BRAYN's placeholder list (migration 0151, kept on the BRAYN console): every database's rh
+    # views leave its test patients and placeholder referrers out (migration 0165).
+    'brayn_placeholders',
 )
 
 _engines = {}                 # site_id -> Engine, for sites with their own database
@@ -400,13 +403,19 @@ def _ident(name):
 
 
 def _install_hooks(app, engine):
-    """What init_db and create_app install on the main engine, minus RH-only (a site
-    database holds its own site's rows; the rh views would hide them)."""
+    """What init_db and create_app install on the main engine. That includes the rh views'
+    scope since migration 0165: there they keep the site the database serves, with the same
+    rules (test patients, staff who left, the HIS's duplicate orders)."""
     try:
         from utils.brayn_shadow import install_clock
         install_clock(engine)
     except Exception:
         logger.exception("BRAYN clock hook not installed on a site database")
+    try:
+        from utils.rh_scope import install as install_rh_scope
+        install_rh_scope(engine)
+    except Exception:
+        logger.exception("rh views scope not installed on a site database")
     try:
         from utils.query_monitor import init_query_monitor
         init_query_monitor(app, engine)

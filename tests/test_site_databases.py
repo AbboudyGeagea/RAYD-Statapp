@@ -239,6 +239,92 @@ def test_a_report_keeps_the_served_sites_devices(client, app, people, sjh, ids):
     assert total() == 1
 
 
+def test_a_gateway_study_counts_on_its_scanner_in_report_25(app, sjh, ids):
+    """Item 13's device rule (migration 0164). SJH's studies come through its middleware,
+    mapped as modality 'PACS': Report 25 put every SJH study on that one device under modality
+    PACS (and its turnaround sections leave PACS out). With the scanner as the study's device
+    (storing_ae) it counts on the scanner, under the scanner's modality."""
+    pytest.importorskip('pandas')
+    from werkzeug.datastructures import MultiDict
+    from db import db
+    from utils import site_db
+    from ETL_JOBS.etl_didb_studies import apply_gateway_devices
+    from routes.report_25 import get_gold_standard_data
+    sjh("""INSERT INTO aetitle_modality_map (aetitle, modality, site_id)
+           SELECT v.ae, v.modality, s.id FROM sites s, (VALUES ('SJHCSAPWFMFIR', 'PACS'), ('MR_SJH_T', 'MR')) v(ae, modality)
+           WHERE s.code = 'SJH'""")
+    arrived = datetime.now().replace(microsecond=0) - timedelta(minutes=30)
+    sjh("""INSERT INTO etl_didb_studies
+               (study_db_uid, patient_db_uid, study_instance_uid, accession_number, storing_ae,
+                original_storing_ae, study_date, study_modality, procedure_code, patient_class,
+                patient_location, insert_time, study_status, pacs_site_id_raw,
+                rep_study_last_composed_by, rep_study_last_composed_ts)
+           VALUES (:u, :u, '1.2.3.97', 'SJGW1', 'SJHCSAPWFMFIR', 'MR_SJH_T', :d, 'MR', 'MR01', 'O',
+                   'DEF', :t, 'UNREAD', (SELECT pacs_site_id FROM sites WHERE code = 'SJH'),
+                   'dr.sjh@ad', :r)""",
+        u=BASE + 990, d=arrived.date(), t=arrived, r=arrived + timedelta(minutes=10))
+    form = MultiDict([('start_date', arrived.date().isoformat()), ('end_date', arrived.date().isoformat())])
+
+    def report_25():
+        from routes import report_cache
+        with report_cache._lock:
+            report_cache._store.clear()              # results are cached for 5 minutes
+        with app.app_context(), site_db.use_site(ids['SJH']):
+            data = get_gold_standard_data(form)[0]
+            db.session.rollback()
+        return {r['ae'] for r in data['matrix']}, data['unread_aging']
+
+    assert report_25() == ({'SJHCSAPWFMFIR'}, [{'bucket': '0-24h', 'modality': 'PACS', 'cnt': 1}])
+    with site_db.engine_for(ids['SJH']).begin() as conn:
+        assert apply_gateway_devices(conn) == 1
+    assert report_25() == ({'MR_SJH_T'}, [{'bucket': '0-24h', 'modality': 'MR', 'cnt': 1}])
+
+
+def test_the_sjh_database_reads_its_own_rows_through_the_same_rules(client, app, people, sjh, ids):
+    """Migration 0165: the rh views keep the site each database serves. In SJH's database they
+    kept RH (so Report Composer saw none of SJH's studies) and requests read the real tables,
+    without the rules: test patients (BRAYN's list, copied from the main database), the HIS's
+    duplicate orders, another site's rows."""
+    from db import db
+    from utils import site_db
+    uid = people('rules', 'administrator', ('RH', 'SJH'))
+    with app.app_context():
+        db.session.execute(text("INSERT INTO brayn_placeholders (kind, code, label) VALUES ('patient', 'TESTPAT_SJ', 't')"))
+        db.session.commit()
+        site_db.sync_shared_tables()
+    try:
+        sjh_study(sjh, BASE + 930)                                   # an SJH study
+        sjh("INSERT INTO etl_patient_view (patient_db_uid, id) VALUES (:p, 'TESTPAT_SJ')", p=BASE + 931)
+        sjh_study(sjh, BASE + 931)                                   # the test patient's
+        sjh_study(sjh, BASE + 932)
+        sjh("UPDATE etl_didb_studies SET site_id = rayd_default_site_id() WHERE study_db_uid = :u", u=BASE + 932)
+        yesterday = datetime.now() - timedelta(days=1)
+        for key, issuer, status in ((BASE + 940, 'SAP_SJH', 'CM'), (BASE + 941, 'SAP_SJH', 'scheduled'),
+                                    (BASE + 942, 'SAP_PROD', 'CM')):
+            sjh("""INSERT INTO etl_orders (order_dbid, order_control, order_status, scheduled_datetime)
+                   VALUES (:k, :i, :s, :t)""", k=key, i=issuer, s=status, t=yesterday)
+
+        seen = [r[0] for r in sjh("SELECT study_db_uid FROM rh.etl_didb_studies ORDER BY 1")]
+        assert seen == [BASE + 930]                     # not the test patient's, not RH's
+        assert [r[0] for r in sjh("SELECT accession FROM rpt.studies")] == [f'SJ{BASE + 930}']
+        assert [r[0] for r in sjh("SELECT order_dbid FROM rh.etl_orders ORDER BY 1")] == [BASE + 940]
+
+        # a request on SJH reads through them: Report 22 counts the one SJH study
+        import json
+        import re
+        pick(client, uid, ids['SJH'])
+        r = client.get('/report/22', headers=hdr(uid), query_string=PERIOD)
+        assert r.status_code == 200, r.get_data(as_text=True)[:300]
+        assert sum(json.loads(re.search(r'const d = (.*);', r.get_data(as_text=True)).group(1))['stat_c'].values()) == 1
+    finally:
+        sjh("DELETE FROM etl_orders WHERE order_dbid BETWEEN :a AND :b", a=BASE + 940, b=BASE + 942)
+        sjh("DELETE FROM etl_patient_view WHERE patient_db_uid = :p", p=BASE + 931)
+        with app.app_context():
+            db.session.execute(text("DELETE FROM brayn_placeholders WHERE code = 'TESTPAT_SJ'"))
+            db.session.commit()
+            site_db.sync_shared_tables()
+
+
 def test_cached_figures_are_never_shared_between_sites(client, app, people, sjh, ids):
     """The dropdown values are cached for 5 minutes, now per site."""
     uid = people('cache', 'administrator', ('RH', 'SJH'))

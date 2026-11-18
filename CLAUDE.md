@@ -153,6 +153,11 @@ etl_didb_studies
   referring_physician_first_name TEXT, referring_physician_last_name TEXT,
   rep_prelim_timestamp TIMESTAMP, patient_class TEXT, patient_location VARCHAR(3),
   study_description TEXT, study_body_part TEXT, age_at_exam NUMERIC(5,2),
+  gateway_ae VARCHAR(100)            -- migration 0164: for a study that came through a gateway
+                                     -- (SJHCSAPWFMFIR, LAUMCWFM2FIR) with an original AE, storing_ae
+                                     -- holds the SCANNER and this the gateway (etl_didb_studies.
+                                     -- GATEWAY_AES, device_of); "came through a gateway" in SQL is
+                                     -- GATEWAY_STUDY_SQL, never storing_ae alone
   original_storing_ae VARCHAR(100)   -- the device behind a gateway (SJH's middleware
                                      -- SJHCSAPWFMFIR keeps it; migration 0159). Cardiology devices
                                      -- (EPIQCVX, AZURION) are skipped at extract and purged
@@ -351,7 +356,10 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    `site_db.current_site_id()`; a streamed response uses `stream_with_context`. A new login
    or access table goes in MAIN_TABLES and its raw SQL on the main engine. Each site database
    keeps a password-less copy of `users` (`site_db.mirror_users()`), so its tables can point at
-   users. The RH-only views (rule 0) apply to the main database only. Outside a request
+   users. The rh views (rule 0) exist in every database and keep the site it serves
+   (`rayd_served_site_id()`, migration 0165), with the same rules (test patients, staff who
+   left, HIS duplicates); requests on a site database read through them too, and BRAYN's
+   placeholder list is a shared table. Outside a request
    everything reads the main database unless inside `site_db.use_site(site_id)`; a scheduled
    job that produces something people read runs once per database with
    `site_db.run_per_site()`. Procedure codes are shared (`site_db.SHARED_TABLES`): a route

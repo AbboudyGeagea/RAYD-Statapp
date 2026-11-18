@@ -24,6 +24,10 @@ To turn this off: RAYD_RH_ONLY=0 and a restart. No data has to change.
 
 In code that runs during a request, create tables as public.x: a table created with no schema
 lands in the first schema on the path, which would be rh.
+
+Every site database has the same views (item 13, migration 0165): there they keep the site the
+database serves (rayd_served_site_id()), with the same rules, and utils/site_db.py attaches this
+hook to its engines too. "rh" is the schema's name from when RH was the only site.
 """
 import contextlib
 import logging
