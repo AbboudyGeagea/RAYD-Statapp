@@ -68,6 +68,10 @@ wetread 14,821, all from 1 Oct; `pacs_audit_version` 2, `original_ae_filled` and
   LAUMCWFM1AR keeps itself as original AE, so its devices come from each exam's RIS room; read
   the six files that use the gateway AE titles first (utils/site_resolver.py,
   utils/report_filters.py, Report 22, the AI report, report_cache); decide view or column.
+  Why it blocks SJH's reports (checked 18 Nov on the local SJH database): 1,864 of 1,870
+  studies show modality "PACS" on device SJHCSAPWFMFIR, and Report 25 leaves modality PACS
+  out, so SJH would show nothing there. The move itself is ready (on production since 17 Nov;
+  `tests/test_site_route.py` + `tests/test_site_databases.py` 42 passed on 18 Nov).
   (b) the cath lab's RIS side (AZURION orders and steps) out, as its PACS studies are. (c) **SJH's
   own database has no rh views**: placeholders (0151), staff who left (0157) and HIS duplicate
   orders (0162) do not apply there yet; give the site databases the same rules before the move.
