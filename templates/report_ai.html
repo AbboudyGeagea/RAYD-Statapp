@@ -501,11 +501,15 @@
         document.querySelectorAll('[id^="phys-row-"]').forEach((r,i)=>{r.style.background=i===idx?'rgba(47,128,237,0.08)':'';});
         const doc=PHYS_DATA[idx]; if (!doc||!physChart) return;
         const t = doc.trend;
-        const status = !t ? 'too few studies to test' : t.status === 'declining' ? `sending clearly fewer (${t.change_pct}%)`
-            : t.status === 'growing' ? `sending clearly more (+${t.change_pct}%)` : t.status === 'new' ? 'new referrer' : 'normal';
-        document.getElementById('phys-chart-title').textContent = `${doc.name} — Monthly Referrals · last 13 weeks: ${status}`;
-        const color = t && t.status === 'declining' ? '#eb5757' : t && t.status === 'growing' ? '#27ae60' : '#2f80ed';
-        physChart.setOption({tooltip:{trigger:'axis'},grid:{left:60,right:30,top:20,bottom:50},xAxis:{type:'category',data:doc.chart.months,axisLabel:{...axisLabel,rotate:30}},yAxis:{type:'value',name:'Referrals',nameTextStyle:{color:'#3d5278',fontSize:10},splitLine,axisLabel},series:[{name:'Monthly Referrals',type:'bar',data:doc.chart.counts,itemStyle:{color,borderRadius:[3,3,0,0]},barMaxWidth:30}]});
+        const sign = v => (v > 0 ? '+' : '') + v;
+        const status = !t || t.status === 'few' ? 'too few studies to compare'
+            : t.status === 'stopped' ? `stopped (${t.recent} against ${t.last_year} a year earlier)`
+            : t.status === 'new' ? `new (${t.recent} studies, none a year earlier)`
+            : `${t.recent} against ${t.last_year} a year earlier, ${sign(t.change_pct)}%${t.certain ? '' : ' (few studies: could be chance)'}`;
+        document.getElementById('phys-chart-title').textContent = `${doc.name} — last 13 weeks: ${status}`;
+        const down = t && (t.status === 'declining' || t.status === 'stopped'), up = t && (t.status === 'growing' || t.status === 'new');
+        const color = down ? '#eb5757' : up ? '#27ae60' : '#2f80ed';
+        physChart.setOption({tooltip:{trigger:'axis'},legend:{bottom:0,data:['Monthly referrals','Same month last year'],textStyle:{color:'#3d5278',fontSize:11}},grid:{left:60,right:30,top:20,bottom:56},xAxis:{type:'category',data:doc.chart.months,axisLabel:{...axisLabel,rotate:30}},yAxis:{type:'value',name:'Referrals',nameTextStyle:{color:'#3d5278',fontSize:10},splitLine,axisLabel},series:[{name:'Monthly referrals',type:'bar',data:doc.chart.counts,itemStyle:{color,borderRadius:[3,3,0,0]},barMaxWidth:30},{name:'Same month last year',type:'line',data:doc.chart.last_year || [],connectNulls:false,lineStyle:{color:'#7a9cc9',width:2,type:'dashed'},itemStyle:{color:'#7a9cc9'},symbol:'circle',symbolSize:5}]});
     }
 
     // ── holidays & closures, retrain ─────────────────────────────────────────

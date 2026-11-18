@@ -494,44 +494,58 @@ def start_background(app, site_id):
     return True
 
 
-# ── referrers: a test, not a forecast ─────────────────────────────────────────
+# ── referrers: their real numbers against the same weeks a year earlier ───────
+#
+# Operator, 2026-11-19: the first version (each referrer's share of the hospital, flagged only from
+# 25 %) showed "all normal with a difference up to 20 %": a referrer growing with the hospital read
+# as normal, and real 10-25 % moves were hidden. Now the counts themselves, a year apart (the same
+# weeks, so season and holidays line up), every change from 10 % shown with its strength.
 
-RECENT_WEEKS, BASE_WEEKS = 13, 52
+RECENT_WEEKS = 13
+GRADES = ((0.40, "sharp"), (0.20, "clear"), (0.10, "slight"))
 
 
 def referrer_windows(end):
-    """(base start, recent start, end): the last 13 weeks to end, and the 52 weeks before."""
+    """(recent start, end, last year's start, last year's end): the 13 weeks to end, and the same
+    13 weeks 52 weeks earlier (same weekdays)."""
     end = pd.Timestamp(end).date()
     recent_start = end - timedelta(weeks=RECENT_WEEKS) + timedelta(days=1)
-    base_start = recent_start - timedelta(weeks=BASE_WEEKS)
-    return base_start, recent_start, end
+    return recent_start, end, recent_start - timedelta(weeks=52), end - timedelta(weeks=52)
 
 
-def referrer_changes(recent, base, min_total=65, min_change=0.25, p_max=0.01):
-    """Each referrer's last 13 weeks against their share of the site's volume in the 52 weeks
-    before. Comparing shares takes out what moves everyone (holidays, season, growth). Declining
-    or growing only when the change is at least 25 % and too large to be chance (Poisson p < 1 %).
-    recent, base: {name: studies}. Returns {name: {...}}."""
-    from scipy.stats import poisson
-    site_r, site_b = sum(recent.values()), sum(base.values())
+def referrer_trends(recent, last_year, min_studies=40, list_change=0.20, p_max=0.05):
+    """Each referrer's studies in the last 13 weeks against the same weeks a year earlier.
+      stopped    sent 20 or more then, 10 % of that or less now
+      new        none then, 10 or more now
+      declining / growing   10 % or more down / up, graded slight (10-20), clear (20-40), sharp (40+)
+      steady     within 10 %
+    certain = enough studies (40 in both periods together) and too large a change to be chance
+    (binomial test, p < 5 %); an uncertain change keeps its arrow and is marked, not hidden.
+    listed = what the page's two lists show: stopped and new, and clear or sharp changes that are
+    certain. recent, last_year: {name: studies}. Returns {name: {...}}."""
+    from scipy.stats import binomtest
     out = {}
-    if site_r <= 0 or site_b <= 0:
-        return out
-    for name in set(recent) | set(base):
-        r, b = int(recent.get(name, 0)), int(base.get(name, 0))
-        if r + b < min_total:
+    for name in set(recent) | set(last_year):
+        r, b = int(recent.get(name, 0)), int(last_year.get(name, 0))
+        if r + b == 0:
             continue
         if b == 0:
-            out[name] = {"recent": r, "base": 0, "expected": None, "change_pct": None, "p": None, "status": "new"}
+            out[name] = {"recent": r, "last_year": 0, "change_pct": None, "diff": r, "grade": None, "p": None,
+                         "status": "new" if r >= 10 else "few", "certain": r >= 10, "listed": r >= 10}
             continue
-        expected = b / site_b * site_r
-        change = r / expected - 1
-        p = float(poisson.cdf(r, expected) if r < expected else poisson.sf(r - 1, expected))
-        status = "stable"
-        if p < p_max and change <= -min_change:
+        change = r / b - 1
+        p = float(binomtest(r, r + b, 0.5).pvalue)
+        certain = (r + b) >= min_studies and p < p_max
+        if b >= 20 and r <= 0.1 * b:
+            status = "stopped"
+        elif change <= -0.10:
             status = "declining"
-        elif p < p_max and change >= min_change:
+        elif change >= 0.10:
             status = "growing"
-        out[name] = {"recent": r, "base": b, "expected": round(expected, 1),
-                     "change_pct": round(change * 100), "p": p, "status": status}
+        else:
+            status = "steady"
+        grade = next((g for t, g in GRADES if abs(change) >= t), None) if status in ("declining", "growing") else None
+        listed = status == "stopped" or (status in ("declining", "growing") and abs(change) >= list_change and certain)
+        out[name] = {"recent": r, "last_year": b, "change_pct": round(change * 100), "diff": r - b,
+                     "grade": grade, "p": p, "status": status, "certain": certain, "listed": listed}
     return out

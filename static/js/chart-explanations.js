@@ -1038,22 +1038,22 @@ const ChartExplanations = {
       interpretation: 'A device with no opening hours on the RIS has no utilization, so its forecast is given in minutes in the line above the chart. A forecast that sits above 85 % for weeks is a device to relieve.'
     },
     'ai-phys-changes': {
-      title: 'Clear changes, last 13 weeks',
-      purpose: 'Referring physicians whose referrals in the last 13 weeks changed clearly against their usual share of the hospital’s studies.',
-      valueMeaning: 'Usual share = their share in the 52 weeks before. Comparing shares takes out what moves everyone (holidays, season, growth). Listed only when the change is at least 25 % and too large to be chance (less than 1 % likely). Hover a name for their counts.',
-      interpretation: 'A physician sending clearly fewer is worth a call. Physicians with too few studies to test are not listed.'
+      title: 'Biggest changes',
+      purpose: 'Referring physicians whose studies in the last 13 weeks moved most against the same 13 weeks a year earlier, and those who stopped or are new.',
+      valueMeaning: 'Each name shows the studies gained or lost and the change in %. Listed: stopped (10 % or less of last year), new (none last year, 10 or more now), and changes of 20 % or more with enough studies not to be chance. Biggest loss or gain in studies first. Hover a name for both counts.',
+      interpretation: 'Start with the top of the red list: those are the most studies lost. Compare each % with the hospital’s own change given above the table: a referrer moving with the hospital is not a change of their own.'
     },
     'ai-phys-table': {
       title: 'Top 20 Referring Physicians',
-      purpose: 'The 20 physicians with most studies in the dates picked, with each one’s last 13 weeks against their usual share.',
-      valueMeaning: 'Last 13 weeks = studies in the 13 weeks to the end date. Usual = what their share of the 52 weeks before gives for the hospital’s studies in those 13 weeks. Change = the difference; normal when it is within what chance explains.',
-      interpretation: 'Normal rows can still move a little from week to week; only the red and green badges are clear changes.'
+      purpose: 'The 20 physicians with most studies in the dates picked, and each one’s last 13 weeks against the same 13 weeks a year earlier.',
+      valueMeaning: 'Studies = in the dates picked. Last 13 weeks = to the end date. Same weeks last year = the same 13 weeks, 52 weeks earlier, so season and holidays line up. Change: steady within 10 %, then slight (10–20 %), clear (20–40 %), sharp (over 40 %); a ? means too few studies to rule out chance.',
+      interpretation: 'The end date sets the 13 weeks: move it to look at another quarter. A physician down while the hospital is up is losing ground even if the % looks small.'
     },
     'ai-phys-chart': {
       title: 'Monthly Referrals',
-      purpose: 'The chosen physician’s studies per month in the dates picked.',
-      valueMeaning: 'Bars per month; red when they send clearly fewer in the last 13 weeks, green when clearly more.',
-      interpretation: 'The current month is not finished, so its bar is short: read the test, not the last bar.'
+      purpose: 'The chosen physician’s studies per month in the dates picked, with the same month a year earlier.',
+      valueMeaning: 'Bars = studies per month, red when down or stopped, green when up or new (last 13 weeks against a year earlier). Dashed line = the same month last year.',
+      interpretation: 'Bars below the dashed line month after month are a real decline. The current month is not finished, so its bar is short.'
     }
   },
 

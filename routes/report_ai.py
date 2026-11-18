@@ -707,40 +707,46 @@ def _get_physician_intelligence(start, end):
     for r in phys_mod_rows:
         phys_modality_map.setdefault(r[0], []).append({"modality": r[1] or "UNMAPPED", "count": int(r[2])})
 
-    # The test (utils/forecasting.referrer_changes): the 13 weeks to the end date against the
-    # 52 weeks before, as a share of everything the site did. Not a straight line through
-    # monthly counts, which read the current, unfinished month as a drop for everyone.
-    base_start, recent_start, test_end = forecasting.referrer_windows(end)
+    # Each referrer's real numbers: the 13 weeks to the end date against the same 13 weeks a year
+    # earlier (utils/forecasting.referrer_trends). Not a straight line through monthly counts,
+    # which read the current, unfinished month as a drop for everyone.
+    r0, r1, l0, l1 = forecasting.referrer_windows(end)
     counts = db.session.execute(text(f"""
         SELECT {_PHYSICIAN} AS physician,
-               COUNT(*) FILTER (WHERE s.study_date >= :r) AS recent,
-               COUNT(*) FILTER (WHERE s.study_date <  :r) AS base
+               COUNT(*) FILTER (WHERE s.study_date BETWEEN :r0 AND :r1) AS recent,
+               COUNT(*) FILTER (WHERE s.study_date BETWEEN :l0 AND :l1) AS last_year
         FROM etl_didb_studies s
         LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
-        WHERE s.study_date BETWEEN :b AND :e
+        WHERE (s.study_date BETWEEN :r0 AND :r1 OR s.study_date BETWEEN :l0 AND :l1)
           AND COALESCE(am.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
         GROUP BY 1
-    """), {"b": base_start, "r": recent_start, "e": test_end}).fetchall()
-    trend = forecasting.referrer_changes({r[0]: r[1] for r in counts if r[0] != 'Unknown'},
-                                         {r[0]: r[2] for r in counts if r[0] != 'Unknown'})
-    churning = sorted((n for n, t in trend.items() if t["status"] == "declining"),
-                      key=lambda n: trend[n]["change_pct"])
-    growing = sorted((n for n, t in trend.items() if t["status"] == "growing"),
-                     key=lambda n: -trend[n]["change_pct"])
+    """), {"r0": r0, "r1": r1, "l0": l0, "l1": l1}).fetchall()
+    hosp_recent, hosp_last = sum(r[1] for r in counts), sum(r[2] for r in counts)
+    trend = forecasting.referrer_trends({r[0]: r[1] for r in counts if r[0] != 'Unknown'},
+                                        {r[0]: r[2] for r in counts if r[0] != 'Unknown'})
+    keys = ("status", "grade", "recent", "last_year", "change_pct", "diff", "certain")
+    churning = sorted((n for n, t in trend.items() if t["listed"] and t["status"] in ("stopped", "declining")),
+                      key=lambda n: trend[n]["diff"])
+    growing = sorted((n for n, t in trend.items() if t["listed"] and t["status"] in ("new", "growing")),
+                     key=lambda n: -trend[n]["diff"])
 
     physician_data = []
     for physician, p_df in df.groupby('physician'):
         if physician == 'Unknown':
             continue
         t = trend.get(physician)
+        by_month = dict(zip(p_df['month'], p_df['cnt']))
+        months = p_df['month'].tolist()
+        prev = [by_month.get(f"{int(m[:4]) - 1}{m[4:]}") for m in months]
         physician_data.append({
             "name":         physician,
             "total":        int(p_df['cnt'].sum()),
-            "trend":        {k: t[k] for k in ("status", "recent", "expected", "change_pct")} if t else None,
+            "trend":        {k: t[k] for k in keys} if t else None,
             "modality_mix": phys_modality_map.get(physician, []),
             "chart": {
-                "months": p_df['month'].tolist(),
-                "counts": [int(c) for c in p_df['cnt'].tolist()],
+                "months":    months,
+                "counts":    [int(c) for c in p_df['cnt'].tolist()],
+                "last_year": [int(v) if v is not None else None for v in prev],
             }
         })
 
@@ -750,10 +756,13 @@ def _get_physician_intelligence(start, end):
 
     data = {
         "physicians": physician_data,
-        "churning":   [{"name": n, **{k: trend[n][k] for k in ("recent", "expected", "change_pct")}} for n in churning[:8]],
-        "growing":    [{"name": n, **{k: trend[n][k] for k in ("recent", "expected", "change_pct")}} for n in growing[:8]],
-        "tested":     len(trend),
-        "window":     {"recent_from": str(recent_start), "base_from": str(base_start), "to": str(test_end)},
+        "churning":   [{"name": n, **{k: trend[n][k] for k in keys}} for n in churning[:10]],
+        "growing":    [{"name": n, **{k: trend[n][k] for k in keys}} for n in growing[:10]],
+        "counts":     {s: sum(1 for t in trend.values() if t["status"] == s)
+                       for s in ("stopped", "declining", "steady", "growing", "new")},
+        "hospital":   {"recent": hosp_recent, "last_year": hosp_last,
+                       "change_pct": round((hosp_recent / hosp_last - 1) * 100) if hosp_last else None},
+        "window":     {"recent_from": str(r0), "to": str(r1), "last_from": str(l0), "last_to": str(l1)},
     }
     data["explanation"] = _explain_physician(data)
     _ai_cache_put("physician", start, end, data)
@@ -765,18 +774,21 @@ _PHYSICIAN = """COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_
 
 
 def _explain_physician(d):
-    w = d["window"]
+    w, h, c = d["window"], d["hospital"], d["counts"]
     fmt = lambda x: pd.Timestamp(x).strftime('%d %b %Y')
-    exp = (f"Each referrer's last 13 weeks ({fmt(w['recent_from'])} to {fmt(w['to'])}) are compared with "
-           f"their usual share of the hospital's studies in the 52 weeks before, so holidays, season and growth "
-           f"that move everyone are taken out. {d['tested']} referrers send enough studies to be tested. ")
+    exp = (f"Each referrer's studies in the last 13 weeks ({fmt(w['recent_from'])} to {fmt(w['to'])}) against "
+           f"the same 13 weeks a year earlier, so the season and holidays line up. ")
+    if h["change_pct"] is not None:
+        exp += (f"The hospital as a whole: {h['recent']:,} studies against {h['last_year']:,} "
+                f"({h['change_pct']:+d}%), so a referrer near {h['change_pct']:+d}% is moving with the hospital. ")
+    exp += (f"{c['declining']} referrers are down 10% or more, {c['stopped']} stopped, {c['growing']} are up 10% "
+            f"or more, {c['new']} are new, {c['steady']} are within 10%. ")
     if d["churning"]:
-        exp += (f"{len(d['churning'])} send clearly fewer (at least 25% below their usual share, too large a "
-                f"drop to be chance): {', '.join(c['name'] for c in d['churning'][:3])}. ")
+        exp += "Largest losses: " + ", ".join(
+            f"{x['name']} ({x['diff']:+d} studies)" for x in d["churning"][:3]) + ". "
     if d["growing"]:
-        exp += f"{len(d['growing'])} send clearly more: {', '.join(c['name'] for c in d['growing'][:3])}. "
-    if not d["churning"] and not d["growing"]:
-        exp += "No referrer changed more than chance explains."
+        exp += "Largest gains: " + ", ".join(
+            f"{x['name']} ({x['diff']:+d} studies)" for x in d["growing"][:3]) + "."
     return exp
 
 

@@ -343,26 +343,55 @@ def test_retrain_is_for_administrators_and_runs_in_the_background(client, monkey
     assert len(calls) == 1
 
 
-# ── referrers: a test, not a straight line ────────────────────────────────────
+# ── referrers: their real numbers against the same weeks a year earlier ───────
 
-def test_referrers_change_only_beyond_chance():
-    base = {f'Dr {i}': 260 for i in range(20)}                      # 5 a week for 52 weeks
-    recent = {f'Dr {i}': 65 for i in range(20)}                     # the same 5 a week for 13 weeks
-    recent['Dr 0'] = 20                                             # stopped sending most
-    recent['Dr 1'] = 110                                            # sends far more
-    recent['Dr 2'] = 58                                             # a little lower: chance
-    base['Dr few'], recent['Dr few'] = 30, 5                        # too few to test
-    recent['Dr new'] = 70                                           # no history
-    out = forecasting.referrer_changes(recent, base)
-    assert out['Dr 0']['status'] == 'declining' and out['Dr 0']['change_pct'] < -60
-    assert out['Dr 1']['status'] == 'growing'
-    assert out['Dr 2']['status'] == 'stable'
-    assert 'Dr few' not in out
-    assert out['Dr new']['status'] == 'new'
+def test_referrers_show_every_real_change_with_its_strength():
+    """Operator, 2026-11-19: the share test read 'all normal with a difference up to 20 %'. Every
+    change from 10 % now shows, graded; few studies get a question mark, not 'normal'."""
+    last = {'Dr steady': 200, 'Dr slight': 200, 'Dr clear': 200, 'Dr sharp': 200, 'Dr up': 200,
+            'Dr stopped': 60, 'Dr small': 12}
+    now = {'Dr steady': 190, 'Dr slight': 170, 'Dr clear': 150, 'Dr sharp': 100, 'Dr up': 250,
+           'Dr stopped': 3, 'Dr small': 8, 'Dr new': 25}
+    out = forecasting.referrer_trends(now, last)
+    assert (out['Dr steady']['status'], out['Dr steady']['change_pct']) == ('steady', -5)
+    assert (out['Dr slight']['status'], out['Dr slight']['grade']) == ('declining', 'slight')   # -15 %: shown
+    assert not out['Dr slight']['listed']                                                        # lists from 20 %
+    assert out['Dr clear']['grade'] == 'clear' and out['Dr clear']['listed'] and out['Dr clear']['diff'] == -50
+    assert out['Dr sharp']['grade'] == 'sharp'
+    assert (out['Dr up']['status'], out['Dr up']['grade']) == ('growing', 'clear') and out['Dr up']['listed']
+    assert out['Dr stopped']['status'] == 'stopped' and out['Dr stopped']['listed']
+    assert out['Dr new']['status'] == 'new' and out['Dr new']['listed']
+    assert out['Dr small']['status'] == 'declining' and not out['Dr small']['certain']           # -33 % of 12
 
 
-def test_referrer_windows_are_13_weeks_after_52():
-    base_start, recent_start, end = forecasting.referrer_windows('2026-11-17')
-    assert end == date(2026, 11, 17)
-    assert (end - recent_start).days == 13 * 7 - 1
-    assert (recent_start - base_start).days == 52 * 7
+def test_referrer_windows_are_13_weeks_and_the_same_weeks_a_year_earlier():
+    r0, r1, l0, l1 = forecasting.referrer_windows('2026-11-17')
+    assert r1 == date(2026, 11, 17) and (r1 - r0).days == 13 * 7 - 1
+    assert (r0 - l0).days == 364 and (r1 - l1).days == 364 and l0.weekday() == r0.weekday()
+
+
+def test_the_referrer_tab_counts_both_windows(client):
+    end = date(2026, 11, 17)
+    r0, r1, l0, l1 = forecasting.referrer_windows(end)
+
+    def refer(last, first_day, n, base):
+        sql("""INSERT INTO etl_didb_studies (study_db_uid, patient_db_uid, study_instance_uid, storing_ae,
+                                             study_date, study_modality, referring_physician_first_name,
+                                             referring_physician_last_name)
+               SELECT :b + k, :b + k, '1.8.' || (:b + k), 'CTX9', CAST(:d AS date) + (k % 60), 'CT', 'Dr', :l
+               FROM generate_series(1, :n) k""", b=base, d=first_day, n=n, l=last)
+    refer('Down', l0, 120, 1000)        # 120 then
+    refer('Down', r0, 80, 2000)         # 80 now: -33 %
+    refer('Same', l0, 100, 3000)
+    refer('Same', r0, 104, 4000)        # +4 %: steady
+    data = client.get('/report/ai/panel/physician', headers=ADMIN,
+                      query_string={'start_date': str(l0), 'end_date': str(end)}).get_json()['data']
+    rows = {p['name']: p['trend'] for p in data['physicians']}
+    assert rows['Dr Down']['recent'] == 80 and rows['Dr Down']['last_year'] == 120
+    assert (rows['Dr Down']['status'], rows['Dr Down']['grade'], rows['Dr Down']['diff']) == ('declining', 'clear', -40)
+    assert rows['Dr Same']['status'] == 'steady'
+    assert [c['name'] for c in data['churning']] == ['Dr Down']
+    assert data['hospital'] == {'recent': 184, 'last_year': 220, 'change_pct': -16}
+    html = client.get('/report/ai/panel/physician', headers=ADMIN,
+                      query_string={'start_date': str(l0), 'end_date': str(end)}).get_json()['html']
+    assert '-33% clear' in html and 'steady' in html
