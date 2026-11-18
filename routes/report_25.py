@@ -1,15 +1,16 @@
 """
 routes/report_25.py
 -------------------
-Report 25 — Device & Radiologist Performance Dashboard.
+Report 25 — Device & Operations Performance Dashboard.
 
-Covers: AE-station utilisation matrix, technician TAT, radiologist RVU/TAT
-performance cards, shift patterns, and NLP-driven insight signals.
+Covers: modality utilisation matrix, TAT/efficiency analytics, workflow
+(unread aging, shifts, addendum rate), technician monitoring, patient journey.
+The former Radiologists tab is now Report 36 (routes/report_36.py).
 
 The heavy data-fetch (get_gold_standard_data) runs synchronously and is
 cached for 5 minutes (report_cache).  A second background endpoint
-(/report/25/bg) computes shift patterns, technician monitoring and AI
-insights after the page has already loaded, so the initial render stays fast.
+(/report/25/bg) computes technician monitoring and its insights after the
+page has already loaded, so the initial render stays fast.
 
 Register in registry.py:
     import routes.report_25
@@ -25,32 +26,17 @@ from flask_login import login_required, current_user
 from sqlalchemy import text
 from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
-from routes.insights_engine import run_tech_insights, run_rad_insights
+from routes.insights_engine import run_tech_insights
 
 logger = logging.getLogger("report_25")
 
 report_25_bp = Blueprint("report_25", __name__)
 
-# ── Shared SQL fragments for every radiologist report count ──────────────
-# Rule: a report is counted on the day it was FINALIZED, not the study day.
-#   Study 01/01, final 03/01 → not counted on 01/01; counted once on 03/01.
-# Every radiologist table (peer ranking, heatmap, reports-per-radiologist
-# matrix, cadence daily log, addendum rate) must use these same fragments so
-# their counts agree.
-_MJ25 = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))"
-_RAD25_BASE = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-               "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
-_PAM25 = ("LEFT JOIN physician_alias_map pam "
-          "ON pam.dismissed = false "
-          "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-          "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
-_RAD25 = "COALESCE(pam.canonical_name, " + _RAD25_BASE + ")"
-_RAD25_OK = (f"AND {_RAD25} NOT IN ('','Unknown')"
-             f" AND s.rep_final_timestamp IS NOT NULL")
-# Same as DATE(s.rep_final_timestamp) BETWEEN :start AND :end, but index-friendly
-_FINAL_IN_RANGE = ("s.rep_final_timestamp >= CAST(:start AS date) "
-                   "AND s.rep_final_timestamp < CAST(:end AS date) + 1")
-_NOT_SR = "COALESCE(m.modality, s.study_modality, '') != 'SR'"
+# Shared radiologist report-count rule (finalization date) — see utils/radiologist_sql.py.
+# Radiologist tables live in Report 36; here they serve the addendum rate and coverage.
+from utils.radiologist_sql import (MOD_JOIN as _MJ25, ALIAS_JOIN as _PAM25, RAD_NAME as _RAD25,
+                                   RAD_OK as _RAD25_OK, FINAL_IN_RANGE as _FINAL_IN_RANGE,
+                                   NOT_SR as _NOT_SR)
 
 def _load_shift_config():
     defaults = {'morning_start': 7, 'morning_end': 15,
@@ -221,61 +207,8 @@ def get_gold_standard_data(form_data):
     except Exception:
         pass
 
-    # Rad Performance — counts reports by finalization date (_FINAL_IN_RANGE)
-    # so a backlog study is attributed to the day the radiologist signed it,
-    # not the study acquisition date. Same filters as rad_volume_matrix below.
-    rad_cards = []
-    try:
-        _rc_sql = f"""
-            SELECT
-                {_RAD25} AS reading_radiologist,
-                COALESCE(UPPER(m.modality), UPPER(s.study_modality), 'Unknown') AS modality,
-                COALESCE(s.patient_location, '') AS patient_location,
-                GREATEST(EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date::timestamp)) / 60, 0) AS total_tat_min,
-                COALESCE(pm.duration_minutes, 0) AS proc_duration,
-                COALESCE(pm.clinical_rvu, 1.0) AS clinical_rvu
-            FROM etl_didb_studies s {_MJ25} {_PAM25}
-            LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
-            WHERE {_FINAL_IN_RANGE}
-              AND {_NOT_SR}
-              AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
-              {_sec_filters} {_RAD25_OK}
-        """
-        _rc_df = pd.DataFrame(db.session.execute(text(_rc_sql), params).mappings().all())
-        if not _rc_df.empty:
-            for col in ['total_tat_min', 'proc_duration', 'clinical_rvu']:
-                _rc_df[col] = pd.to_numeric(_rc_df[col], errors='coerce').fillna(0)
-            for rad, r_df in _rc_df.groupby('reading_radiologist'):
-                drill = []
-                for loc, l_df in r_df.groupby('patient_location'):
-                    mods = [{"m": m, "avg": round(m_df['total_tat_min'].mean(), 1), "count": len(m_df), "rvu": round(m_df['clinical_rvu'].sum(), 1)} for m, m_df in l_df.groupby('modality')]
-                    drill.append({"loc": loc or 'Unknown', "mods": mods, "loc_rvu": round(l_df['clinical_rvu'].sum(), 1)})
-                # Only count studies with a mapped duration — unmapped studies (0 min)
-                # would contribute RVU without time, inflating the rate
-                r_df_mapped = r_df[r_df['proc_duration'] > 0]
-                total_scan_hours = r_df_mapped['proc_duration'].sum() / 60
-                rvu_per_hour = round(r_df_mapped['clinical_rvu'].sum() / total_scan_hours, 2) if total_scan_hours > 0 else 0.0
-                r_df_valid = r_df[r_df['total_tat_min'] > 0]
-                rad_cards.append({
-                    "name": rad,
-                    "count": int(len(r_df)),
-                    "overall": round(r_df_valid['total_tat_min'].mean(), 1) if len(r_df_valid) > 0 else 0.0,
-                    "tat_median": round(float(r_df[r_df['total_tat_min'] > 0]['total_tat_min'].median()), 1) if (r_df['total_tat_min'] > 0).any() else 0.0,
-                    "total_rvu": round(r_df['clinical_rvu'].sum(), 1),
-                    "rvu_per_hour": rvu_per_hour,
-                    "drilldown": drill
-                })
-            peer_tats = sorted([r['overall'] for r in rad_cards if r['overall'] > 0])
-            n = len(peer_tats)
-            for r in rad_cards:
-                if r['overall'] > 0 and n > 0:
-                    rank = sum(1 for t in peer_tats if t <= r['overall'])
-                    r['tat_percentile'] = round(rank / n * 100)
-                else:
-                    r['tat_percentile'] = None
-    except Exception:
-        logger.exception("Failed to build radiologist performance cards")
-        db.session.rollback()
+    # Radiologist peer ranking / heatmap / workload matrix / cadence live in
+    # Report 36 (routes/report_36.py), counted by finalization date.
 
     # Technician TAT by AE Station — group df by aetitle, exclude SR/OT
     tech_tat_cards   = []
@@ -307,10 +240,6 @@ def get_gold_standard_data(form_data):
             tech_tat_cards.sort(key=lambda x: x['avg_tat'])
         except Exception:
             logger.warning("Failed to build tech TAT cards", exc_info=True)
-
-    # shift_patterns and ts_rows are deferred to /report/25/bg (background endpoint)
-    shift_patterns = {}
-    ts_rows = []
 
     # ── New analytics ─────────────────────────────────────────────────
     tat_hist, ae_tat, rvu_tat, outlier_studies, global_mean_tat = [], [], [], [], 0.0
@@ -468,71 +397,9 @@ def get_gold_standard_data(form_data):
         logger.exception("Failed to load addendum rate data")
         db.session.rollback()
 
-    # ── Reports per radiologist × modality / AE title / procedure ────────
-    rad_volume_matrix = {"by_modality": [], "by_aetitle": [], "by_procedure": [], "by_month": []}
-    try:
-        rad_volume_matrix["by_modality"] = [dict(r) for r in db.session.execute(text(f"""
-            SELECT {_RAD25} AS radiologist,
-                   COALESCE(UPPER(m.modality), UPPER(s.study_modality), 'Unknown') AS dim,
-                   COUNT(DISTINCT s.study_db_uid) AS cnt
-            FROM etl_didb_studies s {_MJ25} {_PAM25}
-            WHERE {_FINAL_IN_RANGE}
-              AND {_NOT_SR}
-              AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
-              {_sec_filters} {_RAD25_OK}
-            GROUP BY 1, 2 ORDER BY 1, 3 DESC
-        """), params).mappings().fetchall()]
-
-        rad_volume_matrix["by_aetitle"] = [dict(r) for r in db.session.execute(text(f"""
-            SELECT {_RAD25} AS radiologist,
-                   COALESCE(s.original_storing_ae, 'Unknown') AS dim,
-                   COUNT(DISTINCT s.study_db_uid) AS cnt
-            FROM etl_didb_studies s {_MJ25} {_PAM25}
-            WHERE {_FINAL_IN_RANGE}
-              AND {_NOT_SR}
-              {_sec_filters} {_RAD25_OK}
-            GROUP BY 1, 2 ORDER BY 1, 3 DESC
-        """), params).mappings().fetchall()]
-
-        rad_volume_matrix["by_procedure"] = [dict(r) for r in db.session.execute(text(f"""
-            WITH top_procs AS (
-                SELECT s.procedure_code
-                FROM etl_didb_studies s {_MJ25}
-                WHERE {_FINAL_IN_RANGE}
-                  AND {_NOT_SR}
-                  AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
-                  {_sec_filters}
-                GROUP BY 1 ORDER BY COUNT(DISTINCT s.study_db_uid) DESC LIMIT 60
-            )
-            SELECT {_RAD25} AS radiologist,
-                   s.procedure_code AS proc,
-                   COUNT(DISTINCT s.study_db_uid) AS cnt
-            FROM etl_didb_studies s {_MJ25} {_PAM25}
-            JOIN top_procs tp ON tp.procedure_code = s.procedure_code
-            WHERE {_FINAL_IN_RANGE}
-              AND {_NOT_SR}
-              {_sec_filters} {_RAD25_OK}
-            GROUP BY 1, 2 ORDER BY 2, 3 DESC
-        """), params).mappings().fetchall()]
-        rad_volume_matrix["by_month"] = [dict(r) for r in db.session.execute(text(f"""
-            SELECT {_RAD25} AS radiologist,
-                   TO_CHAR(DATE(s.rep_final_timestamp), 'YYYY-MM') AS dim,
-                   COUNT(DISTINCT s.study_db_uid) AS cnt
-            FROM etl_didb_studies s {_MJ25} {_PAM25}
-            WHERE {_FINAL_IN_RANGE}
-              AND {_NOT_SR}
-              AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
-              {_sec_filters} {_RAD25_OK}
-            GROUP BY 1, 2 ORDER BY 1, 2
-        """), params).mappings().fetchall()]
-    except Exception:
-        logger.exception("Failed to build radiologist × modality/AE/procedure volume matrix")
-        db.session.rollback()
-
     # Reporting coverage — share of studies ACQUIRED in the period that have a
-    # final report. Computed on its own study-date basis; rad_cards counts by
-    # finalization date, so dividing those by the study-date total would mix
-    # two different populations (and could exceed 100%).
+    # final report. Study-date basis (Report 36's radiologist counts use the
+    # finalization date, a different population).
     coverage_pct = 0
     try:
         cov = db.session.execute(text(f"""
@@ -555,7 +422,6 @@ def get_gold_standard_data(form_data):
         'flagged': [], 'never_done': [], 'daily_trend': [],
     }
     tech_insights = []
-    rad_insights  = []
 
     result = ({
         "summary": {
@@ -571,7 +437,6 @@ def get_gold_standard_data(form_data):
         },
         "matrix": matrix_rows, 
         "class_tat": df[df['total_tat_min'] > 0].groupby('patient_class')['total_tat_min'].mean().round(1).to_dict() if 'patient_class' in df.columns else {},
-        "rad_cards": rad_cards,
         "tech_tat_cards": tech_tat_cards,
         "tech_tat_outliers": tech_tat_outliers,
         "modality_split": [{"name": k, "value": int(v)} for k, v in df['modality'].value_counts().items()] if 'modality' in df.columns else [], 
@@ -609,17 +474,14 @@ def get_gold_standard_data(form_data):
         "unread_aging":    unread_aging,
         "shift_breakdown": shift_breakdown,
         "addendum_data":      addendum_data,
-        "rad_volume_matrix":  rad_volume_matrix,
-        "shift_patterns":  shift_patterns,
         "tech_data":       tech_data,
         "tech_insights":   tech_insights,
-        "rad_insights":    rad_insights,
     }, start, end)
     cache_put(25, form_data, result)
     return result
 
 def compute_bg_data(form_data):
-    """Compute the deferred heavy sections: tech_data, shift_patterns, and insights."""
+    """Compute the deferred heavy sections: tech_data and technician insights."""
     from routes.report_cache import cache_get, cache_put
     cached = cache_get(9925, form_data)
     if cached is not None:
@@ -639,91 +501,7 @@ def compute_bg_data(form_data):
     if form_data.get("loc_enabled") == "on" and form_data.getlist("patient_location"):
         params["locations"] = tuple(form_data.getlist("patient_location"))
 
-    _sec_filters = ""
-    if "classes"    in params: _sec_filters += " AND s.patient_class IN :classes"
-    if "modalities" in params: _sec_filters += " AND UPPER(TRIM(m.modality)) IN :modalities"
-    if "aetitles"   in params: _sec_filters += " AND s.original_storing_ae IN :aetitles"
-    if "locations"  in params: _sec_filters += " AND s.patient_location IN :locations"
-
-    # ── Shift patterns + signing timestamps ──────────────────────────────
-    shift_patterns = {}
-    ts_rows = []
-    try:
-        _BREAK_MIN = 20
-        # Same report-count rule and name resolution as the Radiologists tab
-        # tables, so the daily log "Studies" matches the per-day report count.
-        ts_rows = db.session.execute(text(f"""
-            SELECT
-                {_RAD25} AS radiologist,
-                s.rep_final_timestamp,
-                s.accession_number
-            FROM etl_didb_studies s {_MJ25} {_PAM25}
-            WHERE {_FINAL_IN_RANGE}
-              AND {_NOT_SR}
-              {_sec_filters} {_RAD25_OK}
-            ORDER BY 1, 2
-        """), params).fetchall()
-
-        if ts_rows:
-            ts_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts', 'accession_number'])
-            ts_df['ts']        = pd.to_datetime(ts_df['ts'])
-            ts_df['work_date'] = ts_df['ts'].dt.date
-            ts_df['hour']      = ts_df['ts'].dt.hour
-            ts_df['dow']       = ts_df['ts'].dt.dayofweek
-
-            def _h_to_hhmm(h):
-                hh = int(h); mm = int(round((h - hh) * 60))
-                return f"{hh:02d}:{mm:02d}"
-
-            for rad, rdf in ts_df.groupby('radiologist'):
-                if rad.strip() in ('Unknown', ''):
-                    continue
-                rdf = rdf.sort_values('ts')
-                hm = rdf.groupby(['dow', 'hour']).size().reset_index(name='cnt')
-                heatmap = [[int(r['hour']), int(r['dow']), int(r['cnt'])] for _, r in hm.iterrows()]
-                hm_max  = int(hm['cnt'].max()) if not hm.empty else 1
-                arrivals, departures, break_cnts, break_durs = [], [], [], []
-                daily_log = []
-                for work_date, ddf in rdf.groupby('work_date'):
-                    times = ddf['ts'].sort_values().tolist()
-                    first, last = times[0], times[-1]
-                    arr_h = first.hour + first.minute / 60
-                    dep_h = last.hour  + last.minute  / 60
-                    arrivals.append(arr_h)
-                    departures.append(dep_h)
-                    breaks = []
-                    for i in range(1, len(times)):
-                        gap = (times[i] - times[i - 1]).total_seconds() / 60
-                        if gap >= _BREAK_MIN:
-                            dur = round(gap)
-                            icon = '☕' if dur <= 35 else ('🚬' if dur <= 70 else '🏃')
-                            kind = 'Coffee' if dur <= 35 else ('Long break' if dur <= 70 else 'Disappeared')
-                            breaks.append({'start': times[i-1].strftime('%H:%M'),
-                                           'end':   times[i].strftime('%H:%M'),
-                                           'duration': dur, 'icon': icon, 'kind': kind})
-                    break_cnts.append(len(breaks))
-                    break_durs.extend([b['duration'] for b in breaks])
-                    daily_log.append({
-                        'date': str(work_date), 'dow': first.strftime('%a'),
-                        'arrival': first.strftime('%H:%M'), 'departure': last.strftime('%H:%M'),
-                        'studies': len(times),
-                        'span_h': round(dep_h - arr_h, 1),
-                        'breaks': breaks,
-                    })
-                wd = len(daily_log)
-                shift_patterns[rad] = {
-                    'avg_arrival':    _h_to_hhmm(sum(arrivals)   / len(arrivals))   if arrivals   else '—',
-                    'avg_departure':  _h_to_hhmm(sum(departures) / len(departures)) if departures else '—',
-                    'avg_breaks_day': round(sum(break_cnts) / wd, 1)                if wd         else 0,
-                    'avg_break_dur':  int(round(sum(break_durs) / len(break_durs))) if break_durs else 0,
-                    'working_days':   wd,
-                    'heatmap':        heatmap,
-                    'hm_max':         hm_max,
-                    'daily_log':      daily_log[-60:],
-                }
-    except Exception:
-        logger.exception("Failed to compute shift patterns (background)")
-        db.session.rollback()
+    # Reporting cadence + radiologist insights moved to Report 36.
 
     # ── Technician monitoring ─────────────────────────────────────────────
     tech_data = {
@@ -969,28 +747,15 @@ def compute_bg_data(form_data):
 
     # ── Insights ──────────────────────────────────────────────────────────
     tech_insights = []
-    rad_insights  = []
     try:
         if not _tech_completed_df.empty:
             tech_insights = run_tech_insights(_tech_completed_df)
     except Exception:
         logger.exception("Failed to run technician insight signals (background)")
-    try:
-        _signing_df = None
-        if ts_rows:
-            _signing_df = pd.DataFrame(ts_rows, columns=['radiologist', 'ts', 'accession_number'])
-        # rad_cards come from main cache — retrieve to compute skew+batch_signing
-        main_cached = cache_get(25, form_data)
-        rad_cards = main_cached[0].get('rad_cards', []) if main_cached and main_cached[0] else []
-        rad_insights = run_rad_insights(rad_cards, _signing_df)
-    except Exception:
-        logger.exception("Failed to run radiologist insight signals (background)")
 
     result = {
-        'shift_patterns': shift_patterns,
         'tech_data':      tech_data,
         'tech_insights':  tech_insights,
-        'rad_insights':   rad_insights,
     }
     cache_put(9925, form_data, result)
     return result
@@ -1007,8 +772,6 @@ def report_25_bg():
     return jsonify({
         "tech_html":      tech_html,
         "tech_data":      bg['tech_data'],
-        "shift_patterns": bg['shift_patterns'],
-        "rad_insights":   bg['rad_insights'],
     })
 
 

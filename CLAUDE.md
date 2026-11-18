@@ -33,6 +33,7 @@ routes/
   report_22.py                  — main radiology stats (date/modality/physician filters)
   super_report.py               — aggregated multi-section report
   report_25.py                  — shift & device utilization
+  report_36.py                  — radiologist reporting analytics (split from report 25; counts by final date)
   er_dashboard.py               — ER unread studies panel + SLA tracking
   oru_analytics.py              — HL7 ORU analytics (NLP word cloud, critical findings log)
   viewer_controller.py          — daily briefing, home dashboard
