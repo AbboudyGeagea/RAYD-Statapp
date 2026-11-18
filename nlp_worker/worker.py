@@ -600,39 +600,86 @@ def _current_model(conn):
     return model_id, _MODEL_CACHE['model']
 
 
+# Where the pass through the archive stands (19 Nov 2026). A "Rebuild clusters" on
+# 18 Nov made all 508,352 reports stale; the old loop found each next chunk by
+# scanning from the newest report past every one already re-scored, so each chunk
+# cost more than the last (about 7 reports/s instead of ~100, two hours of Postgres
+# at full CPU and every report page slowed). Now the pass walks down the ids from
+# where it stopped (the primary key, a constant cost per chunk), new reports are
+# picked up from the top separately, and the database gets a pause between chunks.
+_SCAN = {'model': None, 'below': None, 'done': False, 'recheck_at': 0.0}
+_RECENT_IDS          = 2000     # new reports looked for among the newest ids, every call
+_SCORE_PAUSE_SECONDS = 1.0      # between chunks of the pass: report queries come first
+_RECHECK_SECONDS     = 86400    # after a full pass, walk everything once a day for stragglers
+
+_PENDING = """
+    SELECT o.id, o.report_text, o.impression_text
+    FROM hl7_oru_reports o
+    LEFT JOIN ai_nlp_cache c ON c.source_id = o.id
+    WHERE o.report_text IS NOT NULL AND TRIM(o.report_text) != ''
+      AND (c.id IS NULL
+           OR c.nlp_version IS DISTINCT FROM %(v)s
+           OR c.cluster_model_id IS DISTINCT FROM %(m)s)
+      AND {where}
+    ORDER BY o.id DESC
+    LIMIT %(n)s
+"""
+
+
+def _pending(conn, model_id, where, **params):
+    with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+        cur.execute(_PENDING.format(where=where),
+                    {'v': _CLUSTER_VERSION, 'm': model_id, 'n': _CHUNK, **params})
+        return cur.fetchall()
+
+
+def _score(conn, model_id, model, rows):
+    texts = [(r.impression_text or r.report_text or '').strip() for r in rows]
+    resolved = _negation_resolved_texts(texts)
+    values = []
+    for r, t, res in zip(rows, texts, resolved):
+        s = clustering.score_report(t, res, model)
+        values.append((r.id, s['classification'], json.dumps(s['keywords']), s['cluster_id'],
+                       s['cluster_label'], s['severity_score'], _CLUSTER_VERSION, model_id))
+    _write_scores(conn, values)
+
+
 def run_scoring():
-    """Score pending reports for up to _SCORE_BUDGET_SECONDS. Returns True when it
-    stopped on the time budget with more reports waiting."""
+    """Score pending reports for up to _SCORE_BUDGET_SECONDS: new reports first, then
+    the pass down the archive from where it stopped. Returns True when it stopped on
+    the time budget with the pass unfinished."""
     conn = _get_conn()
     try:
         model_id, model = _current_model(conn)
+        if model_id is None:
+            return False
+        if _SCAN['model'] != model_id:                      # a new model: a new pass, from the top
+            _SCAN.update(model=model_id, below=None, done=False)
+        elif _SCAN['done'] and time.monotonic() >= _SCAN['recheck_at']:
+            _SCAN.update(below=None, done=False)            # the daily walk for stragglers
         deadline = time.monotonic() + _SCORE_BUDGET_SECONDS
-        while time.monotonic() < deadline:
-            with conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
-                cur.execute("""
-                    SELECT o.id, o.report_text, o.impression_text
-                    FROM hl7_oru_reports o
-                    LEFT JOIN ai_nlp_cache c ON c.source_id = o.id
-                    WHERE o.report_text IS NOT NULL AND TRIM(o.report_text) != ''
-                      AND (c.id IS NULL
-                           OR c.nlp_version IS DISTINCT FROM %s
-                           OR c.cluster_model_id IS DISTINCT FROM %s)
-                    ORDER BY o.received_at DESC
-                    LIMIT %s
-                """, (_CLUSTER_VERSION, model_id, _CHUNK))
-                rows = cur.fetchall()
-            if not rows:
-                return False
 
-            texts = [(r.impression_text or r.report_text or '').strip() for r in rows]
-            resolved = _negation_resolved_texts(texts)
-            values = []
-            for r, t, res in zip(rows, texts, resolved):
-                s = clustering.score_report(t, res, model)
-                values.append((r.id, s['classification'], json.dumps(s['keywords']), s['cluster_id'],
-                               s['cluster_label'], s['severity_score'], _CLUSTER_VERSION, model_id))
-            _write_scores(conn, values)
-        return True
+        # 1. reports that arrived since: among the newest ids, by the primary key
+        recent = _pending(conn, model_id,
+                          "o.id > (SELECT COALESCE(MAX(id), 0) FROM hl7_oru_reports) - %(recent)s",
+                          recent=_RECENT_IDS)
+        if recent:
+            _score(conn, model_id, model, recent)
+
+        # 2. the pass down the archive, a chunk at a time, never re-reading what it did
+        while not _SCAN['done'] and time.monotonic() < deadline:
+            if _SCAN['below'] is None:
+                rows = _pending(conn, model_id, "TRUE")
+            else:
+                rows = _pending(conn, model_id, "o.id < %(below)s", below=_SCAN['below'])
+            if not rows:
+                _SCAN.update(done=True, below=None, recheck_at=time.monotonic() + _RECHECK_SECONDS)
+                print(f"[NLP Worker] Every report scored against cluster model {model_id}.")
+                return False
+            _score(conn, model_id, model, rows)
+            _SCAN['below'] = rows[-1].id
+            time.sleep(_SCORE_PAUSE_SECONDS)
+        return not _SCAN['done']
     finally:
         conn.close()
 
@@ -822,6 +869,11 @@ def _requeue_changed_reports():
 
 def main():
     print("[NLP Worker] Starting up...")
+    # Background work: the web app and Postgres on the same host come first (19 Nov 2026)
+    try:
+        os.nice(10)
+    except OSError:
+        pass
 
     # Wait for PostgreSQL to be ready
     while True:

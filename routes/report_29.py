@@ -8,22 +8,46 @@ from db import db, get_report_start_date
 report_29_bp = Blueprint("report_29", __name__)
 
 
-def get_report_data(form_data):
-    go_live_result = get_report_start_date()
-    default_start  = str(go_live_result) if go_live_result else "2025-01-01"
-    default_end    = date.today().strftime('%Y-%m-%d')
+# What the page needs: GB and studies per modality, procedure and device over the period. The
+# report_template SQL (kept for the catalogue) grouped by DAY as well, so a year came back as one
+# row per day per procedure and device, all added up again in pandas; the export keeps that
+# per-day detail (operator, 19 Nov 2026: "extremely slow to open and to load data").
+_TOTALS_SQL = """
+    SELECT COALESCE(modality, 'N/A')          AS modality,
+           COALESCE(procedure_code, 'UNKNOWN') AS procedure_code,
+           COALESCE(storing_ae, 'Unknown')     AS storing_ae,
+           SUM(total_gb)                       AS total_gb,
+           SUM(study_count)                    AS study_count
+    FROM summary_storage_daily
+    WHERE study_date BETWEEN :start AND :end
+    GROUP BY 1, 2, 3
+"""
+_DAILY_SQL = """
+    SELECT study_date,
+           COALESCE(modality, 'N/A')          AS modality,
+           COALESCE(procedure_code, 'UNKNOWN') AS procedure_code,
+           COALESCE(storing_ae, 'Unknown')     AS storing_ae,
+           SUM(total_gb)                       AS total_gb,
+           SUM(study_count)                    AS study_count
+    FROM summary_storage_daily
+    WHERE study_date BETWEEN :start AND :end
+    GROUP BY 1, 2, 3, 4
+    ORDER BY 1, 5 DESC
+"""
 
+
+def default_dates():
+    go_live_result = get_report_start_date()
+    return (str(go_live_result) if go_live_result else "2025-01-01"), date.today().strftime('%Y-%m-%d')
+
+
+def get_report_data(form_data, daily=False):
+    default_start, default_end = default_dates()
     start = form_data.get("start_date") or default_start
     end   = form_data.get("end_date")   or default_end
 
-    template_sql = db.session.execute(
-        text("SELECT report_sql_query FROM report_template WHERE report_id = 29")
-    ).scalar()
-
-    if not template_sql:
-        return pd.DataFrame(), start, end
-
-    res = db.session.execute(text(template_sql), {"start": start, "end": end}).mappings().all()
+    res = db.session.execute(text(_DAILY_SQL if daily else _TOTALS_SQL),
+                             {"start": start, "end": end}).mappings().all()
     df  = pd.DataFrame(res)
 
     if not df.empty:
@@ -78,7 +102,8 @@ def report_29():
     table_data        = []
     alerts            = []
 
-    _, display_start, display_end = get_report_data({})
+    # opening the page runs no query: the dates only (it used to run the whole report for them)
+    display_start, display_end = default_dates()
 
     if 'start_date' in request.values:
         run_report = True
@@ -184,7 +209,7 @@ def export_report_29():
     ok, msg = check_license_limit(current_app, 'export')
     if not ok:
         return jsonify({"error": msg}), 403
-    df, start, end = get_report_data(request.form)
+    df, start, end = get_report_data(request.form, daily=True)
     if df.empty:
         return "No data to export", 400
     return Response(

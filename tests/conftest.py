@@ -297,6 +297,9 @@ def app(database_url):
     # Report AI, the forecasts (migration 0169)
     from routes.report_ai import report_ai_bp
     flask_app.register_blueprint(report_ai_bp)
+    # Report 29, storage audit (opens without a query since 19 Nov 2026)
+    from routes.report_29 import report_29_bp
+    flask_app.register_blueprint(report_29_bp)
 
     from db import db
     from sqlalchemy import text

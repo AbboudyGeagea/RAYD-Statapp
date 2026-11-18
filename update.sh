@@ -84,6 +84,19 @@ LAST_HASH=$(cat .last_req_hash 2>/dev/null || echo "")
 # handling is the one remaining difference from a plain `docker build`, which
 # caches normally on this same host/builder.
 export COMPOSE_BAKE=false
+
+# The base image first, with a clear message when it cannot be fetched. 19 Nov 2026: the LAUMC
+# server had no route to Cloudflare, where Docker Hub's login (auth.docker.io) and its downloads
+# live, so every build died after 60 s on "load metadata for python:3.11-slim". The fix is in the
+# Docker daemon, not here: /etc/docker/daemon.json lists Google's copy of Docker Hub,
+#   "registry-mirrors": ["https://mirror.gcr.io"]
+# then `sudo systemctl reload docker` (no container restarts). Docker Hub stays the fallback.
+for base in $(grep -hoE '^FROM[[:space:]]+[^[:space:]]+' Dockerfile nlp_worker/Dockerfile | awk '{print $2}' | sort -u); do
+    timeout 180 docker pull -q "$base" >/dev/null 2>&1 \
+        || error "Cannot fetch the base image $base. If Docker Hub is unreachable from this server, add \"registry-mirrors\": [\"https://mirror.gcr.io\"] to /etc/docker/daemon.json, run: sudo systemctl reload docker, then run update.sh again. The site is untouched."
+done
+ok "Base images available."
+
 $COMPOSE build       # exits script on failure thanks to set -e; old containers untouched
 echo "$REQ_HASH" > .last_req_hash
 ok "Build complete."
