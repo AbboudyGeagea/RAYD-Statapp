@@ -1,9 +1,107 @@
 # LAUMC — To do
 
-Updated 2026-11-17. This file holds only what is still open. What was built is in the commit
+Updated 2026-11-18. This file holds only what is still open. What was built is in the commit
 messages, and the July version of this file (history, punch list round 2) is in git history.
 Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 `LAUMC_OPEN_QUESTIONS.md` (vendor questions), `LAUMC_DATA_REQUEST.md` (discovery record).
+
+---
+
+## Where we stopped (2026-11-18, about 01:00) — START HERE in a new session
+
+**Production state.** Deployed 2026-11-17 night: migrations 0157–0162, then a manual ETL
+(23:58–00:23, no failures). Migration **0163** (RIS order site) was being applied when the
+session ended: the app and update.sh were both running it (the app first, update.sh waiting on
+its row locks; harmless). First check it finished:
+`sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 3;"`
+(expect 0163 at the top, `optimize.sql` sorts above it). Then reload Report 27 for 2026-01-01 to
+today: the RIS-vs-PACS card's blue RIS bars should no longer be 0. update.sh now takes the app's
+migration lock (commit 79583873), from the next deploy on. The session-only reminder set for
+18 Nov 08:57 died with the session: this list replaces it.
+
+**Morning checklist, 18 Nov (after the 05:00 ETL), ready to paste:**
+
+1. What the ETL did (audit re-read, fills, purge):
+   ```bash
+   sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT job_name, status, end_time, records_processed, LEFT(error_message, 100) AS error FROM etl_job_log WHERE start_time >= now() - interval '8 hours' ORDER BY id;" -c "SELECT kind, COUNT(*) AS events, MIN(event_at)::date AS first_day, MAX(event_at)::date AS last_day FROM etl_pacs_audit_events GROUP BY 1;" -c "SELECT key, value FROM settings WHERE key LIKE 'pacs_audit_%' OR key LIKE 'original_ae_%' OR key = 'orders_header_filled' ORDER BY 1;" -c "SELECT study_modality, COUNT(*) FROM etl_didb_studies WHERE UPPER(TRIM(storing_ae)) = 'SJHCSAPWFMFIR' AND study_modality IN ('XA', 'US') GROUP BY 1;"
+   ```
+   Expect: audit kinds open, lock, approve, wetread from 1 Oct; `pacs_audit_version` 2,
+   `original_ae_filled` and `orders_header_filled` true; SJH XA about 120 and US about 1,360
+   (were 3,514 and 1,924 before the cardiology purge).
+2. **Item 2 (due Fri 20):** regenerate October in Report 37 (admin button), spot-check a few
+   cases' first open against the PACS.
+3. **Station clocks** (the audit time is the reading station's clock, operator): a login whose
+   median offset is several minutes on every event has a wrong station clock.
+   ```bash
+   sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT user_name, COUNT(*) AS events, ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY off_min)::numeric, 1) AS median_offset_min FROM (SELECT user_name, (EXTRACT(EPOCH FROM event_at) - AVG(EXTRACT(EPOCH FROM event_at)) OVER (ORDER BY log_dbid ROWS BETWEEN 25 PRECEDING AND 25 FOLLOWING)) / 60 AS off_min FROM etl_pacs_audit_events WHERE event_at >= current_date - 2) t GROUP BY 1 HAVING COUNT(*) >= 10 ORDER BY ABS(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY off_min)) DESC LIMIT 15;"
+   ```
+4. **Item 9:** staff who left only through PACS (should be empty or only real leavers), then
+   switch on:
+   ```bash
+   sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT name, logins, pacs_groups, pacs_status, left_reason FROM staff_status WHERE is_left AND left_reason <> 'Inactive on the RIS';"
+   sudo docker exec rayd_db psql -U etl_user -d etl_db -c "UPDATE settings SET value = 'true' WHERE key = 'staff_left_hidden';"
+   ```
+5. **HIS duplicates at SJH** (both copies of a duplicated order should share the HIS order
+   number, filled by the ETL of 17 Nov night):
+   ```bash
+   sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT s.order_control AS site, COUNT(*) AS still_scheduled_oct, COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM etl_orders t WHERE t.placer_order_number = s.placer_order_number AND t.order_dbid <> s.order_dbid AND t.order_status = 'CM')) AS twin_done_same_his_number, COUNT(*) FILTER (WHERE s.placer_order_number IS NULL) AS no_his_number FROM etl_orders s WHERE s.order_status = 'scheduled' AND s.scheduled_datetime >= '2026-10-01' AND s.scheduled_datetime < '2026-11-01' GROUP BY 1;"
+   ```
+6. **Item 4, the two Siemens AEs** (the accession link may now reach their RIS exams; a RIS room
+   for most of their exams confirms the link, then one `UPDATE aetitle_modality_map SET
+   ris_aetitle = '<RIS AE>' WHERE aetitle IN (...)` in a migration):
+   ```bash
+   sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT UPPER(TRIM(s.storing_ae)) AS pacs_ae, COALESCE(UPPER(TRIM(p.performing_ae_title)), '(no RIS exam)') AS ris_ae, m.station_name AS ris_room, COUNT(DISTINCT s.study_db_uid) AS studies FROM etl_didb_studies s LEFT JOIN std_pps p ON p.study_db_uid = s.study_db_uid LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(p.performing_ae_title)) WHERE UPPER(TRIM(s.storing_ae)) IN ('LEO22529','ARTIS121403','LAUMCWFM1AR') AND s.study_date >= current_date - 90 AND COALESCE(s.study_modality, '') <> 'SR' GROUP BY 1, 2, 3 ORDER BY 1, 4 DESC;"
+   ```
+7. **Items 14A/14B (Thu 19):** spot-check a few radiologists' medians on Report 32's Signature
+   Turnaround card against the audit trail.
+
+**Next builds (laptop):**
+- Thu 19 – Tue 24, **item 13 before the SJH move (deploy Thu 26, move Sat 28):** (a) device
+  rule: a gateway study's device is `etl_didb_studies.original_storing_ae` (filled, 0159);
+  LAUMCWFM1AR keeps itself as original AE, so its devices come from each exam's RIS room; read
+  the six files that use the gateway AE titles first (utils/site_resolver.py,
+  utils/report_filters.py, Report 22, the AI report, report_cache); decide view or column.
+  (b) the cath lab's RIS side (AZURION orders and steps) out, as its PACS studies are. (c) **SJH's
+  own database has no rh views**: placeholders (0151), staff who left (0157) and HIS duplicate
+  orders (0162) do not apply there yet; give the site databases the same rules before the move.
+  (d) 13d BRAYN routing by site (operator walkthrough).
+- Mon 23 – Wed 25, **item 21** (patient schedule lead time report; booked =
+  `etl_orders.order_created_at`, filled 0160), deploy Thu 26.
+- Later: item 1's Report 27 tab once Mirth forwards the ORMs (match on
+  `etl_orders.placer_order_number` = ORC-2); item 30 (amended reports) after the chief
+  radiologist.
+
+**Waiting on the operator:** the test patient ID (item 19); the PACS DICOM node list (item 4,
+optional now); Tanios Jalkh and Jessica Saad's PACS account (item 9, with the manager); the
+chief radiologist on item 30 (amendments), item 5 (ORU severity) and the `@sj` logins; Mirth
+forwarding the ORMs (item 1); CRN go-live steps (item 20).
+
+**Pending table as of 18 Nov, 01:00:**
+
+| # | Item | Where we are | Waits on | When |
+|---|------|--------------|----------|------|
+| 33 | Report 27 RIS-vs-PACS card at 0 | fixed (0163: RIS orders and reports get their site from the issuer) | 0163 finishing on production; reload Report 27 | 18 Nov |
+| 34 | update.sh and the app migrating at once | fixed (update.sh takes the app's migration lock) | the next deploy | next deploy |
+| 2 | First open (**due Fri 20**) | deployed; readers include mammography; audit re-read from 1 Oct | checklist 1–3; regenerate October | 18–20 Nov |
+| 32 | HIS duplicate orders | live (0162); Rizk October: 76 % twins, 18.5 % no-shows; SJH twins not matched by patient | checklist 5 (HIS order number) | 18 Nov |
+| 9 | Staff who left | deployed (0157, 0158), switch off | checklist 4, then switch on; Tanios Jalkh; Jessica Saad's PACS account | 18 Nov |
+| 31 | Cardiology out | 3,948 purged (0159) | checklist 1 (SJH XA/US) | 18 Nov |
+| 14A/B | Signature turnaround | deployed; approvals re-read | spot-check Report 32; station clocks | 18–19 Nov |
+| 4 | RIS room names | done (0161, 6 links live) | checklist 6 for LEO22529/ARTIS121403 | 18–19 Nov |
+| 13 | SJH in its own database | CT and about 25,000 more RIS steps linked by accession; devices in `original_storing_ae`; cardiology out | device rule; cath lab RIS side; rh rules for SJH's database; 13d; move Sat 28 | build 19–24, deploy 26, move 28–29 |
+| 21 | Patient schedule lead time | booking time filled (0160) | the report (about 2 days) | 23–25 Nov, deploy 26 |
+| 1 | HIS vs RIS orders | HIS order number filled (0160) | Mirth ORM forwarding; then the Report 27 tab (2–3 days) | after the ORMs |
+| 10 | Gateways | SJH and LAUMCWFM2FIR from the original AE; LAUMCWFM1AR from the RIS | built with 13 | with 13 |
+| 30 | Amended reports | AAP = an amendment after the approval (FAP) | chief radiologist | on hold |
+| 18 | ORU final-only | no preliminary status exists: nothing to filter | close with 30 | with 30 |
+| 19 | Placeholders via BRAYN | done in code | test patient ID | when given |
+| 20 | CRN go-live, this month | email to SMS + hospital name deployed | Email Server, gateway + firewall, fallback contact, wording, test, switch on | through Nov |
+| 5 | ORU severity + `@sj` logins | open | chief radiologist | blocked |
+| 8 | Super Report residents by wet read | wet reads copied | — | December |
+| 14 | Radiologist TAT and counts from PACS (rest) | turnaround card live | 14A/14B validated | December |
+| 17 | R2I and BRAYN switch-on checks | waiting | live R2I feed | blocked |
+
+Done: 3, 4, 6, 7, 11, 12, 15, 16, 19 (code), 22–29, 31, 34; 9 deployed (switch pending).
 
 ---
 
@@ -38,7 +136,7 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     counts as radiologists in `utils/pacs_roles.py`); cardiologists are out of scope.
   - Items 2/14: the 15-minute grace only keeps a re-sign from becoming an addendum; reading the
     signature from the audit is right. **The audit time is the reading station's clock**, not
-    the server's: check per login that stations agree (query in the reply of 17 Nov, run after
+    the server's: check per login that stations agree ("Where we stopped", checklist 3, run after
     the first copy).
   - Item 9: a leaver is set inactive on both systems by hand; either one inactive = left (as
     built). PACS locks an account after wrong passwords: migration 0158 counts only statuses in
@@ -97,8 +195,8 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     RIS orders are there (2,210, completed, exam done recorded). RIS steps link to PACS by Study
     Instance UID only (`etl_ris_pps.py`): either the CT's study UIDs differ from the RIS's or the
     link broke at some date. Until fixed, SJH CT has no technologist, scan start or room per
-    exam. Diagnostic queries in the reply of 17 Nov (per month: steps, with UID, linked, UID
-    found in PACS; and whether order → arrival → step reaches them by accession).
+    exam. Diagnosed 17 Nov (per month: steps, with UID, linked, UID found in PACS; and whether
+    order → arrival → step reaches them by accession); result below.
     **Result:** never linked, all year (every step has a UID, none is in PACS): the CT writes its
     own study UID (Canon root 1.2.392.200036.9116) instead of the RIS's (1.2.840.113564...
     <accession>). 2,208 of 2,219 are reached by accession. **Built 2026-11-17:** the RIS step
@@ -520,8 +618,8 @@ read; radiologists approve or finalise (check both).
    60,300. Every difference is a change made on the RIS after the 05:00 copy (statuses moving
    on, a few reschedules); the chart equals the copy (no double counting). Finding for the
    manager: 19,706 past Rizk exams are still "Scheduled" on the RIS (about a quarter): the
-   split into done on PACS (status not moved on) vs no PACS study (no-show not cancelled) is a
-   query in the reply of 17 Nov.
+   split into done on PACS (status not moved on) vs no PACS study (no-show not cancelled): 99 %
+   have no PACS study (below).
    **Explained and fixed the same night:** 99 % of them have no PACS study, and in the October
    sample about three quarters have the same exam done for the same patient within 7 days. The
    operator: the HIS has a bug that sends every order to the RIS twice; one copy is reported,
@@ -536,7 +634,7 @@ read; radiologists approve or finalise (check both).
    377 (18.5 %) nothing done (genuine no-shows, about 5 % of Rizk's orders). SJH 1,401: only 31
    (2 %) match by patient, modality and 7 days, although its share is the same quarter: the twin
    differs there (patient key, modality type or date). Check on Thu 19 by the HIS order number
-   (`placer_order_number`, 0160): both copies should share it (query in the reply of 17 Nov).
+   (`placer_order_number`, 0160): both copies should share it ("Where we stopped", checklist 5).
    0162 drops both sites' past Scheduled orders either way.
 8. **Super Report, residents: count reports by wet read**, rebuilt from PACS (see the rule
    above), tested and validated before deploy. Report events only (status, who signed, when);
