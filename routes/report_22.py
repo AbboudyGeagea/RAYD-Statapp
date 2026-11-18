@@ -429,6 +429,9 @@ def report_22():
             LEFT JOIN etl_didb_studies s ON s.accession_number = ho.accession_number
             WHERE COALESCE(ho.scheduled_datetime::date, ho.received_at::date) BETWEEN :start AND :end
               AND COALESCE(ho.order_status, '') NOT IN ('CA')
+              -- The HIS's orders (live 2026-11-18) carry no accession, only the HIS order
+              -- number: each would read as an orphan. HIS vs RIS is item 1 (Report 27).
+              AND ho.accession_number IS NOT NULL
               AND s.accession_number IS NULL
               AND ho.linked_accession_number IS NULL
               AND ho.linked_study_db_uid IS NULL

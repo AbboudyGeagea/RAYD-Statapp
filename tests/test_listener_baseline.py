@@ -69,17 +69,27 @@ def test_his_order_is_stored(pipe):
 
 def test_same_control_id_updates_the_order(pipe):
     pipe.send(k.order('PL-2', when=k.ts(30), ctrl='SAME-1'))
-    pipe.send(k.status('AR', 'ACC5', k.ts(20), ctrl='SAME-1', placer='PL-2'))
+    pipe.send(k.status('AR', 'ACC5', k.ts(20), ctrl='SAME-1', placer='PL-2', app='SAP_HIS', control='XO'))
     assert pipe.count('hl7_orders') == 1
     assert pipe.scalar("SELECT order_status FROM hl7_orders") == 'AR'
 
 
-def test_ris_status_events_are_stored_as_orders(pipe):
-    """Today a RIS status message lands in hl7_orders like any ORM (the R2I feed is
-    not live yet, so LAUMC has never seen one in production)."""
-    assert pipe.send(k.status('AR', 'ACC6', k.ts(20))) == 'AA'
-    assert pipe.one("SELECT accession_number, order_status FROM hl7_orders") == \
-        {'accession_number': 'ACC6', 'order_status': 'AR'}
+def test_ris_status_events_are_not_orders(pipe):
+    """The RIS lifecycle feed (live 2026-11-18): ORC-1 SC with ORC-5 SC, A, IP, CM. Each
+    used to become a row of hl7_orders, so a study counted once per status in the pages
+    joining it by accession. Acknowledged, left to BRAYN, not stored as an order."""
+    for code in ('SC', 'A', 'IP', 'CM'):
+        assert pipe.send(k.status(code, 'ACC6', k.ts(20))) == 'AA'
+    assert pipe.count('hl7_orders') == 0
+
+
+def test_a_ris_exam_done_is_not_a_pacs_completion(pipe):
+    """A RIS "CM" (ORC-1 SC, ORC-5 CM) took the PACS-completion path: it closed the HIS
+    order and the same patient's neighbouring orders, and counted as a PACS study."""
+    pipe.send(k.order('PL-9', acc='ACC9', when=k.ts(60)))
+    assert pipe.send(k.status('CM', 'ACC9', k.ts(5), control='SC')) == 'AA'
+    assert pipe.scalar("SELECT order_status FROM hl7_orders WHERE accession_number = 'ACC9'") == 'NW'
+    assert pipe.count('hl7_scn_studies') == 0
 
 
 # ── PACS completion (ORM with ORC-1 = SC, ORC-5 = CM) ─────────────────────────

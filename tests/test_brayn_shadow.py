@@ -156,7 +156,8 @@ def test_a_message_brayn_cannot_classify_is_marked_and_laumc_still_has_it(pipe):
     assert pipe.scalar("SELECT rule_code FROM brayn_findings") == 'UNKNOWN_STATUS_CODE'
     assert pipe.count('brayn_unknown_values', "kind = 'status_code'") == 1
     assert pipe.count('brayn_study_state') == 0
-    assert pipe.count('hl7_orders', "accession_number = 'ACC40'") == 1
+    # a RIS status event is BRAYN's to read; LAUMC never stores it as an order (2026-11-18)
+    assert pipe.count('hl7_orders', "accession_number = 'ACC40'") == 0
 
 
 def test_a_message_with_no_identifier_is_marked_not_identified(pipe):

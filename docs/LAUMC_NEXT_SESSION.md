@@ -19,6 +19,23 @@ today: the RIS-vs-PACS card's blue RIS bars should no longer be 0. update.sh now
 migration lock (commit 79583873), from the next deploy on. The session-only reminder set for
 18 Nov 08:57 died with the session: this list replaces it.
 
+**18 Nov 11:32: the HIS's orders and the RIS lifecycle feed reach RAYD (operator).** BRAYN on.
+First 20 minutes (production): HIS `SAP_P` (no MSH-4) ORM^O01, 63 messages, ORC-1 NW / RQ / CA,
+ORC-5 a SAP code (`^E0001`, `^E0003`, `c^E0003`), ORC-2 = HIS order number on every one, no
+accession (the RIS gives it later); BRAYN could not identify 39 (it keys on the accession: set
+SAP_P's identifier to ORC-2 on the BRAYN console). RIS `RIS` / `CARESTREAM` ORM^O01, ORC-1 SC,
+ORC-5 SC, A, IP, CM, with accession and HIS order number. Each HIS event is its own row of
+`hl7_orders` (keyed on MSH-10), and `order_status` holds ORC-5, so a cancel reads `c^E0003`, not
+CA: item 1 must take the latest message per HIS order number and its ORC-1.
+**Fixed the same day (migration 0168):** the listener stored each RIS status as an order (a study
+counted once per status in Report 33's join) and took each RIS "CM" for a PACS completion
+(closed orders, wrote `hl7_scn_studies`). Now an ORM from MSH-3 `RIS` (`RIS_SENDING_APPS`) is
+acknowledged and left to BRAYN; 0168 removes the 13 rows and the completions written. Report 22's
+"HL7 Orphan Orders" counts only orders with an accession until item 1. Unblocked: item 1 (HIS vs
+RIS, Report 27 tab), item 17 (BRAYN's RIS-dependent checks), the Live board's waiting / in progress.
+`hl7_orders` is still outside the rh views: only SAP_P (RH's issuer SAP_PROD) arrives; if an SJH
+HIS sender appears, filter it before it reaches a page.
+
 **18 Nov morning, done:** 0163 applied (top of schema_migrations under optimize.sql). Checklist 1:
 the manual ETL and the 05:00 run all SUCCESS; audit open 194,241, lock 52,979, approve 29,948,
 wetread 14,821, all from 1 Oct; `pacs_audit_version` 2, `original_ae_filled` and
@@ -163,7 +180,8 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 | 4 | RIS room names | done (0161, 6 links live) | checklist 6 for LEO22529/ARTIS121403 | 18–19 Nov |
 | 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | **0164, 0165, 0166 deployed and checked 18 Nov** (cath lab: 0 steps, 0 device rows); PHILIPSCARM = C-Arm 2?; 13d (BRAYN routing, operator walkthrough; the BRAYN console reads the picked site's database, so make it main-only with it); move Sat 28 | move 28–29 |
 | 21 | Patient schedule lead time | **Report 40 deployed 18 Nov** (0167); October: 6,316 exams, every one with a booking time (earliest 13 Aug) | operator: October's median and same-day share look right? | 18–19 Nov |
-| 1 | HIS vs RIS orders | HIS order number filled (0160) | Mirth ORM forwarding; then the Report 27 tab (2–3 days) | after the ORMs |
+| 1 | HIS vs RIS orders | HIS order number filled (0160); **HIS ORMs live 18 Nov 11:32** (SAP_P, ORC-2 on every one) | the Report 27 tab (2–3 days), from 19 Nov's first full day | 19–21 Nov |
+| 17 | R2I and BRAYN switch-on checks | **RIS lifecycle feed live 18 Nov 11:41** (SC, A, IP, CM) | switch on the RIS-dependent checks after a day of traffic; the Live board's waiting / in progress | 19–20 Nov |
 | 10 | Gateways | SJH and LAUMCWFM2FIR from the original AE; LAUMCWFM1AR from the RIS | built with 13 | with 13 |
 | 30 | Amended reports | AAP = an amendment after the approval (FAP) | chief radiologist | on hold |
 | 18 | ORU final-only | no preliminary status exists: nothing to filter | close with 30 | with 30 |
@@ -172,7 +190,6 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 | 5 | ORU severity + `@sj` logins | open | chief radiologist | blocked |
 | 8 | Super Report residents by wet read | wet reads copied | — | December |
 | 14 | Radiologist TAT and counts from PACS (rest) | turnaround card live | 14A/14B validated | December |
-| 17 | R2I and BRAYN switch-on checks | waiting | live R2I feed | blocked |
 
 Done: 2, 3, 4, 6, 7, 10, 11, 12, 15, 16, 19 (code), 21, 22–29, 31, 34; 13a, 13b, 13c deployed
 18 Nov; 9 deployed (switch pending).

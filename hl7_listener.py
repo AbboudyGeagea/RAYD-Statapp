@@ -92,6 +92,11 @@ MLLP_END    = b'\x1c\x0d'      # FS + CR       — end of block
 ACK_AA      = "AA"             # Application Accept
 ACK_AE      = "AE"             # Application Error
 
+# MSH-3 of the RIS lifecycle feed (Carestream RIS, MSH-4 CARESTREAM; live 2026-11-18). Its ORMs
+# are status events, not orders: acknowledged and left to BRAYN, never written to hl7_orders.
+# The HIS's orders come as SAP_P.
+RIS_SENDING_APPS = frozenset({'RIS'})
+
 # ── SQL ───────────────────────────────────────────────────────────────────────
 INSERT_SQL = """
     INSERT INTO hl7_orders (
@@ -663,6 +668,14 @@ def _handle_client(conn, addr, app):
                                 f"✅ ORU stored | proc={parsed_oru['procedure_code']} "
                                 f"| physician={parsed_oru['physician_id']}"
                             )
+
+                    elif _field(msh, 2, '').strip().upper() in RIS_SENDING_APPS:
+                        # ── the RIS lifecycle feed (live 2026-11-18) ─────
+                        # Status events (ORC-1 SC, ORC-5 SC/A/IP/CM...), not orders: kept
+                        # out of hl7_orders, which holds the HIS's orders, and never taken
+                        # for a PACS completion (a RIS "CM" is the exam done on the RIS).
+                        # Acknowledged; BRAYN archives and reads them below.
+                        logger.info(f"⏭ RIS status event | type={msg_type_raw} | from={addr[0]}")
 
                     else:
                         # ── ORM^O01 — check PACS completion first ────────
