@@ -63,13 +63,14 @@
 {% include '_header.html' %}
 
 {% macro num(v, suffix='') %}{% if v is none %}–{% else %}{{ v }}{{ suffix }}{% endif %}{% endmacro %}
+{% macro info(key, what='this figure') %}<i class="bi bi-info-circle chart-info-icon ml-1" data-explain="{{ key }}" role="button" tabindex="0" aria-label="About {{ what }}" title="About {{ what }}"></i>{% endmacro %}
 
 <div class="flex flex-1 overflow-hidden">
     {{ filter_panel(start, end, filters, export_url=url_for('report_40.export_xlsx')) }}
 
     <main class="flex-1 overflow-y-auto bg-[#181f1c] p-8">
         <div class="mb-6">
-            <h1 class="text-2xl font-black text-white tracking-tight">Patient Schedule Lead Time</h1>
+            <h1 class="text-2xl font-black text-white tracking-tight">Patient Schedule Lead Time{{ info('r40-report', 'this report') }}</h1>
             <p class="text-slate-400 text-sm">How far ahead {{ site }}'s exams are booked: from when the order was created on the RIS to the appointment, for the appointments from {{ start }} to {{ end }}.</p>
         </div>
 
@@ -83,14 +84,14 @@
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-4 mb-6">
-            <div class="kpi-card"><p class="kpi-label">Exams</p><p class="kpi-value">{{ '{:,}'.format(k.exams) }}</p><p class="kpi-sub">appointments in the period</p></div>
-            <div class="kpi-card"><p class="kpi-label">Median lead time</p><p class="kpi-value">{{ num(k.median_days, ' d') }}</p><p class="kpi-sub">{{ num(k.median_hours, ' hours') }}</p></div>
-            <div class="kpi-card"><p class="kpi-label">90th percentile</p><p class="kpi-value">{{ num(k.p90_days, ' d') }}</p><p class="kpi-sub">9 in 10 booked within</p></div>
-            <div class="kpi-card"><p class="kpi-label">Same day</p><p class="kpi-value">{{ num(k.same_day_pct, '%') }}</p></div>
-            <div class="kpi-card"><p class="kpi-label">{{ ahead_days }}+ days ahead</p><p class="kpi-value">{{ num(k.ahead_pct, '%') }}</p></div>
-            <div class="kpi-card"><p class="kpi-label">Cancelled</p><p class="kpi-value">{{ num(k.cancelled_pct, '%') }}</p></div>
-            <div class="kpi-card"><p class="kpi-label">Scheduled more than once</p><p class="kpi-value">{{ num(k.rescheduled_pct, '%') }}</p></div>
-            <div class="kpi-card"><p class="kpi-label">Booked after appointment</p><p class="kpi-value">{{ '{:,}'.format(k.after) }}</p><p class="kpi-sub">left out of the lead time</p></div>
+            <div class="kpi-card"><p class="kpi-label">Exams{{ info('r40-kpi-exams') }}</p><p class="kpi-value">{{ '{:,}'.format(k.exams) }}</p><p class="kpi-sub">appointments in the period</p></div>
+            <div class="kpi-card"><p class="kpi-label">Median lead time{{ info('r40-kpi-median') }}</p><p class="kpi-value">{{ num(k.median_days, ' d') }}</p><p class="kpi-sub">{{ num(k.median_hours, ' hours') }}</p></div>
+            <div class="kpi-card"><p class="kpi-label">90th percentile{{ info('r40-kpi-p90') }}</p><p class="kpi-value">{{ num(k.p90_days, ' d') }}</p><p class="kpi-sub">9 in 10 booked within</p></div>
+            <div class="kpi-card"><p class="kpi-label">Same day{{ info('r40-kpi-same-day') }}</p><p class="kpi-value">{{ num(k.same_day_pct, '%') }}</p><p class="kpi-sub">booked and done the same day</p></div>
+            <div class="kpi-card"><p class="kpi-label">{{ ahead_days }}+ days ahead{{ info('r40-kpi-ahead') }}</p><p class="kpi-value">{{ num(k.ahead_pct, '%') }}</p><p class="kpi-sub">booked a week or more before</p></div>
+            <div class="kpi-card"><p class="kpi-label">Cancelled{{ info('r40-kpi-cancelled') }}</p><p class="kpi-value">{{ num(k.cancelled_pct, '%') }}</p><p class="kpi-sub">cancelled on the RIS</p></div>
+            <div class="kpi-card"><p class="kpi-label">Scheduled more than once{{ info('r40-kpi-rescheduled') }}</p><p class="kpi-value">{{ num(k.rescheduled_pct, '%') }}</p><p class="kpi-sub">booked again for another time</p></div>
+            <div class="kpi-card"><p class="kpi-label">Booked after appointment{{ info('r40-kpi-after') }}</p><p class="kpi-value">{{ '{:,}'.format(k.after) }}</p><p class="kpi-sub">left out of the lead time</p></div>
         </div>
 
         {% if k.exams == 0 %}

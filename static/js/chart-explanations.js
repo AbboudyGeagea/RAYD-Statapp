@@ -417,6 +417,60 @@ const ChartExplanations = {
       valueMeaning: 'Left = no active row on the RIS (and no active person shares the login), or every PACS account set to a leaver status (suspended, disabled; the list is shown above the table). A lock after wrong passwords does not count, nor does having no PACS account. A RIS person and a PACS login are linked by the login in the RIS resource ID, else by e-mail. Signed = studies whose report the login last composed, in the period; performed = RIS exams the person is on, in the period.',
       interpretation: 'Left but signed or performed in the period: the RIS or PACS still has them inactive by mistake, or a shared account; fix the RIS or PACS before switching on. Once on, they read "Former staff" on every report, and every total keeps their studies.'
     },
+    'r27-his-report': {
+      title: 'HIS orders vs RIS',
+      purpose: 'Follows every exam a doctor ordered on the HIS into radiology: was it registered on the RIS, done, or lost on the way.',
+      valueMeaning: 'One line per HIS order number. The HIS sends each order (and every change or cancellation) to RAYD as it happens; the RIS orders arrive with the nightly copy, each carrying the HIS order number it came from, which is how the two are matched. Orders of the other hospital are never shown here.',
+      interpretation: 'Start with "Not on the RIS": orders the HIS sent that radiology never registered. Then the times: how long an order waits before radiology registers it, and before the exam is done.'
+    },
+    'r27-his-kpi-orders': {
+      title: 'HIS orders',
+      purpose: 'How many exam orders doctors placed on the HIS in the date range.',
+      valueMeaning: 'Counted once per HIS order number, whatever the number of messages (new, changed, cancelled). Only since the HIS started sending orders to RAYD (18 Nov 2026).',
+      interpretation: 'The demand radiology received from the wards in the period.'
+    },
+    'r27-his-kpi-on-ris': {
+      title: 'On the RIS',
+      purpose: 'The share of HIS orders that radiology registered on the RIS.',
+      valueMeaning: 'Orders with at least one RIS order carrying their HIS number, out of the orders the nightly RIS copy could already see. Orders placed after the last copy are left out until the next one.',
+      interpretation: 'Close to 100 % is expected, less the orders the wards cancelled. A lower share means orders reach radiology another way or not at all.'
+    },
+    'r27-his-kpi-not-on-ris': {
+      title: 'Not on the RIS',
+      purpose: 'HIS orders that radiology never registered.',
+      valueMeaning: 'Not cancelled on the HIS, placed before the last nightly RIS copy, and no RIS order carries their HIS number. The list at the bottom shows them; the Excel download adds the patient ID.',
+      interpretation: 'Each one is an exam a doctor asked for that may never have been done. Check them on the RIS.'
+    },
+    'r27-his-kpi-cancelled': {
+      title: 'Cancelled on the HIS',
+      purpose: 'Orders the ward cancelled on the HIS.',
+      valueMeaning: 'The latest message the HIS sent for the order is a cancellation (CA), whether or not the RIS had registered it.',
+      interpretation: 'Normal in small numbers. Many cancellations from one ward are worth a word with that ward.'
+    },
+    'r27-his-kpi-pending': {
+      title: 'Not copied yet',
+      purpose: 'Orders too recent to judge.',
+      valueMeaning: 'Placed after the last nightly RIS copy began and not yet on it. RAYD copies the RIS once a night, so today\'s orders show their outcome tomorrow morning.',
+      interpretation: 'Not a problem: these move to Done, On the RIS or Not on the RIS after the next nightly copy.'
+    },
+    'r27-his-kpi-to-ris': {
+      title: 'HIS → RIS registration',
+      purpose: 'How long after the doctor ordered on the HIS radiology registered the exam on the RIS.',
+      valueMeaning: 'Median minutes from the HIS order (its first message) to the creation of its RIS order. Orders registered on the RIS before the HIS message came are counted aside, as shown under the figure.',
+      interpretation: 'Short is good: the order reaches radiology quickly. A long time means orders wait at the desk before anyone registers them.'
+    },
+    'r27-his-kpi-to-done': {
+      title: 'HIS → exam done',
+      purpose: 'How long after the doctor ordered on the HIS the exam was done.',
+      valueMeaning: 'Median hours from the HIS order to the exam done on the RIS, for the orders already done.',
+      interpretation: 'The whole wait a patient goes through from order to exam. Compare wards and procedures in the breakdown.'
+    },
+    'r27-his-kpi-ris-only': {
+      title: 'RIS orders, no HIS order',
+      purpose: 'Exams radiology registered on the RIS that never came from the HIS.',
+      valueMeaning: 'RIS orders created in the period (since the HIS feed began) with no HIS order number, or with a number the HIS never sent to RAYD.',
+      interpretation: 'Walk-ins and orders typed directly on the RIS. Many of them mean orders bypass the HIS.'
+    },
     'r27-his-outcomes': {
       title: 'What became of the HIS orders',
       purpose: 'Every order the HIS sent in the period (one per HIS order number, its latest message), and what the RIS did with it.',
@@ -434,6 +488,60 @@ const ChartExplanations = {
       purpose: 'The orders placed on the HIS that no RIS order carries, although the nightly RIS copy came after them.',
       valueMeaning: 'HIS order number, when it was placed, its latest HIS message, procedure, the HIS location and class. Patient ID is in the Excel download; no names.',
       interpretation: 'Check them on the RIS: never registered, registered under another order, or cancelled on paper only.'
+    },
+    'r40-report': {
+      title: 'Patient Schedule Lead Time',
+      purpose: 'How long before their appointment patients were booked, for the exams whose appointment falls in the date range.',
+      valueMeaning: 'Booked = when the order was created on the RIS. Appointment = the date and time the exam was booked for. Lead time = appointment day minus booking day, in days (0 = the same day). The other hospital\'s exams, the HIS\'s duplicate orders and test patients are left out.',
+      interpretation: 'A long lead time for a kind of exam means patients wait days or weeks for a slot: a capacity question for that room or modality. Use the filters and the breakdown to find where.'
+    },
+    'r40-kpi-exams': {
+      title: 'Exams',
+      purpose: 'How many exams have their appointment in the date range.',
+      valueMeaning: 'RIS exams with both a booking time and an appointment, appointment in the range. Cancelled exams are included (and counted under Cancelled).',
+      interpretation: 'The volume every other figure on the page is a share of.'
+    },
+    'r40-kpi-median': {
+      title: 'Median lead time',
+      purpose: 'The typical time between booking and appointment.',
+      valueMeaning: 'Half of the exams were booked fewer days ahead than this, half more. Shown in days, and below in hours. Exams booked after their appointment time are left out.',
+      interpretation: '0 days means most exams are booked and done the same day (walk-ins, inpatients, ER). A higher median means patients mostly wait for a slot.'
+    },
+    'r40-kpi-p90': {
+      title: '90th percentile',
+      purpose: 'How long the longest waits are.',
+      valueMeaning: '9 in 10 exams were booked within this many days of their appointment; the remaining 1 in 10 waited longer.',
+      interpretation: 'Watch it more than the median: it shows the patients who wait the longest.'
+    },
+    'r40-kpi-same-day': {
+      title: 'Same day',
+      purpose: 'The share of exams booked on the day of the appointment.',
+      valueMeaning: 'Booking day = appointment day, out of the exams not booked after their appointment.',
+      interpretation: 'High for ER, inpatients and walk-ins; low for planned outpatient exams.'
+    },
+    'r40-kpi-ahead': {
+      title: 'A week or more ahead',
+      purpose: 'The share of exams booked 7 days or more before the appointment.',
+      valueMeaning: 'Appointment day minus booking day of 7 or more, out of the exams not booked after their appointment.',
+      interpretation: 'A rising share means appointments are getting further away: the room is filling up.'
+    },
+    'r40-kpi-cancelled': {
+      title: 'Cancelled',
+      purpose: 'The share of exams later cancelled on the RIS.',
+      valueMeaning: 'Exams whose RIS status is cancelled or discontinued, out of all exams with an appointment in the range.',
+      interpretation: 'Compare with the lead time in the breakdown: long waits often go with more cancellations.'
+    },
+    'r40-kpi-rescheduled': {
+      title: 'Scheduled more than once',
+      purpose: 'The share of exams booked again for another time.',
+      valueMeaning: 'Exams that got the Scheduled status more than once on the RIS (from the RIS status history).',
+      interpretation: 'Frequent rescheduling in one room or modality points at a scheduling or capacity problem there.'
+    },
+    'r40-kpi-after': {
+      title: 'Booked after the appointment',
+      purpose: 'Exams whose order was created after the appointment time.',
+      valueMeaning: 'Usually walk-ins registered on the RIS after they were seen. They are counted here and left out of every lead time figure.',
+      interpretation: 'Many of them means exams are often registered afterwards rather than booked.'
     },
     'r40-buckets': {
       title: 'How far ahead',

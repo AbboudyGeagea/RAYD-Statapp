@@ -1,5 +1,6 @@
 {#- Report 27, second tab: HIS orders vs RIS (item 1, utils/his_ris.py). Included by report_27.html. -#}
 {% macro num(v, suffix='') %}{% if v is none %}–{% else %}{{ v }}{{ suffix }}{% endif %}{% endmacro %}
+{% macro info(key, what='this figure') %}<i class="bi bi-info-circle chart-info-icon ml-1" data-explain="{{ key }}" role="button" tabindex="0" aria-label="About {{ what }}" title="About {{ what }}"></i>{% endmacro %}
 <style>
     .hr-kpi { background:#232b28; border:1px solid #28332e; border-radius:12px; padding:14px 16px; }
     .hr-kpi.warn { border-color:rgba(245,158,11,0.45); background:rgba(245,158,11,0.06); }
@@ -27,6 +28,7 @@
 {% else %}
 {% set k = his.kpi %}
 
+<h2 class="text-xl font-black text-white tracking-tight">HIS orders vs RIS{{ info('r27-his-report', 'this tab') }}</h2>
 <p class="section-desc">
     Every order the HIS sent ({{ his.apps | join(', ') }}) placed in the range, one per HIS order number (its latest
     message), and the RIS order created from it (the HIS number on the RIS order).
@@ -40,14 +42,14 @@
 {% else %}
 
 <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
-    <div class="hr-kpi"><p class="l">HIS orders</p><p class="v">{{ '{:,}'.format(k.orders) }}</p><p class="s">placed in the range</p></div>
-    <div class="hr-kpi"><p class="l">On the RIS</p><p class="v">{{ num(k.on_ris_pct, '%') }}</p><p class="s">of those copied</p></div>
-    <div class="hr-kpi {{ 'warn' if k.not_on_ris }}"><p class="l">Not on the RIS</p><p class="v">{{ '{:,}'.format(k.not_on_ris) }}</p><p class="s">{{ num(k.not_on_ris_pct, '%') }} of those copied</p></div>
-    <div class="hr-kpi"><p class="l">Cancelled on the HIS</p><p class="v">{{ '{:,}'.format(k.cancelled_his) }}</p></div>
-    <div class="hr-kpi"><p class="l">Not copied yet</p><p class="v">{{ '{:,}'.format(k.pending) }}</p><p class="s">after the last RIS copy</p></div>
-    <div class="hr-kpi"><p class="l">HIS → RIS registration</p><p class="v">{{ num(k.median_to_ris_min, ' min') }}</p><p class="s">median{% if k.ris_first %}; {{ k.ris_first }} registered first on the RIS{% endif %}</p></div>
-    <div class="hr-kpi"><p class="l">HIS → exam done</p><p class="v">{{ num(k.median_to_done_h, ' h') }}</p><p class="s">median</p></div>
-    <div class="hr-kpi"><p class="l">RIS orders, no HIS order</p>
+    <div class="hr-kpi"><p class="l">HIS orders{{ info('r27-his-kpi-orders') }}</p><p class="v">{{ '{:,}'.format(k.orders) }}</p><p class="s">placed in the range</p></div>
+    <div class="hr-kpi"><p class="l">On the RIS{{ info('r27-his-kpi-on-ris') }}</p><p class="v">{{ num(k.on_ris_pct, '%') }}</p><p class="s">of those copied</p></div>
+    <div class="hr-kpi {{ 'warn' if k.not_on_ris }}"><p class="l">Not on the RIS{{ info('r27-his-kpi-not-on-ris') }}</p><p class="v">{{ '{:,}'.format(k.not_on_ris) }}</p><p class="s">{{ num(k.not_on_ris_pct, '%') }} of those copied</p></div>
+    <div class="hr-kpi"><p class="l">Cancelled on the HIS{{ info('r27-his-kpi-cancelled') }}</p><p class="v">{{ '{:,}'.format(k.cancelled_his) }}</p><p class="s">by the ward, on the HIS</p></div>
+    <div class="hr-kpi"><p class="l">Not copied yet{{ info('r27-his-kpi-pending') }}</p><p class="v">{{ '{:,}'.format(k.pending) }}</p><p class="s">after the last RIS copy</p></div>
+    <div class="hr-kpi"><p class="l">HIS → RIS registration{{ info('r27-his-kpi-to-ris') }}</p><p class="v">{{ num(k.median_to_ris_min, ' min') }}</p><p class="s">median{% if k.ris_first %}; {{ k.ris_first }} registered first on the RIS{% endif %}</p></div>
+    <div class="hr-kpi"><p class="l">HIS → exam done{{ info('r27-his-kpi-to-done') }}</p><p class="v">{{ num(k.median_to_done_h, ' h') }}</p><p class="s">median</p></div>
+    <div class="hr-kpi"><p class="l">RIS orders, no HIS order{{ info('r27-his-kpi-ris-only') }}</p>
         <p class="v">{{ '{:,}'.format((his.ris_only.no_his_number + his.ris_only.not_sent) if his.ris_only else 0) }}</p>
         <p class="s">{% if his.ris_only %}{{ his.ris_only.no_his_number }} with no HIS number, {{ his.ris_only.not_sent }} the HIS never sent, of {{ '{:,}'.format(his.ris_only.created) }} created{% else %}no HIS feed yet{% endif %}</p></div>
 </div>

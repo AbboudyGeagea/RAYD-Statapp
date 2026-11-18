@@ -27,12 +27,14 @@ def notes():
 
 
 def template_keys():
-    """{template file: set of data-explain keys it uses}"""
+    """{template file: set of data-explain keys it uses}: written out, or passed to the page's
+    info('key', ...) macro (which writes data-explain="{{ key }}")."""
     out = {}
     for name in os.listdir(TEMPLATES):
         if name.endswith('.html'):
             text = open(os.path.join(TEMPLATES, name), encoding='utf-8').read()
-            keys = set(re.findall(r'data-explain="([^"]+)"', text))
+            keys = {k for k in re.findall(r'data-explain="([^"]+)"', text) if '{' not in k}
+            keys |= set(re.findall(r"""\binfo\(\s*'([a-z0-9-]+)'""", text))
             if keys:
                 out[name] = (keys, text)
     return out
@@ -87,6 +89,14 @@ def test_super_report_shows_the_icons(client, ctx):
     html = client.get('/viewer/super-report-page', headers={'X-Test-Role': 'administrator'}).get_data(as_text=True)
     assert 'js/chart-explanations.js' in html
     for key in ('sr-briefing', 'sr-tat', 'sr-orders', 'sr-rad-matrix', 'r23-conflicts'):
+        assert f'data-explain="{key}"' in html
+
+
+def test_report_40_explains_its_title_every_figure_and_chart(client, ctx):
+    """Operator, 2026-11-18: an (i) next to every new report's name, chart and figure."""
+    html = client.get('/report/40', headers={'X-Test-Role': 'administrator'}).get_data(as_text=True)
+    for key in ('r40-report', 'r40-kpi-exams', 'r40-kpi-median', 'r40-kpi-p90', 'r40-kpi-same-day',
+                'r40-kpi-ahead', 'r40-kpi-cancelled', 'r40-kpi-rescheduled', 'r40-kpi-after'):
         assert f'data-explain="{key}"' in html
 
 
