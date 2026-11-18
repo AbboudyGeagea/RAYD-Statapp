@@ -93,8 +93,14 @@ wetread 14,821, all from 1 Oct; `pacs_audit_version` 2, `original_ae_filled` and
    ```bash
    sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT UPPER(TRIM(s.storing_ae)) AS pacs_ae, COALESCE(UPPER(TRIM(p.performing_ae_title)), '(no RIS exam)') AS ris_ae, m.station_name AS ris_room, COUNT(DISTINCT s.study_db_uid) AS studies FROM etl_didb_studies s LEFT JOIN std_pps p ON p.study_db_uid = s.study_db_uid LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(p.performing_ae_title)) WHERE UPPER(TRIM(s.storing_ae)) IN ('LEO22529','ARTIS121403','LAUMCWFM1AR') AND s.study_date >= current_date - 90 AND COALESCE(s.study_modality, '') <> 'SR' GROUP BY 1, 2, 3 ORDER BY 1, 4 DESC;"
    ```
-7. **Items 14A/14B (Thu 19):** spot-check a few radiologists' medians on Report 32's Signature
-   Turnaround card against the audit trail.
+7. **Items 14A/14B, spot-check** (same three steps as item 2). (a) On the server, 6 signed RH
+   studies of the last two weeks with RAYD's signature (first approval, `utils/sign_tat.py`):
+   ```bash
+   sudo docker exec rayd_db psql -U etl_user -d etl_db -c "CREATE TEMP TABLE spot AS WITH cases AS (SELECT s.accession_number AS accession, BTRIM(s.study_instance_uid) AS uid, s.insert_time AS arrived, NTILE(6) OVER (ORDER BY s.insert_time) AS part, random() AS r FROM etl_didb_studies s WHERE s.insert_time >= current_date - 14 AND s.insert_time < current_date - 1 AND s.site_id = (SELECT id FROM sites WHERE is_default) AND COALESCE(s.study_modality, '') <> 'SR' AND s.accession_number IS NOT NULL AND EXISTS (SELECT 1 FROM etl_pacs_audit_events e WHERE e.study_instance_uid = BTRIM(s.study_instance_uid) AND e.kind = 'approve')) SELECT DISTINCT ON (c.part) c.accession, c.arrived, sg.event_at AS rayd_signed_at, sg.user_name AS signed_by FROM cases c JOIN LATERAL (SELECT e.event_at, e.user_name FROM etl_pacs_audit_events e WHERE e.study_instance_uid = c.uid AND e.kind = 'approve' ORDER BY e.event_at, e.log_dbid LIMIT 1) sg ON TRUE ORDER BY c.part, c.r;" -c "SELECT accession, arrived, rayd_signed_at, signed_by FROM spot ORDER BY arrived;" -c "SELECT string_agg(quote_literal(accession), ', ' ORDER BY arrived) AS paste_into_oracle FROM spot;"
+   ```
+   (b) SQL Developer on the PACS Oracle: `scripts/sql/report_32_signature_spotcheck.sql`, replace
+   `'ACC1', ... 'ACC6'` with the printed line, run. (c) The first "approve" row per accession must
+   equal RAYD's signature time and login.
 
 **Next builds (laptop):**
 - **18 Nov: (a) and (c) below are built and deployed** (migrations 0164, 0165; details in item 13).
@@ -147,8 +153,13 @@ wetread 14,821, all from 1 Oct; `pacs_audit_version` 2, `original_ae_filled` and
   scanner, about 5,230 left on it (AE_DBT 4,696, no AE 258, XVIMPORT 231, VIMS_AE 38, 4 others);
   LAUMCWFM2FIR 476 on their scanner (RH devices), 84 left (SJH devices 53, no AE 30, SVSM 1). RH
   totals change by a handful in 2021–2025 (SENO1 +10 and AE_DBT +2 behind LAUMCWFM2FIR, both on
-  RH RIS orders; SENOIRIS −9). Later, small: TERRA2 (cardiology, in the excluded list) has 5
-  studies behind LAUMCWFM2FIR; the cardiology filter reads only EPIQCVX/AZURION as original AE.
+  RH RIS orders; SENOIRIS −9).
+  **Fixed 18 Nov afternoon (not deployed):** 0164 put TERRA2's 5 cardiology studies behind
+  LAUMCWFM2FIR on RH's XA device TERRA2. The excluded list (`EXCLUDED_AES`: LAUMC, SVSM and the
+  dedicated cardiology/vascular AEs) now also counts as a gateway's original AE, at the copy and
+  in the nightly purge: TERRA2's 5 and SVSM's 2 duplicates go at the first ETL after the deploy.
+  **The BRAYN console reads the main database whatever site is picked** (`site_db.MAIN_BLUEPRINTS`),
+  so it keeps working once SJH's database is on (part of 13d).
   **(c) built 18 Nov (migration 0165, not deployed):** the rh views keep the site each database
   serves (`rayd_served_site_id()`, written into the views as a number when they are rebuilt, since
   Report Composer's role cannot read settings), so SJH's database gets the same rules; requests
@@ -186,9 +197,9 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 | 32 | HIS duplicate orders | live (0162); Rizk October: 76 % twins, 18.5 % no-shows; SJH twins not matched by patient | checklist 5 (HIS order number) | 18 Nov |
 | 9 | Staff who left | deployed (0157, 0158), switch off | checklist 4, then switch on; Tanios Jalkh; Jessica Saad's PACS account | 18 Nov |
 | 31 | Cardiology out | **done**: 3,948 purged; the 232 SJH XA left are imports (XVIMPORT 231) and 1 with no AE | — | done 18 Nov |
-| 14A/B | Signature turnaround | deployed; approvals re-read | spot-check Report 32; station clocks | 18–19 Nov |
+| 14A/B | Signature turnaround | deployed; approvals re-read; spot-check ready (checklist 7, `scripts/sql/report_32_signature_spotcheck.sql`) | the 3-step spot-check; station clocks (checklist 3) | 18–19 Nov |
 | 4 | RIS room names | done (0161, 6 links live) | checklist 6 for LEO22529/ARTIS121403 | 18–19 Nov |
-| 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | **0164, 0165, 0166 deployed and checked 18 Nov** (cath lab: 0 steps, 0 device rows); PHILIPSCARM = C-Arm 2?; 13d (BRAYN routing, operator walkthrough; the BRAYN console reads the picked site's database, so make it main-only with it); move Sat 28 | move 28–29 |
+| 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | **0164, 0165, 0166 deployed and checked 18 Nov** (cath lab: 0 steps, 0 device rows); BRAYN console main-only and TERRA2 behind the gateway out: built, deploy; PHILIPSCARM = C-Arm 2?; 13d (BRAYN routing, operator walkthrough); move Sat 28 | move 28–29 |
 | 21 | Patient schedule lead time | **Report 40 deployed 18 Nov** (0167); October: 6,316 exams, every one with a booking time (earliest 13 Aug) | operator: October's median and same-day share look right? | 18–19 Nov |
 | 1 | HIS vs RIS orders | HIS order number filled (0160); **HIS ORMs live 18 Nov 11:32** (SAP_P, ORC-2 on every one) | the Report 27 tab (2–3 days), from 19 Nov's first full day | 19–21 Nov |
 | 17 | R2I and BRAYN switch-on checks | **RIS lifecycle feed live 18 Nov 11:41** (SC, A, IP, CM) | switch on the RIS-dependent checks after a day of traffic; the Live board's waiting / in progress | 19–20 Nov |

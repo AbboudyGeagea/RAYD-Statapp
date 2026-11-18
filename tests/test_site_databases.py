@@ -325,6 +325,26 @@ def test_the_sjh_database_reads_its_own_rows_through_the_same_rules(client, app,
             site_db.sync_shared_tables()
 
 
+def test_the_brayn_console_reads_the_main_database_whatever_site_is_picked(client, app, people, sjh, ids):
+    """BRAYN's tables, its switch and every HL7 message live on the main database until BRAYN
+    routes by site (item 13d): with SJH picked, the console must not read SJH's empty copies."""
+    from db import db
+    uid = people('cht_both', 'cht', ('RH', 'SJH'))
+    pick(client, uid, ids['SJH'])
+    try:
+        r = client.post('/brayn/switch', headers=hdr(uid), json={'enabled': True})
+        assert r.status_code == 200, r.get_data(as_text=True)[:300]
+        with app.app_context():
+            assert db.session.execute(text("SELECT value FROM settings WHERE key = 'brayn_enabled'")).scalar() == 'true'
+        assert (sjh("SELECT value FROM settings WHERE key = 'brayn_enabled'") or [[None]])[0][0] != 'true'
+        assert client.get('/brayn', headers=hdr(uid)).status_code == 200
+    finally:
+        with app.app_context():
+            db.session.execute(text("UPDATE settings SET value = 'false' WHERE key = 'brayn_enabled'"))
+            db.session.commit()
+        sjh("UPDATE settings SET value = 'false' WHERE key = 'brayn_enabled'")
+
+
 def test_cached_figures_are_never_shared_between_sites(client, app, people, sjh, ids):
     """The dropdown values are cached for 5 minutes, now per site."""
     uid = people('cache', 'administrator', ('RH', 'SJH'))

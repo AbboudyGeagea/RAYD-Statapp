@@ -84,8 +84,11 @@ def test_the_nightly_copy_reads_the_original_ae_and_skips_cardiology_with_a_null
     query = pacs.queries[0][0]
     assert 'UPPER(TRIM(s.ORIGINAL_STORING_AE))' in query
     assert "UPPER(TRIM(s.STORING_AE)) NOT IN ('EPIQCVX', 'AZURION')" in query
+    assert "UPPER(TRIM(s.STORING_AE)) NOT IN ('LAUMC', 'SVSM', 'ECHOPAC-PC'" in query
+    # behind a gateway: the cardiology devices and the excluded ones (TERRA2, since 2026-11-18)
     assert ("(s.ORIGINAL_STORING_AE IS NULL OR UPPER(TRIM(s.ORIGINAL_STORING_AE)) NOT IN "
-            "('EPIQCVX', 'AZURION'))") in query
+            "('EPIQCVX', 'AZURION', 'LAUMC', 'SVSM',") in query
+    assert "'TERRA2'" in query.split('ORIGINAL_STORING_AE IS NULL')[1]
 
 
 def test_gateway_studies_already_loaded_get_their_original_ae_once(monkeypatch):
@@ -135,9 +138,12 @@ def test_cardiology_studies_already_loaded_are_deleted_and_nothing_else():
     study(4, 'SJHCSAPWFMFIR', 'CM_CT_CMW_V1')
     study(5, 'AZURION7FLEXARM')                               # Rizk's hybrid OR stays
     study(6, 'MR750W')
+    study(7, 'TERRA2', 'TERRA2')                               # behind a gateway, swapped by 0164
+    study(8, 'LAUMCWFM2FIR', 'SVSM')                           # a duplicate behind a gateway
+    sql("UPDATE etl_didb_studies SET gateway_ae = 'LAUMCWFM2FIR' WHERE study_db_uid = 7")
     sql("INSERT INTO std_pps (pps_key, study_db_uid) VALUES (77, 2)")
 
-    assert studies.purge_cardiology(db.engine) == 3
+    assert studies.purge_cardiology(db.engine) == 5
 
     left = db.session.execute(text("SELECT study_db_uid FROM etl_didb_studies ORDER BY 1")).scalars().all()
     db.session.commit()

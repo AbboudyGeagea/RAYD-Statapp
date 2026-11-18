@@ -43,6 +43,11 @@ from contextvars import ContextVar
 logger = logging.getLogger("SITE_DB")
 
 # Tables that exist once, in the main database, whatever site a request reads.
+# Screens that read and write the main database whatever site the header picks: the BRAYN
+# console (its tables, its switch and every HL7 message live there until BRAYN routes by site,
+# item 13d). Like @main_only, for a whole blueprint.
+MAIN_BLUEPRINTS = frozenset({'brayn_console'})
+
 MAIN_TABLES = frozenset({
     'users', 'user_sites', 'user_page_permissions', 'report_access_control',
     'active_sessions', 'user_audit_log', 'permission_groups',
@@ -92,6 +97,8 @@ def current_site_id():
         return forced
     from flask import has_request_context, request
     if not has_request_context():
+        return default_site_id()
+    if request.blueprint in MAIN_BLUEPRINTS:
         return default_site_id()
     env = request.environ
     got = env.get(_ENV_KEY)

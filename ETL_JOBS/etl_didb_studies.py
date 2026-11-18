@@ -11,11 +11,20 @@ from db import OracleConnector
 # store directly are in _EXCLUDED_AE_SQL; CARD-labelled studies of the gateways go in Phase 2c.
 CARDIOLOGY_AES = ('EPIQCVX', 'AZURION')
 _CARDIOLOGY_LIST = ", ".join(f"'{ae}'" for ae in CARDIOLOGY_AES)
+# The AE titles never loaded when they store directly (the reasons are at _EXCLUDED_AE_SQL in
+# run_studies_etl): LAUMC and SVSM duplicate a real device's studies; the rest are dedicated
+# cardiology / vascular equipment.
+EXCLUDED_AES = ('LAUMC', 'SVSM',
+                'ECHOPAC-PC', 'ADW_8', 'AETITLE', 'VIVIDE9-003168', 'VIVID_S5-050514', 'TERRA',
+                'VIVIDS70-003049', 'TERRA2', 'AWVASC', 'AWCTHD1', 'PHCARDIO', 'LOGIQV2-01')
+# Left out as the device behind a gateway too (2026-11-18): once the scanner became the study's
+# storing_ae (migration 0164), TERRA2's 5 studies behind LAUMCWFM2FIR read as an RH XA device.
+_LEFT_OUT_LIST = ", ".join(f"'{ae}'" for ae in CARDIOLOGY_AES + EXCLUDED_AES)
 # Each check keeps its NULL guard: a NOT IN on a NULL column drops the row (the 2026-07-30 bug
 # below), and most studies have no original storing AE.
 _CARDIOLOGY_SQL = (
     f" AND UPPER(TRIM(s.STORING_AE)) NOT IN ({_CARDIOLOGY_LIST})"
-    f" AND (s.ORIGINAL_STORING_AE IS NULL OR UPPER(TRIM(s.ORIGINAL_STORING_AE)) NOT IN ({_CARDIOLOGY_LIST}))"
+    f" AND (s.ORIGINAL_STORING_AE IS NULL OR UPPER(TRIM(s.ORIGINAL_STORING_AE)) NOT IN ({_LEFT_OUT_LIST}))"
 )
 
 # Gateways (item 13, 2026-11-18): SJH's middleware and the second workflow manager forward
@@ -146,11 +155,11 @@ def fill_original_ae(pg_engine, oracle_source, chunk=_FILL_CHUNK, max_chunks=_FI
 
 
 def purge_cardiology(pg_engine):
-    """Delete the cardiology studies already loaded (CARDIOLOGY_AES as storing or original AE).
-    Their series and images go with them (ON DELETE CASCADE); a RIS step pointing at one is
-    unlinked first, as Phase 2c does. Returns the studies deleted."""
-    cardio = (f"UPPER(TRIM(COALESCE(original_storing_ae, ''))) IN ({_CARDIOLOGY_LIST}) "
-              f"OR UPPER(TRIM(storing_ae)) IN ({_CARDIOLOGY_LIST})")
+    """Delete the studies already loaded of a device left out: CARDIOLOGY_AES or EXCLUDED_AES as
+    storing or original AE. Their series and images go with them (ON DELETE CASCADE); a RIS step
+    pointing at one is unlinked first, as Phase 2c does. Returns the studies deleted."""
+    cardio = (f"UPPER(TRIM(COALESCE(original_storing_ae, ''))) IN ({_LEFT_OUT_LIST}) "
+              f"OR UPPER(TRIM(storing_ae)) IN ({_LEFT_OUT_LIST})")
     with pg_engine.begin() as conn:
         conn.execute(text(f"UPDATE std_pps SET study_db_uid = NULL WHERE study_db_uid IN "
                           f"(SELECT study_db_uid FROM etl_didb_studies WHERE {cardio})"))
@@ -357,11 +366,10 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
         # tab). See the one-time backfill note near run_studies_etl(): removing it here
         # only affects studies from now on -- historical DEFINIUM1 studies need a
         # separate one-off pull since they predate the incremental watermark/lookback.
-        _EXCLUDED_AE_SQL = """AND UPPER(TRIM(s.STORING_AE)) NOT IN (
-            'LAUMC', 'SVSM',
-            'ECHOPAC-PC', 'ADW_8', 'AETITLE', 'VIVIDE9-003168', 'VIVID_S5-050514', 'TERRA',
-            'VIVIDS70-003049', 'TERRA2', 'AWVASC', 'AWCTHD1', 'PHCARDIO', 'LOGIQV2-01'
-        )""" + _CARDIOLOGY_SQL
+        # The list itself is EXCLUDED_AES at the top of this file (also left out as a gateway's
+        # original AE, and purged, since 2026-11-18).
+        _EXCLUDED_AE_SQL = ("AND UPPER(TRIM(s.STORING_AE)) NOT IN ("
+                            + ", ".join(f"'{ae}'" for ae in EXCLUDED_AES) + ")") + _CARDIOLOGY_SQL
 
         # Operator instruction (2026-07-29, extended 2026-07-31): '@dn'-suffixed signer
         # values (akehdi@dn, eva.d@dn, mi70@dn, ...) are not real LAUMC data — confirmed
