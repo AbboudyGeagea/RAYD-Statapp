@@ -19,6 +19,13 @@ today: the RIS-vs-PACS card's blue RIS bars should no longer be 0. update.sh now
 migration lock (commit 79583873), from the next deploy on. The session-only reminder set for
 18 Nov 08:57 died with the session: this list replaces it.
 
+**18 Nov morning, done:** 0163 applied (top of schema_migrations under optimize.sql). Checklist 1:
+the manual ETL and the 05:00 run all SUCCESS; audit open 194,241, lock 52,979, approve 29,948,
+wetread 14,821, all from 1 Oct; `pacs_audit_version` 2, `original_ae_filled` and
+`orders_header_filled` true. SJH US 1,361 (as expected). **SJH XA 232, not about 120:** US fell
+563 (the 561 EPIQCVX), so the purge took about 3,385 XA and should have left about 129; about
+100 XA unexplained. Breakdown by original AE asked.
+
 **Morning checklist, 18 Nov (after the 05:00 ETL), ready to paste:**
 
 1. What the ETL did (audit re-read, fills, purge):
@@ -80,12 +87,12 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 
 | # | Item | Where we are | Waits on | When |
 |---|------|--------------|----------|------|
-| 33 | Report 27 RIS-vs-PACS card at 0 | fixed (0163: RIS orders and reports get their site from the issuer) | 0163 finishing on production; reload Report 27 | 18 Nov |
+| 33 | Report 27 RIS-vs-PACS card at 0 | fixed (0163: RIS orders and reports get their site from the issuer); 0163 applied 18 Nov | reload Report 27 | 18 Nov |
 | 34 | update.sh and the app migrating at once | fixed (update.sh takes the app's migration lock) | the next deploy | next deploy |
 | 2 | First open (**due Fri 20**) | deployed; readers include mammography; audit re-read from 1 Oct | checklist 1–3; regenerate October | 18–20 Nov |
 | 32 | HIS duplicate orders | live (0162); Rizk October: 76 % twins, 18.5 % no-shows; SJH twins not matched by patient | checklist 5 (HIS order number) | 18 Nov |
 | 9 | Staff who left | deployed (0157, 0158), switch off | checklist 4, then switch on; Tanios Jalkh; Jessica Saad's PACS account | 18 Nov |
-| 31 | Cardiology out | 3,948 purged (0159) | checklist 1 (SJH XA/US) | 18 Nov |
+| 31 | Cardiology out | 3,948 purged (0159); SJH US 1,361 as expected; SJH XA 232, expected about 120 | XA by original AE | 18 Nov |
 | 14A/B | Signature turnaround | deployed; approvals re-read | spot-check Report 32; station clocks | 18–19 Nov |
 | 4 | RIS room names | done (0161, 6 links live) | checklist 6 for LEO22529/ARTIS121403 | 18–19 Nov |
 | 13 | SJH in its own database | CT and about 25,000 more RIS steps linked by accession; devices in `original_storing_ae`; cardiology out | device rule; cath lab RIS side; rh rules for SJH's database; 13d; move Sat 28 | build 19–24, deploy 26, move 28–29 |
