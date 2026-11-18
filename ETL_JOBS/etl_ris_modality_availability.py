@@ -26,6 +26,10 @@ import logging
 from datetime import datetime
 from sqlalchemy import text
 from db import OracleConnector
+try:
+    from ETL_JOBS.etl_didb_studies import CARDIOLOGY_AES
+except ImportError:                     # etl_runner.py puts ETL_JOBS itself on the path
+    from etl_didb_studies import CARDIOLOGY_AES
 
 _MODALITY_EXCEPTION_TABLE = os.getenv("RAYD_RIS_MODALITY_EXCEPTION_TABLE", "MODALITY_AVAILABLE_EXCEPTION")
 _SCHEDULE_TEMPLATE_ITEM_TABLE = os.getenv("RAYD_RIS_SCHEDULE_TEMPLATE_ITEM_TABLE", "SCHEDULE_TEMPLATE_ITEM")
@@ -177,6 +181,9 @@ def run_ris_modality_exceptions_etl(pg_engine, oracle_source):
                  modality_key, ae_title, avail_key, priority, last_updated) in batch:
                 if key is None:
                     skipped += 1
+                    continue
+                # Cardiology out (item 13b): not seen, so the full refresh below drops it too.
+                if str(ae_title or '').strip().upper() in CARDIOLOGY_AES:
                     continue
                 seen_keys.append(key)
                 params.append({

@@ -143,3 +143,62 @@ def test_cardiology_studies_already_loaded_are_deleted_and_nothing_else():
     db.session.commit()
     assert left == [4, 5, 6]
     assert scalar("SELECT study_db_uid FROM std_pps WHERE pps_key = 77") is None
+
+
+# ── the cath lab's RIS side (item 13b, migration 0166) ────────────────────────
+
+def _pps_row(key, ae):
+    """A RIS PPS row as etl_ris_pps.py selects it (36 columns): key, start time, device AE."""
+    from datetime import datetime
+    row = [None] * 36
+    row[0], row[9], row[13] = key, datetime(2026, 11, 10, 9), ae
+    return tuple(row)
+
+
+def test_the_ris_steps_copy_leaves_the_cardiology_devices_out(monkeypatch):
+    from db import db
+    from ETL_JOBS import etl_ris_pps
+    pacs = FakeOracle(lambda q, p: [_pps_row(9101, 'AZURION'), _pps_row(9102, 'azurion '),
+                                    _pps_row(9103, 'EPIQCVX'), _pps_row(9104, 'AZURION7FLEXARM'),
+                                    _pps_row(9105, 'CM_CT_CMW_V1')])
+    monkeypatch.setattr(etl_ris_pps, 'OracleConnector', SimpleNamespace(get_connection=lambda source: pacs))
+    sql("DELETE FROM std_pps WHERE pps_key BETWEEN 9101 AND 9105")
+
+    etl_ris_pps.run_ris_pps_etl(db.engine, 'RIS', '2021-01-01')
+
+    kept = db.session.execute(text("SELECT pps_key FROM std_pps WHERE pps_key BETWEEN 9101 AND 9105 ORDER BY 1")).scalars().all()
+    db.session.commit()
+    assert kept == [9104, 9105]                      # Rizk's hybrid OR stays
+
+
+def test_the_ris_device_copy_does_not_bring_the_cath_lab_back(monkeypatch):
+    from db import db
+    from ETL_JOBS import etl_ris_modality
+
+    class Ris:
+        def cursor(self):
+            return self
+
+        def execute(self, query, params=None):
+            pass
+
+        def fetchall(self):
+            return [(1, 'AZURION', 'CATH', 'Cath lab', 'Philips Azurion 7', '5320', 'Y', 'XA'),
+                    (2, 'GW_RIS_KEEP', 'X1', 'Kept', 'Room kept', '5320', 'Y', 'DX')]
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(etl_ris_modality, 'OracleConnector', SimpleNamespace(get_connection=lambda source: Ris()))
+    try:
+        etl_ris_modality.run_ris_modality_etl(db.engine, 'RIS')
+        got = db.session.execute(text("SELECT aetitle FROM aetitle_modality_map "
+                                      "WHERE aetitle IN ('AZURION', 'GW_RIS_KEEP') ORDER BY 1")).scalars().all()
+        db.session.commit()
+        assert got == ['GW_RIS_KEEP']
+    finally:
+        sql("DELETE FROM aetitle_modality_map WHERE aetitle = 'GW_RIS_KEEP'")
+
+
+def test_no_cardiology_device_is_left_in_the_mapping():
+    assert scalar("SELECT COUNT(*) FROM aetitle_modality_map WHERE UPPER(TRIM(aetitle)) IN ('AZURION', 'EPIQCVX')") == 0

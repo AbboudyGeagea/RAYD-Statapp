@@ -30,6 +30,10 @@ import logging
 from datetime import datetime
 from sqlalchemy import text
 from db import OracleConnector
+try:
+    from ETL_JOBS.etl_didb_studies import CARDIOLOGY_AES
+except ImportError:                     # etl_runner.py puts ETL_JOBS itself on the path
+    from etl_didb_studies import CARDIOLOGY_AES
 
 _PPS_TABLE      = os.getenv("RAYD_RIS_PPS_TABLE", "PPS")
 _SPS_CODE_TABLE = os.getenv("RAYD_RIS_SPS_CODE_TABLE", "SPS_CODE")
@@ -165,6 +169,7 @@ def run_ris_pps_etl(pg_engine, oracle_source, go_live_date):
     start_time = datetime.now()
     total      = 0
     skipped    = 0
+    cardiology = 0
     status     = "RUNNING"
     error_msg  = None
     log_id     = None
@@ -269,6 +274,12 @@ def run_ris_pps_etl(pg_engine, oracle_source, go_live_date):
                 if pps_key is None:
                     skipped += 1
                     continue
+                # Cardiology out (operator, 2026-11-17; item 13b): the cath lab's steps go with
+                # its PACS studies (etl_didb_studies.CARDIOLOGY_AES; migration 0166 removed
+                # those already loaded).
+                if str(ae_title or '').strip().upper() in CARDIOLOGY_AES:
+                    cardiology += 1
+                    continue
 
                 params.append({
                     "pps_key": pps_key, "patient_person_key": patient_person_key,
@@ -308,8 +319,9 @@ def run_ris_pps_etl(pg_engine, oracle_source, go_live_date):
                 print(f"[RIS PPS ETL] 📦 {total:,} rows loaded")
 
         status = "SUCCESS"
-        print(f"[RIS PPS ETL] ✅ Done — {total:,} PPS rows, {skipped} skipped (no key)")
-        logging.info(f"RIS PPS ETL complete: {total:,} rows, {skipped} skipped")
+        print(f"[RIS PPS ETL] ✅ Done — {total:,} PPS rows, {skipped} skipped (no key), "
+              f"{cardiology} cardiology steps left out")
+        logging.info(f"RIS PPS ETL complete: {total:,} rows, {skipped} skipped, {cardiology} cardiology left out")
 
     except Exception as e:
         status    = "FAILED"

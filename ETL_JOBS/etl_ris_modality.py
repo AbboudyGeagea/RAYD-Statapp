@@ -44,6 +44,10 @@ import logging
 from datetime import datetime
 from sqlalchemy import text
 from db import OracleConnector
+try:
+    from ETL_JOBS.etl_didb_studies import CARDIOLOGY_AES
+except ImportError:                     # etl_runner.py puts ETL_JOBS itself on the path
+    from etl_didb_studies import CARDIOLOGY_AES
 
 _MODALITY_TABLE      = os.getenv("RAYD_RIS_MODALITY_TABLE", "MODALITY")
 _MODALITY_TYPE_TABLE = os.getenv("RAYD_RIS_MODALITY_TYPE_TABLE", "MODALITY_TYPE")
@@ -152,6 +156,10 @@ def run_ris_modality_etl(pg_engine, oracle_source):
             ae_title = str(ae_title).strip().upper() if ae_title is not None else None
             if not ae_title:
                 skipped += 1
+                continue
+            # Cardiology out (operator, 2026-11-17; item 13b): the cath lab is no device of
+            # RAYD's (migration 0166 removed its row, schedules with it).
+            if ae_title in CARDIOLOGY_AES:
                 continue
 
             # aetitle_modality_map.modality is NOT NULL — fall back to 'OT' (Other) for
