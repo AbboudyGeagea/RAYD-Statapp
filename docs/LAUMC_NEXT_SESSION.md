@@ -78,7 +78,8 @@ wetread 14,821, all from 1 Oct; `pacs_audit_version` 2, `original_ae_filled` and
   `etl_orders.placer_order_number` = ORC-2); item 30 (amended reports) after the chief
   radiologist.
 
-**Waiting on the operator:** the test patient ID (item 19); the PACS DICOM node list (item 4,
+**Waiting on the operator:** SJH's mail relay, sender address and domains (for the move, Sat 28);
+the test patient ID (item 19); the PACS DICOM node list (item 4,
 optional now); Tanios Jalkh and Jessica Saad's PACS account (item 9, with the manager); the
 chief radiologist on item 30 (amendments), item 5 (ORU severity) and the `@sj` logins; Mirth
 forwarding the ORMs (item 1); CRN go-live steps (item 20).
@@ -89,7 +90,7 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 |---|------|--------------|----------|------|
 | 33 | Report 27 RIS-vs-PACS card at 0 | fixed (0163: RIS orders and reports get their site from the issuer); 0163 applied 18 Nov | reload Report 27 | 18 Nov |
 | 34 | update.sh and the app migrating at once | fixed (update.sh takes the app's migration lock) | the next deploy | next deploy |
-| 2 | First open (**due Fri 20**) | deployed; audit re-read from 1 Oct (checked 18 Nov); monthly email no longer says "PACS keeps only the latest open" (f8c13210, next deploy) | email state check, then regenerate October; spot-check with `scripts/sql/report_37_first_open_spotcheck.sql` | 18–20 Nov |
+| 2 | First open (**due Fri 20**) | deployed; audit re-read from 1 Oct (checked 18 Nov); October regenerated 18 Nov 01:02 after the re-read: 1,429 cases, all with a first open; no recipients, nothing emailed; monthly email no longer says "PACS keeps only the latest open" (f8c13210, next deploy) | spot-check with `scripts/sql/report_37_first_open_spotcheck.sql` | 18–20 Nov |
 | 32 | HIS duplicate orders | live (0162); Rizk October: 76 % twins, 18.5 % no-shows; SJH twins not matched by patient | checklist 5 (HIS order number) | 18 Nov |
 | 9 | Staff who left | deployed (0157, 0158), switch off | checklist 4, then switch on; Tanios Jalkh; Jessica Saad's PACS account | 18 Nov |
 | 31 | Cardiology out | 3,948 purged (0159); SJH US 1,361 as expected; SJH XA 232, expected about 120 | XA by original AE | 18 Nov |
@@ -919,6 +920,12 @@ read; radiologists approve or finalise (check both).
        (allow 1–2 hours); it records itself, and the nightly ETL takes over.
     5. `sudo docker exec rayd_db psql -U etl_user -d etl_db -c "VACUUM ANALYZE;"`, then
        check RH's reports unchanged (Report 22, 38, Super Report) against Friday's figures.
+    6. SJH's mail server (operator, 18 Nov: one per site, after the move is fine): pick SJH in
+       the header, Administration → Email Server, enter SJH's relay, sender address and
+       allowed domains (SJH's users' domains), Send test. RH's stays as it is (10.4.16.180,
+       radiology.results@laumcrh.com; intermedic.com, laumcrh.com, umcrh.com). Each site's
+       Report Composer schedules and Report 37 monthly go through its own server and only to
+       its own domains (built, item 13g; `tests/test_site_databases.py`). Nothing to code.
     Never while the ETL runs (the job refuses); not before step 3 is checked.
 14. **Radiologists TAT and radiologists' number of reports: revamp and validate thoroughly;
     this is the selling point.** Source is PACS Oracle (rule above). Show both start clocks,
