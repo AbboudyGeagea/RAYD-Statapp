@@ -35,6 +35,16 @@ acknowledged and left to BRAYN; 0168 removes the 13 rows and the completions wri
 RIS, Report 27 tab), item 17 (BRAYN's RIS-dependent checks), the Live board's waiting / in progress.
 `hl7_orders` is still outside the rh views: only SAP_P (RH's issuer SAP_PROD) arrives; if an SJH
 HIS sender appears, filter it before it reaches a page.
+**0168 deployed 18 Nov ~13:50, checked:** hl7_orders only SAP_P (299 rows by 13:48), no RIS rows,
+no RIS completions left. HIS order fields (sample): HIS order number with leading zeros
+(`0019408265`), OBR-4 SAP procedure code + text (`J17K-02 CT SCAN, CALCIUM SCORE...`), **no
+modality** (`^`), patient class `O` or empty (`^^^`), HIS location (`ABC`, `CTSCAN`, `EM-J`,
+`VAS-LB-J`), requested time; messages per order not always in order (an RQ before its NW).
+**Item 1, first check (19 Nov after the 05:00 ETL):** do yesterday's HIS orders find their RIS
+order by number, as stored or only without the leading zeros?
+```bash
+sudo docker exec rayd_db psql -U etl_user -d etl_db -c "WITH his AS (SELECT DISTINCT ON (placer_order_number) placer_order_number, substring(raw_message from 'ORC\|([^|]*)') AS orc1 FROM hl7_orders WHERE received_at >= '2026-11-18' AND received_at < '2026-11-19' AND placer_order_number IS NOT NULL ORDER BY placer_order_number, received_at DESC), ris AS (SELECT DISTINCT placer_order_number AS p, LTRIM(placer_order_number, '0') AS p0 FROM etl_orders WHERE placer_order_number IS NOT NULL AND order_created_at >= '2026-11-16') SELECT COUNT(*) AS his_orders, COUNT(*) FILTER (WHERE orc1 = 'CA') AS cancelled_on_his, COUNT(*) FILTER (WHERE placer_order_number IN (SELECT p FROM ris)) AS on_ris_as_stored, COUNT(*) FILTER (WHERE LTRIM(placer_order_number, '0') IN (SELECT p0 FROM ris)) AS on_ris_without_zeros FROM his;" -c "SELECT placer_order_number, order_control, order_created_at FROM etl_orders WHERE placer_order_number IS NOT NULL ORDER BY order_created_at DESC NULLS LAST LIMIT 3;"
+```
 
 **18 Nov morning, done:** 0163 applied (top of schema_migrations under optimize.sql). Checklist 1:
 the manual ETL and the 05:00 run all SUCCESS; audit open 194,241, lock 52,979, approve 29,948,
