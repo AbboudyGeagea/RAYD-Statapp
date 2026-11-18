@@ -154,8 +154,8 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 | 31 | Cardiology out | **done**: 3,948 purged; the 232 SJH XA left are imports (XVIMPORT 231) and 1 with no AE | — | done 18 Nov |
 | 14A/B | Signature turnaround | deployed; approvals re-read | spot-check Report 32; station clocks | 18–19 Nov |
 | 4 | RIS room names | done (0161, 6 links live) | checklist 6 for LEO22529/ARTIS121403 | 18–19 Nov |
-| 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | **0164 + 0165 deployed and checked 18 Nov**; cath lab RIS side built (0166), deploy; PHILIPSCARM = C-Arm 2?; 13d; move Sat 28 | move 28–29 |
-| 21 | Patient schedule lead time | **Report 40 built 18 Nov** (0167, not deployed) | deploy; check October's figures on production | deploy with 0166 |
+| 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | **0164, 0165, 0166 deployed and checked 18 Nov** (cath lab: 0 steps, 0 device rows); PHILIPSCARM = C-Arm 2?; 13d (BRAYN routing, operator walkthrough; the BRAYN console reads the picked site's database, so make it main-only with it); move Sat 28 | move 28–29 |
+| 21 | Patient schedule lead time | **Report 40 deployed 18 Nov** (0167); October: 6,316 exams, every one with a booking time (earliest 13 Aug) | operator: October's median and same-day share look right? | 18–19 Nov |
 | 1 | HIS vs RIS orders | HIS order number filled (0160) | Mirth ORM forwarding; then the Report 27 tab (2–3 days) | after the ORMs |
 | 10 | Gateways | SJH and LAUMCWFM2FIR from the original AE; LAUMCWFM1AR from the RIS | built with 13 | with 13 |
 | 30 | Amended reports | AAP = an amendment after the approval (FAP) | chief radiologist | on hold |
