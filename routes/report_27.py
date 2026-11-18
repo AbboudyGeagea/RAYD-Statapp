@@ -386,6 +386,26 @@ def report_27():
     run_report = 'start_date' in request.values
     data = {}
 
+    # Item 1 (2026-11-18): the second tab, HIS orders vs RIS (utils/his_ris.py). Built only
+    # when opened, so the RIS tab costs what it did.
+    tab = 'his' if request.values.get('tab') == 'his' else 'ris'
+    if tab == 'his':
+        his = None
+        if run_report:
+            try:
+                from utils import his_ris
+                _cases, his = his_ris.build(date.fromisoformat(start_a), date.fromisoformat(end_a),
+                                            served_site_id())
+            except Exception:
+                db.session.rollback()
+                import logging
+                logging.getLogger(__name__).exception('Report 27 HIS vs RIS tab failed')
+                his = None
+        from utils.his_ris import DIMENSIONS as his_dimensions, UNKNOWN as his_unknown
+        return render_template("report_27.html", data={}, run_report=run_report, tab=tab, his=his,
+                               his_dimensions=his_dimensions, his_unknown=his_unknown,
+                               display_start=start_a, display_end=end_a)
+
     if run_report:
         df_a = get_report_data(start_a, end_a)
 
@@ -499,8 +519,34 @@ def report_27():
                     "by_day_of_month":    sched['scheduled_datetime'].dt.day.value_counts().sort_index().to_dict(),
                 }
 
-    return render_template("report_27.html", data=data, run_report=run_report,
+    # A range with no RIS order has no audit block, which the page and its charts both read:
+    # it said nothing and failed; now it says so (found 2026-11-18 by the tab's test).
+    if run_report and 'audit' not in data:
+        data = {}
+    return render_template("report_27.html", data=data, run_report=run_report, tab=tab, his=None,
                            display_start=start_a, display_end=end_a)
+
+
+@report_27_bp.route("/report/27/export-his-ris", methods=["POST"])
+@login_required
+def export_his_ris():
+    """The HIS vs RIS tab as an Excel workbook: one row per HIS order, no patient names."""
+    from flask import abort
+    from flask_login import current_user
+    from utils import his_ris
+    from utils.roles import can_open_report
+    from utils.site_db import site_code
+    if not can_open_report(current_user, 27):
+        abort(403)
+    start = date.fromisoformat(request.values.get("start_date"))
+    end = date.fromisoformat(request.values.get("end_date"))
+    cases, summary = his_ris.build(start, end, served_site_id())
+    data = his_ris.workbook(start, end, cases, summary, site_code(served_site_id()) or 'this site')
+    from utils.audit import log_event
+    log_event('report_export', category='report', resource_type='report_27_his_ris',
+              detail={'from': start.isoformat(), 'to': end.isoformat(), 'rows': len(cases)})
+    return Response(data, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': f'attachment; filename=his_vs_ris_{start}_{end}.xlsx'})
 
 # ── Cancelled exam list (RIS) ─────────────────────────────────────────────────
 # Operator request: exportable list of cancelled exams, from RIS data.

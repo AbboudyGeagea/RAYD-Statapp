@@ -285,6 +285,8 @@ def app(database_url):
     flask_app.register_blueprint(report_39_bp)
     from routes.report_40 import report_40_bp
     flask_app.register_blueprint(report_40_bp)
+    from routes.report_27 import report_27_bp
+    flask_app.register_blueprint(report_27_bp)
     # the home page's daily briefing and Yesterday tab
     from routes.viewer_controller import viewer_bp
     flask_app.register_blueprint(viewer_bp, url_prefix='/viewer')

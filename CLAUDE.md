@@ -51,6 +51,12 @@ routes/
                                    the RIS and/or PACS, utils/staff_status.py), their activity in
                                    the period, Excel for the manager, and the switch (settings
                                    capability) that makes every report read "Former staff" for them
+  report_27.py                  — Report 27, RIS orders vs PACS; its second tab (?tab=his) is HIS
+                                   orders vs RIS (item 1, utils/his_ris.py): the HIS's ORMs
+                                   (hl7_orders, MSH-3 in settings his_sending_apps, default SAP_P)
+                                   matched to etl_orders by HIS order number; hospital from the RIS
+                                   issuer, else the HIS location; reads every site's RIS orders to
+                                   decide, then keeps the served site
   report_40.py                  — Report 40, Patient Schedule Lead Time (item 21, migration 0167):
                                    order creation on the RIS (etl_orders.order_created_at) to the
                                    appointment, by every rpt.exams dimension + ordering department;

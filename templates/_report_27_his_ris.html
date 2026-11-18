@@ -1,0 +1,152 @@
+{#- Report 27, second tab: HIS orders vs RIS (item 1, utils/his_ris.py). Included by report_27.html. -#}
+{% macro num(v, suffix='') %}{% if v is none %}–{% else %}{{ v }}{{ suffix }}{% endif %}{% endmacro %}
+<style>
+    .hr-kpi { background:#232b28; border:1px solid #28332e; border-radius:12px; padding:14px 16px; }
+    .hr-kpi.warn { border-color:rgba(245,158,11,0.45); background:rgba(245,158,11,0.06); }
+    .hr-kpi .l { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em; color:#64748b; }
+    .hr-kpi .v { font-size:1.6rem; font-weight:900; color:#fff; line-height:1.25; }
+    .hr-kpi .s { font-size:10px; color:#64748b; margin-top:2px; }
+    .hr-table th { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.06em; color:#64748b; padding:8px 10px; white-space:nowrap; }
+    .hr-table td { font-size:12px; padding:7px 10px; border-top:1px solid #28332e; }
+    .hr-bar { background:#1b2320; border-radius:4px; height:14px; }
+    .hr-bar > div { background:#60a5fa; border-radius:4px; height:14px; }
+    .hr-bar > div.warn { background:#f59e0b; }
+    .hr-bar > div.muted { background:#475569; }
+    select.hr-dim { background:#1b2320; border:1px solid #28332e; border-radius:8px; color:#e2e8f0; font-size:12px; padding:5px 10px; }
+    body.light .hr-kpi { background:#fff; border-color:#e2e8f0; }
+    body.light .hr-kpi .v { color:#1a202c; }
+    body.light .hr-table td { border-color:#e2e8f0; }
+    body.light .hr-bar { background:#e2e8f0; }
+    body.light select.hr-dim { background:#fff; border-color:#cbd5e1; color:#1a202c; }
+</style>
+
+{% if not run_report %}
+<div class="h-full flex items-center justify-center text-slate-700 font-black text-4xl uppercase tracking-[0.2em]">Select Analysis Range</div>
+{% elif his is none %}
+<div class="data-card p-6 text-sm text-slate-400">The HIS vs RIS tab could not be loaded.</div>
+{% else %}
+{% set k = his.kpi %}
+
+<p class="section-desc">
+    Every order the HIS sent ({{ his.apps | join(', ') }}) placed in the range, one per HIS order number (its latest
+    message), and the RIS order created from it (the HIS number on the RIS order).
+    {% if his.feed_start %}The HIS feed began {{ his.feed_start.strftime('%Y-%m-%d %H:%M') }}; earlier orders are not here.{% endif %}
+    The RIS side comes with the nightly copy{% if his.copied_until %} (last one began {{ his.copied_until.strftime('%Y-%m-%d %H:%M') }}){% endif %}:
+    an order placed after it is "not copied yet", not missing.
+</p>
+
+{% if k.orders == 0 %}
+<div class="data-card p-6 text-sm text-slate-400">No HIS order was placed in this range{% if his.feed_start %} (the feed began {{ his.feed_start.strftime('%Y-%m-%d') }}){% endif %}.</div>
+{% else %}
+
+<div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+    <div class="hr-kpi"><p class="l">HIS orders</p><p class="v">{{ '{:,}'.format(k.orders) }}</p><p class="s">placed in the range</p></div>
+    <div class="hr-kpi"><p class="l">On the RIS</p><p class="v">{{ num(k.on_ris_pct, '%') }}</p><p class="s">of those copied</p></div>
+    <div class="hr-kpi {{ 'warn' if k.not_on_ris }}"><p class="l">Not on the RIS</p><p class="v">{{ '{:,}'.format(k.not_on_ris) }}</p><p class="s">{{ num(k.not_on_ris_pct, '%') }} of those copied</p></div>
+    <div class="hr-kpi"><p class="l">Cancelled on the HIS</p><p class="v">{{ '{:,}'.format(k.cancelled_his) }}</p></div>
+    <div class="hr-kpi"><p class="l">Not copied yet</p><p class="v">{{ '{:,}'.format(k.pending) }}</p><p class="s">after the last RIS copy</p></div>
+    <div class="hr-kpi"><p class="l">HIS → RIS registration</p><p class="v">{{ num(k.median_to_ris_min, ' min') }}</p><p class="s">median{% if k.ris_first %}; {{ k.ris_first }} registered first on the RIS{% endif %}</p></div>
+    <div class="hr-kpi"><p class="l">HIS → exam done</p><p class="v">{{ num(k.median_to_done_h, ' h') }}</p><p class="s">median</p></div>
+    <div class="hr-kpi"><p class="l">RIS orders, no HIS order</p>
+        <p class="v">{{ '{:,}'.format((his.ris_only.no_his_number + his.ris_only.not_sent) if his.ris_only else 0) }}</p>
+        <p class="s">{% if his.ris_only %}{{ his.ris_only.no_his_number }} with no HIS number, {{ his.ris_only.not_sent }} the HIS never sent, of {{ '{:,}'.format(his.ris_only.created) }} created{% else %}no HIS feed yet{% endif %}</p></div>
+</div>
+
+{% if his.unknown_site or k.several_ris or his.site_from_location %}
+<p class="text-[11px] text-slate-500">
+    {% if his.unknown_site %}{{ his.unknown_site }} HIS order{{ 's' if his.unknown_site != 1 }} not counted here: not on the RIS and from an HIS location not yet seen at one hospital. {% endif %}
+    {% if his.site_from_location %}{{ his.site_from_location }} without a RIS order are counted for this hospital by their HIS location. {% endif %}
+    {% if k.several_ris %}{{ k.several_ris }} HIS order{{ 's' if k.several_ris != 1 }} became more than one RIS order.{% endif %}
+</p>
+{% endif %}
+
+<div class="data-card">
+    <div class="card-header">What became of the HIS orders<i class="bi bi-info-circle chart-info-icon" data-explain="r27-his-outcomes" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
+    <div class="p-4">
+        {% set most = his.outcomes | map(attribute='orders') | max %}
+        <table class="w-full">
+            <tbody>
+            {% for o in his.outcomes %}
+            <tr>
+                <td class="w-56 text-sm text-slate-400 py-1">{{ o.label }}</td>
+                <td class="py-1"><div class="hr-bar"><div class="{{ 'warn' if o.key == 'not_on_ris' else ('muted' if o.key in ('pending', 'cancelled_his') else '') }}" style="width:{{ (100 * o.orders / most) | round(1) if most else 0 }}%"></div></div></td>
+                <td class="w-32 text-right text-sm py-1">{{ '{:,}'.format(o.orders) }} <span class="text-slate-500">({{ (100 * o.orders / k.orders) | round(1) }}%)</span></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="data-card">
+    <div class="card-header">
+        <span>Breakdown<i class="bi bi-info-circle chart-info-icon ml-1" data-explain="r27-his-breakdown" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></span>
+        <label class="normal-case font-semibold tracking-normal text-slate-400">By
+            <select class="hr-dim ml-1" id="hr-dim" aria-label="Break down by">
+                {% for key, label in his_dimensions %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+            </select>
+        </label>
+    </div>
+    <div class="p-2">
+    {% for key, label in his_dimensions %}
+    {% set bd = his.breakdowns[key] %}
+    <div class="overflow-x-auto hr-dim-table" data-dim="{{ key }}" {% if not loop.first %}hidden{% endif %}>
+        <table class="w-full text-left hr-table">
+            <thead><tr>
+                <th>{{ label }}</th><th class="text-right">HIS orders</th><th class="text-right">On the RIS</th>
+                <th class="text-right">Done</th><th class="text-right">Not on the RIS</th><th class="text-right">Cancelled on the HIS</th>
+                <th class="text-right">Not copied yet</th><th class="text-right">HIS → RIS (median min)</th><th class="text-right">HIS → done (median h)</th>
+            </tr></thead>
+            <tbody>
+            {% for r in bd.rows %}
+            <tr>
+                <td class="{{ 'text-slate-500 italic' if r.value == his_unknown else 'font-bold text-white' }}">{{ r.value }}</td>
+                <td class="text-right">{{ '{:,}'.format(r.orders) }}</td>
+                <td class="text-right">{{ num(r.on_ris_pct, '%') }}</td>
+                <td class="text-right">{{ r.done if r.done else '' }}</td>
+                <td class="text-right" {% if r.not_on_ris %}style="color:#f59e0b;font-weight:800;"{% endif %}>{{ r.not_on_ris if r.not_on_ris else '' }}</td>
+                <td class="text-right">{{ r.cancelled_his if r.cancelled_his else '' }}</td>
+                <td class="text-right">{{ r.pending if r.pending else '' }}</td>
+                <td class="text-right">{{ num(r.median_to_ris_min) }}</td>
+                <td class="text-right">{{ num(r.median_to_done_h) }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% if bd.total > bd.rows|length %}<p class="text-[11px] text-slate-500 mt-2 px-2">The {{ bd.rows|length }} largest of {{ bd.total }}; the Excel download has every order.</p>{% endif %}
+    </div>
+    {% endfor %}
+    </div>
+</div>
+
+<div class="data-card">
+    <div class="card-header">HIS orders not on the RIS<i class="bi bi-info-circle chart-info-icon" data-explain="r27-his-missing" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></div>
+    {% if his.not_on_ris %}
+    <div class="overflow-x-auto p-2">
+        <table class="w-full text-left hr-table">
+            <thead><tr><th>HIS order</th><th>Ordered</th><th>Last HIS message</th><th>Procedure</th><th>HIS location</th><th>Class</th></tr></thead>
+            <tbody>
+            {% for c in his.not_on_ris %}
+            <tr><td class="font-bold text-white">{{ c.his_no }}</td><td>{{ c.ordered }}</td><td>{{ c.control }}</td>
+                <td>{{ c.procedure }}</td><td>{{ c.location }}</td><td>{{ c.patient_class }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% if k.not_on_ris > his.not_on_ris|length %}<p class="text-[11px] text-slate-500 mt-2 px-2">The first {{ his.not_on_ris|length }} of {{ k.not_on_ris }}; the Excel download has them all.</p>{% endif %}
+    </div>
+    {% else %}
+    <p class="p-4 text-sm text-slate-400">None: every HIS order copied so far has its RIS order (or was cancelled on the HIS).</p>
+    {% endif %}
+</div>
+{% endif %}
+
+<script>
+    (function () {
+        const pick = document.getElementById('hr-dim');
+        if (!pick) return;
+        function show() { document.querySelectorAll('.hr-dim-table').forEach(t => { t.hidden = t.dataset.dim !== pick.value; }); }
+        pick.addEventListener('change', show);
+        show();
+    })();
+</script>
+{% endif %}

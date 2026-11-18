@@ -417,6 +417,24 @@ const ChartExplanations = {
       valueMeaning: 'Left = no active row on the RIS (and no active person shares the login), or every PACS account set to a leaver status (suspended, disabled; the list is shown above the table). A lock after wrong passwords does not count, nor does having no PACS account. A RIS person and a PACS login are linked by the login in the RIS resource ID, else by e-mail. Signed = studies whose report the login last composed, in the period; performed = RIS exams the person is on, in the period.',
       interpretation: 'Left but signed or performed in the period: the RIS or PACS still has them inactive by mistake, or a shared account; fix the RIS or PACS before switching on. Once on, they read "Former staff" on every report, and every total keeps their studies.'
     },
+    'r27-his-outcomes': {
+      title: 'What became of the HIS orders',
+      purpose: 'Every order the HIS sent in the period (one per HIS order number, its latest message), and what the RIS did with it.',
+      valueMeaning: 'Done = a RIS order created from it was completed or its exam done. On the RIS, not done yet = registered and still scheduled, arrived or in progress. Cancelled on the RIS = every RIS order of it cancelled. Cancelled on the HIS = its latest HIS message cancels it. Not on the RIS = no RIS order carries its HIS number although the nightly RIS copy came after it. Not copied yet = placed after the last nightly RIS copy, so it cannot be judged yet.',
+      interpretation: 'Not on the RIS is the one to chase: an order the doctor placed that radiology never registered. The table below lists them; the Excel download has every order.'
+    },
+    'r27-his-breakdown': {
+      title: 'HIS orders breakdown',
+      purpose: 'The same outcomes per HIS location (the ward that ordered), procedure, patient class, or the last HIS message (NW new, RQ changed, CA cancelled).',
+      valueMeaning: 'On the RIS = share of the orders already copied that have a RIS order. HIS → RIS = minutes from the order on the HIS to its registration on the RIS (median). HIS → done = hours to the exam done (median).',
+      interpretation: 'A ward with many orders not on the RIS, or a long HIS → RIS time, points at orders that reach radiology late or not at all.'
+    },
+    'r27-his-missing': {
+      title: 'HIS orders not on the RIS',
+      purpose: 'The orders placed on the HIS that no RIS order carries, although the nightly RIS copy came after them.',
+      valueMeaning: 'HIS order number, when it was placed, its latest HIS message, procedure, the HIS location and class. Patient ID is in the Excel download; no names.',
+      interpretation: 'Check them on the RIS: never registered, registered under another order, or cancelled on paper only.'
+    },
     'r40-buckets': {
       title: 'How far ahead',
       purpose: 'How many exams were booked how long before their appointment, for the appointments in the period.',

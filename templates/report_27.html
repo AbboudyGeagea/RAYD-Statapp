@@ -95,6 +95,7 @@
         <!-- Sidebar -->
         <aside class="w-64 bg-[#1a2420] border-r border-[#28332e] flex flex-col p-5 overflow-y-auto flex-shrink-0 custom-scrollbar gap-6">
             <form method="GET" class="space-y-5">
+                <input type="hidden" name="tab" value="{{ tab or 'ris' }}">
                 <!-- Primary range -->
                 <div>
                     <label class="font-black text-[#60a5fa] uppercase block mb-2 tracking-widest">Audit Timeline</label>
@@ -108,8 +109,24 @@
                 </button>
             </form>
 
+            {% if run_report and tab == 'his' and his %}
+            <div class="border-t border-[#28332e] pt-5 space-y-3">
+                <label class="font-black text-slate-500 uppercase block tracking-widest">Export Data</label>
+                <form method="POST" action="{{ url_for('report_27.export_his_ris') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
+                    <input type="hidden" name="start_date" value="{{ display_start }}">
+                    <input type="hidden" name="end_date" value="{{ display_end }}">
+                    <button type="submit" class="btn-csv"><i class="bi bi-download"></i> HIS vs RIS Excel</button>
+                </form>
+                <p class="text-[11px] text-slate-600 italic leading-relaxed">
+                    One row per HIS order placed in the range: its last HIS message, outcome, RIS order, accession,
+                    registration and exam done times. Patient ID, no names.
+                </p>
+            </div>
+            {% endif %}
+
             <!-- CSV Export — shown only after report runs -->
-            {% if run_report and data %}
+            {% if run_report and data and tab != 'his' %}
             <div class="border-t border-[#28332e] pt-5 space-y-3">
                 <label class="font-black text-slate-500 uppercase block tracking-widest">Export Data</label>
                 <form method="POST" action="{{ url_for('report_27.export_report_27') }}">
@@ -151,7 +168,17 @@
 
         <!-- Main content -->
         <main class="flex-1 overflow-y-auto p-6 bg-[#181f1c] custom-scrollbar space-y-6">
-            {% if run_report and data %}
+            <nav class="flex gap-8 border-b border-[#28332e]" aria-label="Report 27 views">
+                <a class="tab-btn {{ 'active' if tab != 'his' }}" {% if tab != 'his' %}aria-current="page"{% endif %}
+                   href="{{ url_for('report_27.report_27', start_date=display_start, end_date=display_end) }}">
+                    <i class="bi bi-hdd-network"></i> RIS orders vs PACS</a>
+                <a class="tab-btn {{ 'active' if tab == 'his' }}" {% if tab == 'his' %}aria-current="page"{% endif %}
+                   href="{{ url_for('report_27.report_27', start_date=display_start, end_date=display_end, tab='his') }}">
+                    <i class="bi bi-arrow-left-right"></i> HIS orders vs RIS</a>
+            </nav>
+            {% if tab == 'his' %}
+            {% include '_report_27_his_ris.html' %}
+            {% elif run_report and data %}
 
             <!-- Section description -->
             <p class="section-desc">
@@ -484,7 +511,7 @@
 
             {% else %}
             <div class="h-full flex items-center justify-center text-slate-700 font-black text-4xl uppercase tracking-[0.2em]">
-                Select Analysis Range
+                {% if run_report %}No RIS order in this range{% else %}Select Analysis Range{% endif %}
             </div>
             {% endif %}
         </main>
