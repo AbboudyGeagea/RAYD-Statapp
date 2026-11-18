@@ -155,7 +155,7 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 | 14A/B | Signature turnaround | deployed; approvals re-read | spot-check Report 32; station clocks | 18–19 Nov |
 | 4 | RIS room names | done (0161, 6 links live) | checklist 6 for LEO22529/ARTIS121403 | 18–19 Nov |
 | 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | **0164 + 0165 deployed and checked 18 Nov**; cath lab RIS side built (0166), deploy; PHILIPSCARM = C-Arm 2?; 13d; move Sat 28 | move 28–29 |
-| 21 | Patient schedule lead time | booking time filled (0160) | the report (about 2 days) | 23–25 Nov, deploy 26 |
+| 21 | Patient schedule lead time | **Report 40 built 18 Nov** (0167, not deployed) | deploy; check October's figures on production | deploy with 0166 |
 | 1 | HIS vs RIS orders | HIS order number filled (0160) | Mirth ORM forwarding; then the Report 27 tab (2–3 days) | after the ORMs |
 | 10 | Gateways | SJH and LAUMCWFM2FIR from the original AE; LAUMCWFM1AR from the RIS | built with 13 | with 13 |
 | 30 | Amended reports | AAP = an amendment after the approval (FAP) | chief radiologist | on hold |
@@ -1274,7 +1274,18 @@ The readiness panel on Admin > CRN > Settings shows each of these as ok / missin
   creation, or the time the step first got a Scheduled status in the RIS status history
   (Phase 17 already reads that history for arrivals).
   **Decided 2026-11-17:** booked = `ORDERS.CREATED_ON_DATE`. Built: `etl_orders.order_created_at`
-  (migration 0160), copied nightly and once for older rows. Left: the report (about 2 days).
+  (migration 0160), copied nightly and once for older rows.
+  **Report 40 built 18 Nov** (migration 0167 catalogue + licence; `routes/report_40.py`,
+  `utils/schedule_lead_time.py`, `templates/report_40.html`, `tests/test_report_40.py`): the RIS
+  exams whose appointment falls in the period (default: last full month), read from rpt.exams
+  (the site's views) with the booking time joined. KPIs: median and 90th percentile lead time
+  (days; median also in hours), same day %, 7+ days ahead %, cancelled %, scheduled more than once
+  % (more than one Scheduled status in `std_worklist_scheduled`), booked after the appointment
+  (by the clock, counted aside). Distribution in 9 bands, weekday × hour of booking, breakdown by
+  modality, procedure, room, patient class, ordering department, referring, priority, age band,
+  sex, weekday and hour booked. Filters: modality, class, department, room, priority. Excel of
+  every exam (accession, patient ID, no names). Not checked on real data: the laptop sample has
+  no booking times (it predates 0160).
 
 ---
 

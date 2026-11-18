@@ -417,6 +417,24 @@ const ChartExplanations = {
       valueMeaning: 'Left = no active row on the RIS (and no active person shares the login), or every PACS account set to a leaver status (suspended, disabled; the list is shown above the table). A lock after wrong passwords does not count, nor does having no PACS account. A RIS person and a PACS login are linked by the login in the RIS resource ID, else by e-mail. Signed = studies whose report the login last composed, in the period; performed = RIS exams the person is on, in the period.',
       interpretation: 'Left but signed or performed in the period: the RIS or PACS still has them inactive by mistake, or a shared account; fix the RIS or PACS before switching on. Once on, they read "Former staff" on every report, and every total keeps their studies.'
     },
+    'r40-buckets': {
+      title: 'How far ahead',
+      purpose: 'How many exams were booked how long before their appointment, for the appointments in the period.',
+      valueMeaning: 'Lead time = the appointment day minus the day the order was created on the RIS, in calendar days; 0 = booked the same day. "Booked after the appointment": the order was created after the appointment time (a walk-in registered afterwards); those are left out of every lead time figure.',
+      interpretation: 'A tall same-day bar means mostly walk-ins and urgent work; a long tail past 30 days points at a waiting list for that kind of exam. Use the breakdown below to see which modality or room it comes from.'
+    },
+    'r40-heat': {
+      title: 'When bookings are made',
+      purpose: 'The weekday and hour the orders were created on the RIS, for the appointments in the period.',
+      valueMeaning: 'Each cell counts the bookings made in that hour of that weekday (hospital time). Darker = more.',
+      interpretation: 'Shows when the booking desk and the wards order most, for staffing the desk and the phones.'
+    },
+    'r40-breakdown': {
+      title: 'Lead time breakdown',
+      purpose: 'The lead time figures for each value of the dimension picked: modality, procedure, room, patient class, ordering department, referring physician, priority, age band, sex, or when the booking was made.',
+      valueMeaning: 'Median and 90th percentile in days (and the median in hours), the share booked the same day and a week or more ahead, the share later cancelled on the RIS, and the share that got the Scheduled status more than once (booked again for another time). "Not recorded" = the RIS has no value.',
+      interpretation: 'Compare a room or procedure with the others: a high median with many reschedules points at a capacity or scheduling problem there. Long lists show their largest rows; the Excel download has every exam.'
+    },
     'r32-addendum': {
       title: 'Addendum Rate by Radiologist',
       purpose: 'For each reader with at least 5 reported studies in the period, the share of studies that carry an addendum.',

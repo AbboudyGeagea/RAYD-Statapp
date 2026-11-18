@@ -51,6 +51,10 @@ routes/
                                    the RIS and/or PACS, utils/staff_status.py), their activity in
                                    the period, Excel for the manager, and the switch (settings
                                    capability) that makes every report read "Former staff" for them
+  report_40.py                  — Report 40, Patient Schedule Lead Time (item 21, migration 0167):
+                                   order creation on the RIS (etl_orders.order_created_at) to the
+                                   appointment, by every rpt.exams dimension + ordering department;
+                                   cancelled, scheduled more than once; utils/schedule_lead_time.py
   report_37.py                  — Report 37, JCI urgent emergent (the former Sticky Notes page,
                                    /sticky-notes redirects; report card next to ER in Clinical KPIs;
                                    per-user report access; report_template row + licence in migration

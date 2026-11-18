@@ -24,6 +24,7 @@ import routes.report_36   # noqa: F401
 import routes.report_37   # noqa: F401
 import routes.report_38   # noqa: F401  (the ER dashboard, until 2026-11-14 /er)
 import routes.report_39   # noqa: F401  (staff status, item 9)
+import routes.report_40   # noqa: F401  (patient schedule lead time, item 21)
 from routes.report_registry import get_all_reports, get_report_ids
 from routes.api_controller   import api_bp
 from routes.hl7_orders       import hl7_orders_bp

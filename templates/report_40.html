@@ -1,0 +1,178 @@
+{% from '_report_filter_panel.html' import filter_panel_head, filter_panel %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAYD | Patient Schedule Lead Time</title>
+    <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
+    {{ filter_panel_head() }}
+    <style>
+        :root { --accent:#60a5fa; }
+        body  { font-family:'Inter',sans-serif; background:#181f1c; color:#e2e8f0; }
+        .card { background:#232b28; border:1px solid #28332e; border-radius:1.25rem; }
+        .kpi-card { background:#232b28; border:1px solid #28332e; border-radius:1rem; padding:1.25rem 1.5rem; }
+        .kpi-label { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; color:#64748b; margin-bottom:0.25rem; }
+        .kpi-value { font-size:1.75rem; font-weight:900; color:#fff; line-height:1.2; }
+        .kpi-sub   { font-size:10px; color:#64748b; margin-top:0.25rem; }
+        .section-title { font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.15em; color:var(--accent); margin-bottom:0.75rem; }
+        th { white-space:nowrap; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em; color:#64748b; padding:0.5rem 0.6rem; }
+        td { padding:0.45rem 0.6rem; font-size:12px; vertical-align:top; }
+        tbody tr { border-top:1px solid #28332e; }
+        .bar-track { background:#1b2320; border-radius:4px; height:14px; }
+        .bar-fill  { background:var(--accent); border-radius:4px; height:14px; }
+        .bar-fill.after { background:#f59e0b; }
+        .heat td { padding:0; width:3.6%; height:18px; text-align:center; font-size:9px; color:#0f172a; }
+        .heat th { padding:0.2rem; font-size:9px; }
+        select.dim { background:#1b2320; border:1px solid #28332e; border-radius:0.5rem; color:#e2e8f0; font-size:12px; padding:0.35rem 0.6rem; }
+        body.light { background:#f0f4f8; color:#1a202c; }
+        body.light main { background:#f0f4f8!important; }
+        body.light .card, body.light .kpi-card { background:#ffffff; border-color:#e2e8f0; }
+        body.light .kpi-value, body.light .text-white { color:#1a202c!important; }
+        body.light .text-slate-400 { color:#4a5568!important; }
+        body.light tbody tr { border-color:#e2e8f0; }
+        body.light .bar-track { background:#e2e8f0; }
+        body.light select.dim { background:#fff; border-color:#cbd5e1; color:#1a202c; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+{% include '_header.html' %}
+
+{% macro num(v, suffix='') %}{% if v is none %}–{% else %}{{ v }}{{ suffix }}{% endif %}{% endmacro %}
+
+<div class="flex flex-1 overflow-hidden">
+    {{ filter_panel(start, end, filters, export_url=url_for('report_40.export_xlsx')) }}
+
+    <main class="flex-1 overflow-y-auto bg-[#181f1c] p-8">
+        <div class="mb-6">
+            <h1 class="text-2xl font-black text-white tracking-tight">Patient Schedule Lead Time</h1>
+            <p class="text-slate-400 text-sm">How far ahead {{ site }}'s exams are booked: from when the order was created on the RIS to the appointment, for the appointments from {{ start }} to {{ end }}.</p>
+        </div>
+
+        {% if summary is none %}
+        <div class="card p-6 text-sm text-slate-400">The report could not be loaded.</div>
+        {% else %}
+        {% set k = summary.kpi %}
+
+        <div class="card p-4 mb-6 text-xs text-slate-400 leading-relaxed">
+            <p><i class="bi bi-info-circle mr-1" style="color:var(--accent);"></i><strong class="text-white">Booked</strong> is when the order was created on the RIS; the <strong class="text-white">lead time</strong> is the appointment day minus the booking day (0 = same day). An appointment earlier than its booking (a walk-in registered afterwards) is counted aside and left out of the lead time figures. <strong class="text-white">Scheduled more than once</strong>: the exam got the Scheduled status again on the RIS, booked for another time. The HIS's duplicate orders and test patients are left out.</p>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-4 mb-6">
+            <div class="kpi-card"><p class="kpi-label">Exams</p><p class="kpi-value">{{ '{:,}'.format(k.exams) }}</p><p class="kpi-sub">appointments in the period</p></div>
+            <div class="kpi-card"><p class="kpi-label">Median lead time</p><p class="kpi-value">{{ num(k.median_days, ' d') }}</p><p class="kpi-sub">{{ num(k.median_hours, ' hours') }}</p></div>
+            <div class="kpi-card"><p class="kpi-label">90th percentile</p><p class="kpi-value">{{ num(k.p90_days, ' d') }}</p><p class="kpi-sub">9 in 10 booked within</p></div>
+            <div class="kpi-card"><p class="kpi-label">Same day</p><p class="kpi-value">{{ num(k.same_day_pct, '%') }}</p></div>
+            <div class="kpi-card"><p class="kpi-label">{{ ahead_days }}+ days ahead</p><p class="kpi-value">{{ num(k.ahead_pct, '%') }}</p></div>
+            <div class="kpi-card"><p class="kpi-label">Cancelled</p><p class="kpi-value">{{ num(k.cancelled_pct, '%') }}</p></div>
+            <div class="kpi-card"><p class="kpi-label">Scheduled more than once</p><p class="kpi-value">{{ num(k.rescheduled_pct, '%') }}</p></div>
+            <div class="kpi-card"><p class="kpi-label">Booked after appointment</p><p class="kpi-value">{{ '{:,}'.format(k.after) }}</p><p class="kpi-sub">left out of the lead time</p></div>
+        </div>
+
+        {% if k.exams == 0 %}
+        <div class="card p-6 text-sm text-slate-400">No exam with a booking time has its appointment in this period.</div>
+        {% else %}
+
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+            <div class="card p-5">
+                <p class="section-title">How far ahead<i class="bi bi-info-circle chart-info-icon ml-1" data-explain="r40-buckets" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
+                {% set most = summary.buckets | map(attribute='exams') | max %}
+                <table class="w-full text-left">
+                    <tbody>
+                    {% for b in summary.buckets %}
+                    <tr>
+                        <td class="w-44 text-slate-400">{{ b.label }}</td>
+                        <td><div class="bar-track"><div class="bar-fill{% if b.key == 'after' %} after{% endif %}" style="width:{{ (100 * b.exams / most) | round(1) if most else 0 }}%"></div></div></td>
+                        <td class="w-28 text-right">{{ '{:,}'.format(b.exams) }} <span class="text-slate-500">({{ (100 * b.exams / k.exams) | round(1) }}%)</span></td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card p-5">
+                <p class="section-title">When bookings are made<i class="bi bi-info-circle chart-info-icon ml-1" data-explain="r40-heat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
+                <div class="overflow-x-auto">
+                    <table class="heat w-full">
+                        <thead><tr><th></th>{% for h in range(24) %}<th scope="col">{{ '%02d' % h }}</th>{% endfor %}</tr></thead>
+                        <tbody>
+                        {% for day in weekdays %}
+                        <tr>
+                            <th scope="row" class="text-left">{{ day[:3] }}</th>
+                            {% for n in summary.heat[loop.index0] %}
+                            {% set a = (0.12 + 0.88 * n / summary.heat_max) if summary.heat_max and n else 0 %}
+                            <td title="{{ day }} {{ '%02d' % loop.index0 }}:00 — {{ n }} bookings" style="background:rgba(96,165,250,{{ a | round(2) }});">{{ n if n else '' }}</td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-5">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <p class="section-title mb-0">Breakdown<i class="bi bi-info-circle chart-info-icon ml-1" data-explain="r40-breakdown" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></p>
+                <label class="text-xs text-slate-400">By
+                    <select class="dim ml-1" id="dim" aria-label="Break down by">
+                        {% for key, label in dimensions %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+                    </select>
+                </label>
+            </div>
+            {% for key, label in dimensions %}
+            {% set bd = summary.breakdowns[key] %}
+            <div class="overflow-x-auto dim-table" data-dim="{{ key }}" {% if not loop.first %}hidden{% endif %}>
+                <table class="w-full text-left">
+                    <thead><tr>
+                        <th scope="col">{{ label }}</th><th scope="col" class="text-right">Exams</th>
+                        <th scope="col" class="text-right">Median (days)</th><th scope="col" class="text-right">Median (hours)</th>
+                        <th scope="col" class="text-right">90th pct (days)</th><th scope="col" class="text-right">Same day</th>
+                        <th scope="col" class="text-right">{{ ahead_days }}+ days ahead</th><th scope="col" class="text-right">Cancelled</th>
+                        <th scope="col" class="text-right">Scheduled more than once</th><th scope="col" class="text-right">Booked after</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for r in bd.rows %}
+                    <tr>
+                        <td class="{{ 'text-slate-500 italic' if r.value == unknown else 'font-bold text-white' }}">{{ r.value }}</td>
+                        <td class="text-right">{{ '{:,}'.format(r.exams) }}</td>
+                        <td class="text-right">{{ num(r.median_days) }}</td>
+                        <td class="text-right">{{ num(r.median_hours) }}</td>
+                        <td class="text-right">{{ num(r.p90_days) }}</td>
+                        <td class="text-right">{{ num(r.same_day_pct, '%') }}</td>
+                        <td class="text-right">{{ num(r.ahead_pct, '%') }}</td>
+                        <td class="text-right">{{ num(r.cancelled_pct, '%') }}</td>
+                        <td class="text-right">{{ num(r.rescheduled_pct, '%') }}</td>
+                        <td class="text-right">{{ r.after if r.after else '' }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% if bd.total > bd.rows|length %}<p class="text-[11px] text-slate-500 mt-2">The {{ bd.rows|length }} largest of {{ bd.total }}; the Excel download has every exam.</p>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endif %}
+    </main>
+</div>
+
+<script>
+    (function () {
+        const pick = document.getElementById('dim');
+        if (!pick) return;
+        let saved = null;
+        try { saved = localStorage.getItem('r40-dim'); } catch (e) {}
+        if (saved && pick.querySelector('option[value="' + saved + '"]')) pick.value = saved;
+        function show() {
+            document.querySelectorAll('.dim-table').forEach(t => { t.hidden = t.dataset.dim !== pick.value; });
+            try { localStorage.setItem('r40-dim', pick.value); } catch (e) {}
+        }
+        pick.addEventListener('change', show);
+        show();
+    })();
+</script>
+</body>
+</html>

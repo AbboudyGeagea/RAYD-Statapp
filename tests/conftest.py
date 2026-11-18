@@ -283,6 +283,8 @@ def app(database_url):
     # Report 39, staff status (item 9)
     from routes.report_39 import report_39_bp
     flask_app.register_blueprint(report_39_bp)
+    from routes.report_40 import report_40_bp
+    flask_app.register_blueprint(report_40_bp)
     # the home page's daily briefing and Yesterday tab
     from routes.viewer_controller import viewer_bp
     flask_app.register_blueprint(viewer_bp, url_prefix='/viewer')
