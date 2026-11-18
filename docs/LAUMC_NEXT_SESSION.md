@@ -101,6 +101,9 @@ wetread 14,821, all from 1 Oct; `pacs_audit_version` 2, `original_ae_filled` and
   scanner's mapped site is the gateway's (or either has none); AE_DBT behind the middleware
   keeps it (SJH, modality PACS, as today). SENOIRIS is SJH's (all 9 direct, 14 of 17 behind the
   middleware on SAP_SJH): 0164 maps it to SJH, so its 9 direct studies leave RH's reports.
+  **Deployed 18 Nov (0164, 0165), checked:** SJHCSAPWFMFIR 141,186 on their scanner, 5,227 left;
+  LAUMCWFM2FIR 476 and 84, exactly as expected below. update.sh took the app's migration lock
+  (item 34).
   **Expected on production after 0164** (non-SR studies): SJHCSAPWFMFIR about 141,200 on their
   scanner, about 5,230 left on it (AE_DBT 4,696, no AE 258, XVIMPORT 231, VIMS_AE 38, 4 others);
   LAUMCWFM2FIR 476 on their scanner (RH devices), 84 left (SJH devices 53, no AE 30, SVSM 1). RH
@@ -146,7 +149,7 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 | 31 | Cardiology out | **done**: 3,948 purged; the 232 SJH XA left are imports (XVIMPORT 231) and 1 with no AE | — | done 18 Nov |
 | 14A/B | Signature turnaround | deployed; approvals re-read | spot-check Report 32; station clocks | 18–19 Nov |
 | 4 | RIS room names | done (0161, 6 links live) | checklist 6 for LEO22529/ARTIS121403 | 18–19 Nov |
-| 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | deploy 0164 + 0165 (then the check query); PHILIPSCARM = C-Arm 2?; cath lab RIS side; 13d; move Sat 28 | deploy now, move 28–29 |
+| 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | **0164 + 0165 deployed and checked 18 Nov**; PHILIPSCARM = C-Arm 2?; cath lab RIS side; 13d; move Sat 28 | move 28–29 |
 | 21 | Patient schedule lead time | booking time filled (0160) | the report (about 2 days) | 23–25 Nov, deploy 26 |
 | 1 | HIS vs RIS orders | HIS order number filled (0160) | Mirth ORM forwarding; then the Report 27 tab (2–3 days) | after the ORMs |
 | 10 | Gateways | SJH and LAUMCWFM2FIR from the original AE; LAUMCWFM1AR from the RIS | built with 13 | with 13 |
