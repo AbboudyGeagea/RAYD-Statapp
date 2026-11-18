@@ -31,6 +31,27 @@ logger = logging.getLogger("report_25")
 
 report_25_bp = Blueprint("report_25", __name__)
 
+# ── Shared SQL fragments for every radiologist report count ──────────────
+# Rule: a report is counted on the day it was FINALIZED, not the study day.
+#   Study 01/01, final 03/01 → not counted on 01/01; counted once on 03/01.
+# Every radiologist table (peer ranking, heatmap, reports-per-radiologist
+# matrix, cadence daily log, addendum rate) must use these same fragments so
+# their counts agree.
+_MJ25 = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))"
+_RAD25_BASE = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+               "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
+_PAM25 = ("LEFT JOIN physician_alias_map pam "
+          "ON pam.dismissed = false "
+          "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
+          "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
+_RAD25 = "COALESCE(pam.canonical_name, " + _RAD25_BASE + ")"
+_RAD25_OK = (f"AND {_RAD25} NOT IN ('','Unknown')"
+             f" AND s.rep_final_timestamp IS NOT NULL")
+# Same as DATE(s.rep_final_timestamp) BETWEEN :start AND :end, but index-friendly
+_FINAL_IN_RANGE = ("s.rep_final_timestamp >= CAST(:start AS date) "
+                   "AND s.rep_final_timestamp < CAST(:end AS date) + 1")
+_NOT_SR = "COALESCE(m.modality, s.study_modality, '') != 'SR'"
+
 def _load_shift_config():
     defaults = {'morning_start': 7, 'morning_end': 15,
                 'afternoon_start': 15, 'afternoon_end': 23,
@@ -200,19 +221,9 @@ def get_gold_standard_data(form_data):
     except Exception:
         pass
 
-    # Rad Performance — counts reports by DATE(rep_final_timestamp) so that
-    # studies finalized from a prior-day backlog are correctly attributed to
-    # the date the radiologist actually signed, not the study acquisition date.
-    _MJ25 = "LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))"
-    _RAD25_BASE = ("COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-                   "s.signing_physician_last_name)),''),s.rep_final_signed_by,'Unknown')")
-    _PAM25 = ("LEFT JOIN physician_alias_map pam "
-              "ON pam.dismissed = false "
-              "AND pam.alias = COALESCE(NULLIF(TRIM(CONCAT(s.signing_physician_first_name,' ',"
-              "s.signing_physician_last_name)),''),s.rep_final_signed_by)")
-    _RAD25 = "COALESCE(pam.canonical_name, " + _RAD25_BASE + ")"
-    _RAD25_OK = (f"AND {_RAD25} NOT IN ('','Unknown')"
-                 f" AND s.rep_final_timestamp IS NOT NULL")
+    # Rad Performance — counts reports by finalization date (_FINAL_IN_RANGE)
+    # so a backlog study is attributed to the day the radiologist signed it,
+    # not the study acquisition date. Same filters as rad_volume_matrix below.
     rad_cards = []
     try:
         _rc_sql = f"""
@@ -225,8 +236,8 @@ def get_gold_standard_data(form_data):
                 COALESCE(pm.clinical_rvu, 1.0) AS clinical_rvu
             FROM etl_didb_studies s {_MJ25} {_PAM25}
             LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
-            WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'OT')
+            WHERE {_FINAL_IN_RANGE}
+              AND {_NOT_SR}
               AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
               {_sec_filters} {_RAD25_OK}
         """
@@ -427,22 +438,20 @@ def get_gold_standard_data(form_data):
         logger.exception("Failed to load shift breakdown")
         db.session.rollback()
 
-    # Addendum rate by radiologist
+    # Addendum rate by radiologist — same report-count rule as the
+    # Radiologists tab (finalization date, same name resolution).
     addendum_data = {'overall_pct': 0.0, 'by_rad': []}
     try:
         add_rows = db.session.execute(text(f"""
             SELECT
-                COALESCE(pam.canonical_name, s.rep_final_signed_by, 'Unknown') AS radiologist,
+                {_RAD25} AS radiologist,
                 COUNT(*) AS total,
                 SUM(CASE WHEN s.rep_has_addendum THEN 1 ELSE 0 END) AS addendum_count,
                 ROUND(SUM(CASE WHEN s.rep_has_addendum THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*),0) * 100, 1) AS addendum_pct
-            FROM etl_didb_studies s
-            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
-            LEFT JOIN physician_alias_map pam ON pam.dismissed = false AND pam.alias = s.rep_final_signed_by
-            WHERE s.study_date BETWEEN :start AND :end
-              AND s.rep_final_signed_by IS NOT NULL
-              AND s.rep_final_timestamp IS NOT NULL
-              {_sec_filters}
+            FROM etl_didb_studies s {_MJ25} {_PAM25}
+            WHERE {_FINAL_IN_RANGE}
+              AND {_NOT_SR}
+              {_sec_filters} {_RAD25_OK}
             GROUP BY 1
             HAVING COUNT(*) >= 5
             ORDER BY addendum_pct DESC
@@ -464,11 +473,11 @@ def get_gold_standard_data(form_data):
     try:
         rad_volume_matrix["by_modality"] = [dict(r) for r in db.session.execute(text(f"""
             SELECT {_RAD25} AS radiologist,
-                   COALESCE(UPPER(m.modality), 'Unknown') AS dim,
+                   COALESCE(UPPER(m.modality), UPPER(s.study_modality), 'Unknown') AS dim,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s {_MJ25} {_PAM25}
-            WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
-              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+            WHERE {_FINAL_IN_RANGE}
+              AND {_NOT_SR}
               AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 1, 3 DESC
@@ -478,11 +487,9 @@ def get_gold_standard_data(form_data):
             SELECT {_RAD25} AS radiologist,
                    COALESCE(s.original_storing_ae, 'Unknown') AS dim,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
-            FROM etl_didb_studies s
-            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
-            {_PAM25}
-            WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
-              AND COALESCE(s.study_modality, '') != 'SR'
+            FROM etl_didb_studies s {_MJ25} {_PAM25}
+            WHERE {_FINAL_IN_RANGE}
+              AND {_NOT_SR}
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 1, 3 DESC
         """), params).mappings().fetchall()]
@@ -490,10 +497,9 @@ def get_gold_standard_data(form_data):
         rad_volume_matrix["by_procedure"] = [dict(r) for r in db.session.execute(text(f"""
             WITH top_procs AS (
                 SELECT s.procedure_code
-                FROM etl_didb_studies s
-                {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
-                WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
-                  AND s.rep_final_timestamp IS NOT NULL
+                FROM etl_didb_studies s {_MJ25}
+                WHERE {_FINAL_IN_RANGE}
+                  AND {_NOT_SR}
                   AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
                   {_sec_filters}
                 GROUP BY 1 ORDER BY COUNT(DISTINCT s.study_db_uid) DESC LIMIT 60
@@ -501,12 +507,10 @@ def get_gold_standard_data(form_data):
             SELECT {_RAD25} AS radiologist,
                    s.procedure_code AS proc,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
-            FROM etl_didb_studies s
-            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
-            {_PAM25}
+            FROM etl_didb_studies s {_MJ25} {_PAM25}
             JOIN top_procs tp ON tp.procedure_code = s.procedure_code
-            WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
-              AND COALESCE(s.study_modality, '') != 'SR'
+            WHERE {_FINAL_IN_RANGE}
+              AND {_NOT_SR}
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 2, 3 DESC
         """), params).mappings().fetchall()]
@@ -515,14 +519,34 @@ def get_gold_standard_data(form_data):
                    TO_CHAR(DATE(s.rep_final_timestamp), 'YYYY-MM') AS dim,
                    COUNT(DISTINCT s.study_db_uid) AS cnt
             FROM etl_didb_studies s {_MJ25} {_PAM25}
-            WHERE DATE(s.rep_final_timestamp) BETWEEN :start AND :end
-              AND COALESCE(m.modality, s.study_modality, '') != 'SR'
+            WHERE {_FINAL_IN_RANGE}
+              AND {_NOT_SR}
               AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
               {_sec_filters} {_RAD25_OK}
             GROUP BY 1, 2 ORDER BY 1, 2
         """), params).mappings().fetchall()]
     except Exception:
         logger.exception("Failed to build radiologist × modality/AE/procedure volume matrix")
+        db.session.rollback()
+
+    # Reporting coverage — share of studies ACQUIRED in the period that have a
+    # final report. Computed on its own study-date basis; rad_cards counts by
+    # finalization date, so dividing those by the study-date total would mix
+    # two different populations (and could exceed 100%).
+    coverage_pct = 0
+    try:
+        cov = db.session.execute(text(f"""
+            SELECT COUNT(*) AS total,
+                   COUNT(*) FILTER (WHERE s.rep_final_timestamp IS NOT NULL) AS reported
+            FROM etl_didb_studies s {_MJ25}
+            WHERE s.study_date BETWEEN :start AND :end
+              AND {_NOT_SR}
+              {_sec_filters}
+        """), params).mappings().first()
+        if cov and cov['total']:
+            coverage_pct = int(round(cov['reported'] / cov['total'] * 100))
+    except Exception:
+        logger.exception("Failed to compute reporting coverage")
         db.session.rollback()
 
     # tech_data and insights are deferred to /report/25/bg (background endpoint)
@@ -543,6 +567,7 @@ def get_gold_standard_data(form_data):
             "clinical_rvu": round(df['clinical_rvu'].sum(), 1),
             "technical_rvu": round(df['technical_rvu'].sum(), 1),
             "tat_median": tat_median, "tat_p25": tat_p25, "tat_p75": tat_p75,
+            "coverage_pct": coverage_pct,
         },
         "matrix": matrix_rows, 
         "class_tat": df[df['total_tat_min'] > 0].groupby('patient_class')['total_tat_min'].mean().round(1).to_dict() if 'patient_class' in df.columns else {},
@@ -619,30 +644,23 @@ def compute_bg_data(form_data):
     if "modalities" in params: _sec_filters += " AND UPPER(TRIM(m.modality)) IN :modalities"
     if "aetitles"   in params: _sec_filters += " AND s.original_storing_ae IN :aetitles"
     if "locations"  in params: _sec_filters += " AND s.patient_location IN :locations"
-    _sec_needs_mod_join = "modalities" in params
 
     # ── Shift patterns + signing timestamps ──────────────────────────────
     shift_patterns = {}
     ts_rows = []
     try:
         _BREAK_MIN = 20
+        # Same report-count rule and name resolution as the Radiologists tab
+        # tables, so the daily log "Studies" matches the per-day report count.
         ts_rows = db.session.execute(text(f"""
             SELECT
-                COALESCE(
-                    NULLIF(TRIM(CONCAT(
-                        COALESCE(s.signing_physician_first_name, ''), ' ',
-                        COALESCE(s.signing_physician_last_name,  '')
-                    )), ''),
-                    s.rep_final_signed_by,
-                    'Unknown'
-                ) AS radiologist,
+                {_RAD25} AS radiologist,
                 s.rep_final_timestamp,
                 s.accession_number
-            FROM etl_didb_studies s
-            {"LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.original_storing_ae)) = UPPER(TRIM(m.aetitle))" if _sec_needs_mod_join else ""}
-            WHERE s.rep_final_timestamp IS NOT NULL
-              AND s.rep_final_timestamp::date BETWEEN :start AND :end
-              {_sec_filters}
+            FROM etl_didb_studies s {_MJ25} {_PAM25}
+            WHERE {_FINAL_IN_RANGE}
+              AND {_NOT_SR}
+              {_sec_filters} {_RAD25_OK}
             ORDER BY 1, 2
         """), params).fetchall()
 

@@ -198,8 +198,7 @@
             {% if data %}
 
             <!-- ── DEPARTMENT PULSE ───────────────────────────────────────── -->
-            {% set _reported = data.rad_cards | map(attribute='count') | sum %}
-            {% set _coverage = (_reported / data.summary.total * 100) | round | int if data.summary.total > 0 else 0 %}
+            {% set _coverage = (data.summary.coverage_pct or 0) | int %}
             {% set _tat = (data.summary.tat_median or 0) | float %}
             {% set _hs  = (data.summary.high_stress_count or 0) | int %}
             <div id="pulse-bar" class="flex items-center gap-3 mb-8 flex-wrap">
