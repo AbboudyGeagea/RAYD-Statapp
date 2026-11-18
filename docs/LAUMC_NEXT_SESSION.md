@@ -35,8 +35,15 @@ wetread 14,821, all from 1 Oct; `pacs_audit_version` 2, `original_ae_filled` and
    Expect: audit kinds open, lock, approve, wetread from 1 Oct; `pacs_audit_version` 2,
    `original_ae_filled` and `orders_header_filled` true; SJH XA about 120 and US about 1,360
    (were 3,514 and 1,924 before the cardiology purge).
-2. **Item 2 (due Fri 20):** regenerate October in Report 37 (admin button), spot-check a few
-   cases' first open against the PACS.
+2. **Item 2 (due Fri 20), spot-check** (October was already regenerated on the audit, 18 Nov
+   01:02; no workbook needed). (a) On the server, picks 6 October ER studies spread over the
+   month with RAYD's first open (Report 37's rule) and prints their accessions in quotes:
+   ```bash
+   sudo docker exec rayd_db psql -U etl_user -d etl_db -c "CREATE TEMP TABLE spot AS WITH role_lookup AS (SELECT DISTINCT ON (login_id) login_id, role FROM (SELECT UPPER(BTRIM(o.login_id)) AS login_id, LOWER(BTRIM(o.role)) AS role, 1 AS src_rank FROM pacs_user_role_override o WHERE o.login_id IS NOT NULL UNION ALL SELECT UPPER(BTRIM(g.login_id)), CASE LOWER(BTRIM(g.group_name)) WHEN 'mammography' THEN 'radiologists' ELSE LOWER(BTRIM(g.group_name)) END, 2 FROM std_pacs_user_groups g WHERE g.login_id IS NOT NULL AND LOWER(BTRIM(g.group_name)) IN ('radiologists', 'residents', 'mammography')) src ORDER BY login_id, src_rank, CASE role WHEN 'residents' THEN 0 ELSE 1 END), cases AS (SELECT s.accession_number AS accession, s.study_instance_uid, s.insert_time AS arrived, NTILE(6) OVER (ORDER BY s.insert_time) AS part, random() AS r FROM etl_didb_studies s WHERE s.insert_time >= '2026-10-01' AND s.insert_time < '2026-11-01' AND (UPPER(BTRIM(s.patient_location)) = 'ER' OR s.accession_number LIKE '2XE%') AND s.site_id = (SELECT id FROM sites WHERE is_default) AND COALESCE(s.study_modality, '') <> 'SR' AND s.accession_number IS NOT NULL AND s.study_instance_uid IS NOT NULL) SELECT DISTINCT ON (c.part) c.accession, c.arrived, ao.event_at AS rayd_first_open, ao.user_name AS opened_by FROM cases c LEFT JOIN LATERAL (SELECT a.event_at, a.user_name FROM etl_pacs_audit_events a JOIN role_lookup reader ON reader.login_id = UPPER(SPLIT_PART(a.user_name, '@', 1)) WHERE a.study_instance_uid = BTRIM(c.study_instance_uid) AND a.kind IN ('open', 'lock') ORDER BY a.event_at, a.log_dbid LIMIT 1) ao ON TRUE ORDER BY c.part, c.r;" -c "SELECT accession, arrived, rayd_first_open, opened_by FROM spot ORDER BY arrived;" -c "SELECT string_agg(quote_literal(accession), ', ' ORDER BY arrived) AS paste_into_oracle FROM spot;"
+   ```
+   (b) In SQL Developer on the PACS Oracle: `scripts/sql/report_37_first_open_spotcheck.sql`,
+   replace `'ACC1', ... 'ACC6'` with the printed line, run. (c) Paste both outputs to Claude:
+   the first reader row per accession on Oracle must equal RAYD's first open and login.
 3. **Station clocks** (the audit time is the reading station's clock, operator): a login whose
    median offset is several minutes on every event has a wrong station clock.
    ```bash

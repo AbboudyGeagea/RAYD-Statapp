@@ -1,14 +1,13 @@
 -- Report 37 (item 2) spot-check: the first open RAYD shows against the PACS audit trail.
 -- Run on the PACS Oracle (SYS or any login that reads AUDITING.AUDIT_LOG), read-only, once.
 --
--- 1. Regenerate October in Report 37 and download the workbook.
--- 2. Pick about 6 accessions: ER and another department, early 1 Oct and late 31 Oct, one
---    with "First open" blank ("Not opened by a resident or radiologist...").
--- 3. Put them below and run. Rows are every open (Access) and lock (LOCKED) of each study, in
---    time order. EVENT_DATE is hospital time, as in Report 37.
--- 4. Report 37's "First open" time and login = the first row whose login is a resident,
---    radiologist or mammography reader (a technologist's open does not count). It shows
---    minutes, so it matches the row to the minute.
+-- 1. On the server, the command in docs/LAUMC_NEXT_SESSION.md (item 2, "Spot-check") picks 6
+--    October ER studies spread over the month, prints RAYD's first open for each (Report 37's
+--    rule), and a line of the 6 accessions in quotes.
+-- 2. Replace 'ACC1', ... 'ACC6' below with that line and run. Rows are every open (Access) and
+--    lock (LOCKED) of each study, in time order. EVENT_DATE is hospital time, as in Report 37.
+-- 3. RAYD's first open and login = the first row here whose login is a resident, radiologist or
+--    mammography reader (a technologist's open does not count), to the second.
 --
 -- Reads through the UPPER(accession) index. Never selects the patient's name or ID, and the
 -- description is read only to find the lock and the login, as the nightly ETL does.
