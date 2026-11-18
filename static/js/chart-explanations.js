@@ -926,6 +926,134 @@ const ChartExplanations = {
       purpose: 'Storage per procedure, modality and room, largest first.',
       valueMeaning: 'Studies, total GB and average MB per study for each combination. Critical above 500 MB per study, warning 250–500 MB, OK below 250 MB. The Storage Alert above lists up to 5 procedures averaging over 500 MB (after removing extreme values).',
       interpretation: 'Start with the rows that combine a high study count and a high average: changing one protocol there saves the most space.'
+    },
+
+    // ── Report AI — forecasts (utils/forecasting.py, since 2026-11-18) ────────────
+    'ai-report': {
+      title: 'AI Intelligence',
+      purpose: 'Forecasts of the archive’s storage, the daily study volume and each device’s workload, and the referring physicians whose referrals changed clearly. Rizk Hospital only.',
+      valueMeaning: 'History comes from the dates picked on the left. Forecasts are trained every night at 06:30 on everything since January 2022 and start the day after the latest data, so they show when the end date is today or yesterday.',
+      interpretation: 'Use it to plan staffing around holidays, to see which devices will run hot in the next month, and to know how long the archive lasts. The forecast range matters as much as the line: plan for its upper edge when capacity is tight.'
+    },
+    'ai-model': {
+      title: 'How the forecasts are made',
+      purpose: 'A Prophet model learns, from the hospital’s own history, its weekly pattern, its yearly season, its growth, and what each kind of holiday does. A second step learns from the model’s own errors of the last 14 days and pulls the next days the same way (if the last days ran above the forecast, the next ones are raised), fading over the following days.',
+      valueMeaning: 'Chosen on a test over the last 15 months: the straight line used before missed the daily volume by 67 % on average, this model by about 15 %. Neural networks did no better at 90 days. Periods marked unusual in the calendar (COVID, the 2024 war) are left out of training.',
+      interpretation: 'About 14 % of the day-to-day variation (walk-ins, ER arrivals) cannot be predicted by any model, so read single days with their range. The next-day error under each chart says how the model has done over the last 30 days.'
+    },
+    'ai-calendar': {
+      title: 'Holidays & closures',
+      purpose: 'The list of holidays and closures the forecasts use. Seeded with Lebanon’s official holidays from 2019 to 2028, corrected from the hospital’s own data for past years (the days each Eid really closed, holidays moved to a Monday, Easter Mondays).',
+      valueMeaning: 'Closed = runs like a Sunday (about 30 % of a weekday). Half day = Christmas Eve and New Year’s Eve. No effect = listed but worked (Ashura, the Prophet’s Birthday, the Annunciation since 2025). Unusual period = left out of training (lockdown, war, strike).',
+      interpretation: 'Eid dates after 2026 are estimates: correct them when they are announced, and add one-off closures (a strike, a state funeral) as they happen. Changes count from the next training, tonight or with Retrain now. One list serves both hospitals.'
+    },
+    'ai-storage-current': {
+      title: 'Current Storage',
+      purpose: 'How much the archive holds now: every GB of images stored since RAYD started counting, whatever dates are picked.',
+      valueMeaning: 'GB, against the capacity set in the sidebar (administrators can change it).',
+      interpretation: 'If the capacity is not the archive’s real size, the days to capacity are wrong: check the capacity first.'
+    },
+    'ai-storage-daily': {
+      title: 'Expected per Day',
+      purpose: 'The GB a day the model expects over the next 90 days, on average.',
+      valueMeaning: 'Weekdays store more, weekends and holidays much less; this is the average over all of them. Large one-off loads (a few studies of hundreds of GB, as on 30 July 2026) are kept out of the daily pattern and added back as their yearly average.',
+      interpretation: 'A rise from one month to the next usually means more CT or MR studies, or a protocol that stores thinner slices.'
+    },
+    'ai-storage-full': {
+      title: 'Days to Capacity',
+      purpose: 'How many days until the archive is full at the forecast pace, and the date.',
+      valueMeaning: 'The forecast GB per day are added up from today until they fill the free space; past the 2-year forecast, the pace of its last 90 days is continued. The range below uses the forecast’s high and low edges.',
+      interpretation: 'Plan new storage well before the soonest date of the range. A storage forecast 90 days ahead has been within about ±16 % of what came; years ahead it is a guide, not a date.'
+    },
+    'ai-storage-chart': {
+      title: 'GB Stored per Day + 90-Day Forecast',
+      purpose: 'The GB of images stored each day in the dates picked, followed by the next 90 days of forecast.',
+      valueMeaning: 'Solid line = what was stored. Dashed line = the forecast; shaded = its likely range. Hover a day for its holiday, if any.',
+      interpretation: 'Single tall spikes are one-off loads, not a trend. The weekly saw-tooth is weekends.'
+    },
+    'ai-volume-total': {
+      title: 'Total Studies',
+      purpose: 'Studies in the dates picked, Rizk Hospital only.',
+      valueMeaning: 'One study per PACS study. Structured reports and bone densitometry are left out; the modality comes from the device first.',
+      interpretation: 'Compare with the same dates of last year to see growth.'
+    },
+    'ai-volume-avg': {
+      title: 'Per Day',
+      purpose: 'Average studies a day in the dates picked, and the average Monday to Friday, Saturday and Sunday.',
+      valueMeaning: 'The weekday split leaves holidays out, so a Christmas week does not lower the Monday-to-Friday figure.',
+      interpretation: 'Saturdays run at about a third of a weekday and Sundays at about a quarter at LAUMC: staff the weekend from these, not from the overall average.'
+    },
+    'ai-volume-next': {
+      title: 'Next 90 Days',
+      purpose: 'How many studies the model expects in the next 90 days, with the likely range.',
+      valueMeaning: 'The sum of the daily forecast, holidays included. The range is the sum of the daily low and high edges, so it is wide on purpose.',
+      interpretation: 'Use it for staffing and consumables. A month of actuals running near the high edge means demand is rising faster than the trend.'
+    },
+    'ai-volume-growth': {
+      title: 'Growth',
+      purpose: 'The underlying growth of daily volume over the last year, once the weekly pattern, season and holidays are taken out.',
+      valueMeaning: 'In % a year, from the model’s trend. About +8 % a year since 2022 at LAUMC.',
+      interpretation: 'A trend that flattens or turns negative is worth discussing with the referring departments before it shows in monthly totals.'
+    },
+    'ai-volume-chart': {
+      title: 'Daily Study Volume + 90-Day Forecast',
+      purpose: 'Studies each day in the dates picked, followed by the next 90 days of forecast.',
+      valueMeaning: 'Blue bars = studies; purple bars = holidays. Red dots = unusual days, far from that weekday’s normal (holidays are not counted). Dashed line = forecast, shaded = its likely range, where about 8 days in 10 should fall.',
+      interpretation: 'The forecast dips on weekends and holidays because the hospital does: that is the point of the model. Several unusual days in a row point at something real: a device down, a strike, an ETL gap.'
+    },
+    'ai-volume-upcoming': {
+      title: 'Coming Holidays',
+      purpose: 'The holidays and half days in the next 90 days, from the calendar, with the studies the model expects on each.',
+      valueMeaning: 'Expected = the forecast for that day, which already includes how such a day has run in past years.',
+      interpretation: 'If a date is wrong (an Eid announced a day later, a holiday moved to the Monday), correct it in Holidays & closures.'
+    },
+    'ai-volume-mod': {
+      title: 'Volume Split by Modality',
+      purpose: 'Share of the studies of the dates picked, per modality.',
+      valueMeaning: 'Modality from the procedure first, then the device.',
+      interpretation: 'A share that moves over months shows where growth comes from.'
+    },
+    'ai-util-anomalies': {
+      title: 'Unusual Days',
+      purpose: 'Device-days far from that device’s normal for the same weekday, in the dates picked.',
+      valueMeaning: 'More than two standard deviations from the device’s average for that weekday. Holidays are not counted: the calendar explains them.',
+      interpretation: 'A run of unusual days on one device usually means it was down or overbooked.'
+    },
+    'ai-util-high': {
+      title: 'Above 85%',
+      purpose: 'Devices whose average utilization in the dates picked is above 85 %.',
+      valueMeaning: 'Utilization = minutes of exams (measured on the RIS where available, else estimated from the procedure durations) ÷ the device’s opening minutes that weekday.',
+      interpretation: 'These devices have no slack: delays and overtime follow. Check their 30-day forecast.'
+    },
+    'ai-util-low': {
+      title: 'Below 30%',
+      purpose: 'Devices whose average utilization in the dates picked is between 0 and 30 %.',
+      valueMeaning: 'Same calculation as Above 85%. Devices with no opening hours on the RIS are not counted here.',
+      interpretation: 'Low use can mean spare capacity, or opening hours on the RIS that are wider than the device really runs.'
+    },
+    'ai-util-chart': {
+      title: 'Device Utilization + 30-Day Forecast',
+      purpose: 'The chosen device’s daily utilization in the dates picked, and the next 30 days.',
+      valueMeaning: 'Blue = utilization; purple dashed = what it would be if every exam took its scheduled time; red dots = unusual days. Orange dashed = forecast, shaded = its likely range. The forecast is of the device’s minutes, divided by its opening minutes that weekday.',
+      interpretation: 'A device with no opening hours on the RIS has no utilization, so its forecast is given in minutes in the line above the chart. A forecast that sits above 85 % for weeks is a device to relieve.'
+    },
+    'ai-phys-changes': {
+      title: 'Clear changes, last 13 weeks',
+      purpose: 'Referring physicians whose referrals in the last 13 weeks changed clearly against their usual share of the hospital’s studies.',
+      valueMeaning: 'Usual share = their share in the 52 weeks before. Comparing shares takes out what moves everyone (holidays, season, growth). Listed only when the change is at least 25 % and too large to be chance (less than 1 % likely). Hover a name for their counts.',
+      interpretation: 'A physician sending clearly fewer is worth a call. Physicians with too few studies to test are not listed.'
+    },
+    'ai-phys-table': {
+      title: 'Top 20 Referring Physicians',
+      purpose: 'The 20 physicians with most studies in the dates picked, with each one’s last 13 weeks against their usual share.',
+      valueMeaning: 'Last 13 weeks = studies in the 13 weeks to the end date. Usual = what their share of the 52 weeks before gives for the hospital’s studies in those 13 weeks. Change = the difference; normal when it is within what chance explains.',
+      interpretation: 'Normal rows can still move a little from week to week; only the red and green badges are clear changes.'
+    },
+    'ai-phys-chart': {
+      title: 'Monthly Referrals',
+      purpose: 'The chosen physician’s studies per month in the dates picked.',
+      valueMeaning: 'Bars per month; red when they send clearly fewer in the last 13 weeks, green when clearly more.',
+      interpretation: 'The current month is not finished, so its bar is short: read the test, not the last bar.'
     }
   },
 

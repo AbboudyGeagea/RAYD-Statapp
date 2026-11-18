@@ -2,7 +2,7 @@ import sys
 import os
 import logging
 import oracledb
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from hl7_listener import start_mllp_listener
 # 1. ORACLE ALIAS (Must be before other imports)
 sys.modules["cx_Oracle"] = oracledb
@@ -824,6 +824,42 @@ def create_app():
         id='daily_analytics_snapshot',
         name='Daily Analytics Snapshot',
         replace_existing=True
+    )
+
+    def scheduled_forecasts(only_if_empty=False):
+        # Report AI's forecasts (utils/forecasting.py, migration 0169): Prophet + a sequential
+        # correction, every series of every site database, after the 05:00 ETL. People read
+        # them, so the main database is read through the RH views (forecasting.run_for_site).
+        with app.app_context():
+            try:
+                from utils import forecasting
+                if only_if_empty and db.session.execute(
+                        text("SELECT EXISTS (SELECT 1 FROM public.ai_forecast_run)")).scalar():
+                    return
+                db.session.remove()
+                logger.info("⏰ [AI forecasts] training")
+                forecasting.run_all_sites()
+            except Exception as e:
+                logger.error(f"🛑 [AI forecasts] failed: {e}", exc_info=True)
+
+    scheduler.add_job(
+        func=scheduled_forecasts,
+        trigger=CronTrigger(hour=6, minute=30),
+        id='ai_forecasts_nightly',
+        name='Report AI forecasts (Prophet + sequential correction)',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    # the first time (a new install, the deploy of migration 0169): a few minutes after start-up
+    scheduler.add_job(
+        func=scheduled_forecasts,
+        kwargs={'only_if_empty': True},
+        trigger='date',
+        run_date=datetime.now(pytz.timezone("Asia/Beirut")) + timedelta(minutes=3),
+        id='ai_forecasts_first',
+        name='Report AI forecasts, first training',
+        replace_existing=True,
     )
 
     def scheduled_adapter_etl():

@@ -29,7 +29,8 @@ WORKDIR /app
 # 3. Copy requirements first to leverage Docker cache
 # Ensure 'apscheduler' and 'gunicorn' are in your requirements.txt
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# A slow link to PyPI must not fail the build (prophet and its matplotlib are large downloads)
+RUN pip install --no-cache-dir --timeout 120 --retries 10 -r requirements.txt
 
 # 4. Copy the rest of the application code
 COPY . .

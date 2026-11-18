@@ -1,0 +1,2 @@
+{# The line under a forecast chart's title: which model, when trained, how it did. Needs `meta`. #}
+{% if meta %}{{ meta.model }} · trained {{ meta.run_at }} on data to {{ meta.trained_to }}{% if meta.accuracy %} · next-day error {{ meta.accuracy.mape }}% over the last {{ meta.accuracy.days }} days{% endif %}{% if meta.fallback_reason %} · {{ meta.fallback_reason }}{% endif %}{% else %}No forecast yet — trained every night at 06:30{% endif %}

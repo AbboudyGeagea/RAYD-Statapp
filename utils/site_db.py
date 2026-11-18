@@ -62,6 +62,9 @@ SHARED_TABLES = (
     # BRAYN's placeholder list (migration 0151, kept on the BRAYN console): every database's rh
     # views leave its test patients and placeholder referrers out (migration 0165).
     'brayn_placeholders',
+    # Report AI's holiday calendar (migration 0169): national holidays, one list for both
+    # hospitals, edited on the Report AI page (routes/report_ai.py, written with shared_write)
+    'ai_calendar',
 )
 
 _engines = {}                 # site_id -> Engine, for sites with their own database

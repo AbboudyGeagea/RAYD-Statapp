@@ -73,6 +73,8 @@ DATA_TABLES = [
     # BRAYN (migration 0133), children of the archive first
     'brayn_findings', 'hl7_study_events', 'hl7_patients', 'hl7_message_archive',
     'brayn_study_state', 'brayn_interface_stats', 'brayn_unknown_values',
+    # Report AI's stored forecasts (migration 0169)
+    'ai_forecast_check', 'ai_forecast', 'ai_forecast_run',
 ]
 
 # Emptied with TRUNCATE before the DELETEs: crn_events rejects DELETE (an append-only
@@ -90,6 +92,8 @@ CONFIG_TABLES = [
     'procedure_duration_map', 'device_weekly_schedule', 'device_exceptions',
     # name merging the worklist views read
     'physician_alias_map',
+    # Report AI's holiday calendar, seeded by migration 0169
+    'ai_calendar',
 ]
 
 
@@ -290,6 +294,9 @@ def app(database_url):
     # the home page's daily briefing and Yesterday tab
     from routes.viewer_controller import viewer_bp
     flask_app.register_blueprint(viewer_bp, url_prefix='/viewer')
+    # Report AI, the forecasts (migration 0169)
+    from routes.report_ai import report_ai_bp
+    flask_app.register_blueprint(report_ai_bp)
 
     from db import db
     from sqlalchemy import text

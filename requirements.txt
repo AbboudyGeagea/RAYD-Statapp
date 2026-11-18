@@ -15,3 +15,5 @@ psutil
 xlsxwriter
 scikit-learn==1.4.2
 cryptography==42.0.5
+# Report AI's forecasts (utils/forecasting.py): Prophet + a sequential correction
+prophet==1.5.0

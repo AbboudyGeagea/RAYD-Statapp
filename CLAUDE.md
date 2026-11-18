@@ -61,6 +61,15 @@ routes/
                                    order creation on the RIS (etl_orders.order_created_at) to the
                                    appointment, by every rpt.exams dimension + ordering department;
                                    cancelled, scheduled more than once; utils/schedule_lead_time.py
+  report_ai.py                  — Report AI (/report/ai, stays a standalone page: operator 2026-11-18):
+                                   storage, volume, device and referrer tabs. Forecasts from
+                                   utils/forecasting.py (Prophet + a sequential correction on its
+                                   own errors, holiday calendar ai_calendar, migration 0169), trained
+                                   nightly at 06:30 per site database and stored in ai_forecast; the
+                                   page never fits a model. Calendar editable here (settings
+                                   capability, SHARED_TABLES); referrers by a share test, not a
+                                   forecast. What the data showed and why this model: the
+                                   docstring of utils/forecasting.py and migration 0169
   report_37.py                  — Report 37, JCI urgent emergent (the former Sticky Notes page,
                                    /sticky-notes redirects; report card next to ER in Clinical KPIs;
                                    per-user report access; report_template row + licence in migration
@@ -342,7 +351,8 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    token, Include/Exclude per filter). `utils/report_filters.panel_filters()` builds the
    dropdowns. Reports 22, 25, 34, 35, 36, 37, 38 and the Super Report use it (2026-11-14,
    `tests/test_report_filter_panel.py`), and Report 38, the ER dashboard. The ORU tab (`/oru`)
-   stays a standalone page (operator, 2026-11-14).
+   stays a standalone page (operator, 2026-11-14), and so does Report AI (`/report/ai`,
+   operator, 2026-11-18).
 9. **Roles: ask for a capability, never compare a role name** (item 13f, migration 0152,
    2026-11-15). Four roles: `superuser` (Super user, everything, every site), `cht`
    (implementation: mapping, ETL, BRAYN console), `administrator` (users and settings of the

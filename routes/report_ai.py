@@ -1,14 +1,26 @@
-import json
+"""
+routes/report_ai.py — Report AI (/report/ai): storage, volume, device utilization, referrers.
+
+Since 2026-11-18 (operator: "the linear regression is not AI to be relied on") the forecasts come
+from utils/forecasting.py: Prophet with the holiday calendar (ai_calendar, migration 0169) plus a
+sequential correction, trained every night and stored in ai_forecast. This page shows the history
+of the dates picked and, when they reach the latest data, the stored forecast with its 80 % band.
+Referrers get a test instead of a forecast (forecasting.referrer_changes). The calendar is edited
+here (settings capability) and the Retrain button reruns the forecasts of the site picked.
+"""
 import logging
+from datetime import date, datetime, timedelta
+
 import numpy as np
 import pandas as pd
-from datetime import date, timedelta
-from flask import Blueprint, render_template, request, abort, jsonify
+from flask import Blueprint, render_template, request, abort, jsonify, current_app
 from flask_login import login_required, current_user
-from utils.roles import can
 from sqlalchemy import text
+
 from db import db, get_report_start_date, user_has_page
-from routes.report_cache import cache_get, cache_put
+from routes.report_cache import cache_get, cache_put, cache_invalidate
+from utils import forecasting
+from utils.roles import can
 
 logger = logging.getLogger("REPORT_AI")
 report_ai_bp = Blueprint("report_ai", __name__)
@@ -17,17 +29,13 @@ report_ai_bp = Blueprint("report_ai", __name__)
 # Must not collide with numeric report IDs used by other routes.
 _AI_CACHE_REPORT_ID = 9900
 
-# This page is trend/forecast/anomaly analysis, not a live operational view --
-# nothing here needs to be fresher than an hour. The shared report_cache's
-# default TTL (5 min) meant almost every open recomputed all four sections
-# from scratch (each a full-history scan + numpy/pandas regression), since 5
-# minutes rarely elapses between opens. A 1-hour TTL cuts that down to ~once
-# per hour per distinct date range instead of ~once per open.
+# Trend and forecast analysis, not a live view: the forecasts change once a night (or on
+# Retrain, which clears this cache), so an hour is plenty.
 _AI_CACHE_TTL = 3600
 
 
 def _ai_cache_get(section: str, start: str, end: str):
-    """Look up a cached AI-intelligence section result."""
+    """Look up a cached AI-intelligence section result (the cache keys on the site too)."""
     return cache_get(_AI_CACHE_REPORT_ID, {"section": section, "start": start, "end": end}, ttl=_AI_CACHE_TTL)
 
 
@@ -35,45 +43,53 @@ def _ai_cache_put(section: str, start: str, end: str, data) -> None:
     """Store an AI-intelligence section result in the shared cache."""
     cache_put(_AI_CACHE_REPORT_ID, {"section": section, "start": start, "end": end}, data, ttl=_AI_CACHE_TTL)
 
+
+def _clear_ai_cache():
+    cache_invalidate(_AI_CACHE_REPORT_ID)
+
+
 # ─────────────────────────────────────────────
 #  HELPERS
 # ─────────────────────────────────────────────
 
-def _linear_forecast(dates, values, forecast_days=90):
-    """Simple linear regression forecast. Returns (forecast_dates, forecast_values, r2)."""
-    if len(values) < 5:
-        return [], [], 0, 0
-    x = np.arange(len(values))
-    coeffs = np.polyfit(x, values, 1)
-    slope, intercept = coeffs
-    ss_res = np.sum((np.array(values) - np.polyval(coeffs, x)) ** 2)
-    ss_tot = np.sum((np.array(values) - np.mean(values)) ** 2)
-    r2 = round(max(0, 1 - (ss_res / ss_tot)) if ss_tot > 0 else 0, 3)
-
-    last_date = pd.to_datetime(dates[-1])
-    future_x = np.arange(len(values), len(values) + forecast_days)
-    future_dates = [(last_date + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, forecast_days + 1)]
-    future_vals = [max(0, round(np.polyval(coeffs, xi), 1)) for xi in future_x]
-    return future_dates, future_vals, r2, round(slope, 2)
+def _calendar_names(start, end):
+    """{'YYYY-MM-DD': (name, kind)} for the calendar days between start and end (events too)."""
+    rows = db.session.execute(text("""
+        SELECT start_date, end_date, name, kind FROM public.ai_calendar
+        WHERE end_date >= :s AND start_date <= :e ORDER BY start_date, id
+    """), {"s": start, "e": end}).fetchall()
+    out = {}
+    for r in rows:
+        d = max(r[0], pd.Timestamp(start).date())
+        while d <= min(r[1], pd.Timestamp(end).date()):
+            out.setdefault(d.strftime('%Y-%m-%d'), (r[2], r[3]))
+            d += timedelta(days=1)
+    return out
 
 
-def _detect_anomalies(values, threshold=2.0, dates=None):
+def _detect_anomalies(values, threshold=2.0, dates=None, skip=None):
     """Returns list of booleans — True = anomaly.
     If dates are provided, uses weekday-aware detection (compares each day
     against its own weekday's mean/std) to avoid flagging normal Mon-vs-Sun
-    differences as anomalies."""
+    differences as anomalies. Days in skip (holidays, closures: the calendar
+    explains them) are never anomalies and stay out of the weekday statistics."""
     if len(values) < 4:
         return [False] * len(values)
     arr = np.array(values, dtype=float)
+    skip = skip or set()
 
     if dates is not None and len(dates) == len(values):
         dows = np.array([pd.to_datetime(d).weekday() for d in dates])
+        keep = np.array([str(d) not in skip for d in dates])
         flags = []
         for i, v in enumerate(arr):
-            same_dow = arr[dows == dows[i]]
+            if not keep[i]:
+                flags.append(False)
+                continue
+            same_dow = arr[(dows == dows[i]) & keep]
             if len(same_dow) < 3:
                 # Not enough same-weekday samples — fall back to global
-                mean, std = arr.mean(), arr.std()
+                mean, std = arr[keep].mean(), arr[keep].std()
             else:
                 mean, std = same_dow.mean(), same_dow.std()
             flags.append(bool(std > 0 and abs(v - mean) > threshold * std))
@@ -85,63 +101,53 @@ def _detect_anomalies(values, threshold=2.0, dates=None):
     return [bool(abs(v - mean) > threshold * std) for v in values]
 
 
+def _forecast_run(key):
+    row = db.session.execute(text("""
+        SELECT model, trained_from, trained_to, run_at, info FROM public.ai_forecast_run
+        WHERE series_key = :k
+    """), {"k": key}).mappings().first()
+    return dict(row) if row else None
 
-def _generate_explanation(section, data):
-    """Generate plain-language explanation for each section."""
-    explanations = {}
 
-    if section == "storage":
-        gb = data.get("current_gb", 0)
-        daily_growth = data.get("daily_growth_gb", 0)
-        days_to_full = data.get("days_to_full")
-        trend = "increasing" if daily_growth > 0 else "stable"
-        exp = f"Storage is currently at {gb:.1f} GB and is {trend} at {abs(daily_growth):.2f} GB/day. "
-        if days_to_full and days_to_full < 365:
-            exp += f"At this rate, capacity will be reached in approximately {days_to_full} days. Immediate planning is recommended."
-        elif days_to_full:
-            exp += f"At current growth, capacity is projected to last {days_to_full} days — no immediate concern."
-        else:
-            exp += "Insufficient data to project capacity exhaustion."
-        explanations["storage"] = exp
+def _forecast_rows(key):
+    return db.session.execute(text("""
+        SELECT ds, yhat, yhat_lower, yhat_upper FROM public.ai_forecast
+        WHERE series_key = :k ORDER BY ds
+    """), {"k": key}).fetchall()
 
-    elif section == "volume":
-        avg = data.get("avg_daily", 0)
-        trend_slope = data.get("slope", 0)
-        exp = f"Average daily study volume is {avg:.0f} studies. "
-        if trend_slope > 0:
-            exp += f"Volume is trending upward (+{trend_slope} studies/day)."
-        elif trend_slope < 0:
-            exp += f"Volume is trending downward ({trend_slope} studies/day)."
-        else:
-            exp += "Volume is stable."
-        explanations["volume"] = exp
 
-    elif section == "utilization":
-        anomaly_count = data.get("anomaly_count", 0)
-        high_stress = data.get("high_stress", [])
-        low_util = data.get("low_util", [])
-        exp = f"{anomaly_count} utilization anomalies detected across all AE titles. "
-        if high_stress:
-            exp += f"High stress (>85%): {', '.join(high_stress[:3])}. "
-        if low_util:
-            exp += f"Under-utilized (<30%): {', '.join(low_util[:3])}. "
-        if not anomaly_count:
-            exp += "All equipment is operating within normal utilization ranges."
-        explanations["utilization"] = exp
+def _accuracy(key, days=30):
+    """The next-day error of the last 30 checked days: what the model said the night before
+    against what came (ai_forecast_check). Days with nothing (closures at 0) are left out."""
+    rows = db.session.execute(text("""
+        SELECT forecast, actual FROM public.ai_forecast_check
+        WHERE series_key = :k ORDER BY ds DESC LIMIT :n
+    """), {"k": key, "n": days}).fetchall()
+    pairs = [(float(f), float(a)) for f, a in rows if a and a > 0]
+    if not pairs:
+        return None
+    mape = sum(abs(f - a) / a for f, a in pairs) / len(pairs) * 100
+    return {"mape": round(mape, 1), "days": len(pairs)}
 
-    elif section == "physician":
-        churning = data.get("churning", [])
-        growing = data.get("growing", [])
-        exp = ""
-        if churning:
-            exp += f"{len(churning)} physician(s) showing declining referral trend: {', '.join(churning[:3])}. "
-        if growing:
-            exp += f"{len(growing)} physician(s) showing growing referral activity: {', '.join(growing[:3])}. "
-        if not churning and not growing:
-            exp += "Referral patterns are stable across all physicians."
-        explanations["physician"] = exp
 
-    return explanations
+def _model_meta(key, run):
+    if not run:
+        return None
+    return {"model": run["model"], "trained_to": str(run["trained_to"]),
+            "run_at": run["run_at"].strftime('%Y-%m-%d %H:%M') if run["run_at"] else None,
+            "accuracy": _accuracy(key), "fallback_reason": (run["info"] or {}).get("fallback_reason")}
+
+
+def _forecast_shown(run, end):
+    """A forecast continues the history only when the dates picked reach the latest data."""
+    return bool(run) and str(end) >= str(run["trained_to"])
+
+
+def _pct(x):
+    return f"{x * 100:+.0f}%"
+
+
+DAY_NAMES = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
 
 
 # ─────────────────────────────────────────────
@@ -165,26 +171,13 @@ def _get_storage_intelligence(start, end):
         return None
 
     dates  = [str(r[0]) for r in rows]
-    values = [float(r[1]) for r in rows]
+    values = [round(float(r[1]), 3) for r in rows]
 
-    result = _linear_forecast(dates, values, 90)
-    f_dates, f_vals, r2, slope = result
-
-    # total_gb is GB of images ADDED on that study_date (ETL_JOBS/etl_analytics_
-    # refresh.py groups by study_date/storing_ae/modality/procedure_code -- it's
-    # a daily delta, not a running total). current_gb must be the all-time
-    # cumulative SUM across every row ever recorded, not values[-1] -- that was
-    # only the last day's delta within the selected date range, which
-    # understated actual archive usage by orders of magnitude and made
-    # days_to_full meaningless. Deliberately unbounded by start/end: "how full
-    # is the archive right now" shouldn't change just because the trend
-    # chart's date range was narrowed.
+    # total_gb is GB of images ADDED on that study_date (a daily delta, not a running total):
+    # how full the archive is now is the sum of every row ever recorded, whatever dates are picked.
     current_gb = float(db.session.execute(text(
         "SELECT COALESCE(SUM(total_gb), 0) FROM summary_storage_daily"
     )).scalar() or 0.0)
-
-    daily_growth  = slope
-    days_to_full  = None
 
     # User-configurable storage capacity (from settings table, default 10 TB)
     cap_row = db.session.execute(text(
@@ -192,26 +185,79 @@ def _get_storage_intelligence(start, end):
     )).fetchone()
     capacity_gb = float(cap_row[0]) if cap_row else 10240.0
 
-    remaining = capacity_gb - current_gb
-    if daily_growth > 0:
-        days_to_full = int(remaining / daily_growth)
+    run = _forecast_run("storage")
+    fc = _forecast_rows("storage") if run else []
+    f_dates, f_vals, f_lo, f_hi = [], [], [], []
+    daily_gb = days_to_full = soonest = latest = None
+    if fc:
+        yhat = np.array([float(r[1]) for r in fc])
+        lo = np.array([float(r[2] if r[2] is not None else r[1]) for r in fc])
+        hi = np.array([float(r[3] if r[3] is not None else r[1]) for r in fc])
+        daily_gb = round(float(yhat[:90].mean()), 2)
+        remaining = capacity_gb - current_gb
 
+        def days_until(daily):
+            if remaining <= 0:
+                return 0
+            cum = np.cumsum(daily)
+            hit = np.argmax(cum >= remaining) if (cum >= remaining).any() else None
+            if hit is not None:
+                return int(hit) + 1
+            rate = float(daily[-90:].mean())
+            return int(len(daily) + (remaining - cum[-1]) / rate) if rate > 0 else None
+        days_to_full, soonest, latest = days_until(yhat), days_until(hi), days_until(lo)
+        if _forecast_shown(run, end):
+            f_dates = [str(r[0]) for r in fc[:90]]
+            f_vals = [round(float(v), 2) for v in yhat[:90]]
+            f_lo = [round(float(v), 2) for v in lo[:90]]
+            f_hi = [round(float(v), 2) for v in hi[:90]]
+
+    cal = _calendar_names(start, f_dates[-1] if f_dates else end)
+    info = (run or {}).get("info") or {}
     data = {
         "current_gb": current_gb,
-        "daily_growth_gb": round(daily_growth, 3),
+        "daily_growth_gb": daily_gb,
         "days_to_full": days_to_full,
+        "days_to_full_soonest": soonest,
+        "days_to_full_latest": latest,
+        "full_on": (forecasting.beirut_today() + timedelta(days=days_to_full)).strftime('%d %b %Y')
+                   if days_to_full else None,
         "capacity_gb": capacity_gb,
-        "r2": r2,
+        "growth_per_year": info.get("growth_per_year"),
+        "spike_allowance": info.get("spike_allowance"),
+        "meta": _model_meta("storage", run),
         "chart": {
             "historical_dates": dates,
             "historical_vals":  values,
             "forecast_dates":   f_dates,
-            "forecast_vals":    f_vals
+            "forecast_vals":    f_vals,
+            "forecast_lower":   f_lo,
+            "forecast_upper":   f_hi,
+            "holidays": {d: n for d, (n, k) in cal.items() if k in ('closure', 'half_day')},
         }
     }
-    data["explanation"] = _generate_explanation("storage", data)["storage"]
+    data["explanation"] = _explain_storage(data)
     _ai_cache_put("storage", start, end, data)
     return data
+
+
+def _explain_storage(d):
+    gb, cap = d["current_gb"], d["capacity_gb"]
+    exp = f"The archive holds {gb:,.0f} GB of {cap:,.0f} GB ({gb / cap * 100:.0f}% used). "
+    if d["daily_growth_gb"] is None:
+        return exp + "No forecast yet: it is trained every night after the ETL, or with Retrain now."
+    exp += f"The model expects about {d['daily_growth_gb']:.1f} GB a day over the next 90 days, less on weekends and holidays. "
+    if d["days_to_full"] is not None:
+        rng = ""
+        if d["days_to_full_soonest"] and d["days_to_full_latest"] and d["days_to_full_soonest"] != d["days_to_full_latest"]:
+            rng = f" (between {d['days_to_full_soonest']:,} and {d['days_to_full_latest']:,} days)"
+        exp += f"At that pace the archive is full in about {d['days_to_full']:,} days{rng}, around {d['full_on']}. "
+        if d["days_to_full"] < 180:
+            exp += "Plan more storage now. "
+    if d.get("spike_allowance"):
+        exp += (f"Large one-off loads (a few studies of hundreds of GB) are kept out of the daily pattern "
+                f"and added back as an average of {d['spike_allowance']:.1f} GB a day.")
+    return exp
 
 
 def _get_volume_intelligence(start, end):
@@ -219,13 +265,15 @@ def _get_volume_intelligence(start, end):
     if cached is not None:
         return cached
 
+    # modality from the device first (CLAUDE.md rule 3), as the forecast counts it
     rows = db.session.execute(text("""
-        SELECT study_date, COUNT(*) as cnt
-        FROM etl_didb_studies
-        WHERE study_date BETWEEN :s AND :e
-          AND COALESCE(study_modality, '') NOT IN ('SR', 'BMD')
-        GROUP BY study_date
-        ORDER BY study_date
+        SELECT s.study_date, COUNT(*) AS cnt
+        FROM etl_didb_studies s
+        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+        WHERE s.study_date BETWEEN :s AND :e
+          AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
+        GROUP BY s.study_date
+        ORDER BY s.study_date
     """), {"s": start, "e": end}).fetchall()
 
     if not rows or len(rows) < 5:
@@ -234,11 +282,20 @@ def _get_volume_intelligence(start, end):
     dates  = [str(r[0]) for r in rows]
     values = [int(r[1]) for r in rows]
 
-    f_dates, f_vals, r2, slope = _linear_forecast(dates, values, 90)
-    anomalies = _detect_anomalies(values, dates=dates)
+    run = _forecast_run("volume")
+    fc = _forecast_rows("volume") if _forecast_shown(run, end) else []
+    f_dates = [str(r[0]) for r in fc]
+    cal = _calendar_names(start, f_dates[-1] if f_dates else end)
+    hol = {d for d, (n, k) in cal.items() if k in ('closure', 'half_day')}
+    anomalies = _detect_anomalies(values, dates=dates, skip=hol)
 
     avg_daily = round(np.mean(values), 1)
     cur_total = sum(values)
+    normal = [(pd.Timestamp(d).dayofweek, v) for d, v in zip(dates, values) if d not in hol]
+    by_dow = {k: [v for dw, v in normal if dw == k] for k in range(7)}
+    weekday_avg = round(float(np.mean([v for dw, v in normal if dw <= 4])), 1) if any(dw <= 4 for dw, _ in normal) else None
+    sat_avg = round(float(np.mean(by_dow[5])), 1) if by_dow[5] else None
+    sun_avg = round(float(np.mean(by_dow[6])), 1) if by_dow[6] else None
 
     # Modality breakdown — prefer procedure's true modality, fall back to AE map
     mod_rows = db.session.execute(text("""
@@ -253,23 +310,72 @@ def _get_volume_intelligence(start, end):
         GROUP BY 1 ORDER BY 2 DESC LIMIT 8
     """), {"s": start, "e": end}).fetchall()
 
+    info = (run or {}).get("info") or {}
     data = {
         "avg_daily": avg_daily,
         "total": cur_total,
-        "slope": slope,
-        "r2": r2,
+        "weekday_avg": weekday_avg,
+        "saturday_avg": sat_avg,
+        "sunday_avg": sun_avg,
+        "totals": info.get("totals") if fc else None,
+        "growth_per_year": info.get("growth_per_year"),
+        "weekday_ratio": info.get("weekday"),
+        "holiday_effect": info.get("holiday_effect") or {},
+        "correction_now": info.get("correction_now"),
+        "upcoming": info.get("upcoming") or [],
+        "meta": _model_meta("volume", run),
         "modality_split": [{"name": r.modality or "UNMAPPED", "value": int(r.cnt)} for r in mod_rows],
         "chart": {
             "historical_dates": dates,
             "historical_vals":  values,
             "forecast_dates":   f_dates,
-            "forecast_vals":    f_vals,
-            "anomaly_flags":    anomalies
+            "forecast_vals":    [round(float(r[1]), 1) for r in fc],
+            "forecast_lower":   [round(float(r[2]), 1) for r in fc],
+            "forecast_upper":   [round(float(r[3]), 1) for r in fc],
+            "anomaly_flags":    anomalies,
+            "holidays":         {d: n for d, (n, k) in cal.items() if k in ('closure', 'half_day')},
         }
     }
-    data["explanation"] = _generate_explanation("volume", data)["volume"]
+    data["explanation"] = _explain_volume(data)
     _ai_cache_put("volume", start, end, data)
     return data
+
+
+def _explain_volume(d):
+    exp = f"In the dates picked: {d['avg_daily']:.0f} studies a day on average"
+    if d["weekday_avg"]:
+        exp += f" ({d['weekday_avg']:.0f} Monday to Friday"
+        if d["saturday_avg"]:
+            exp += f", {d['saturday_avg']:.0f} on Saturdays"
+        if d["sunday_avg"]:
+            exp += f", {d['sunday_avg']:.0f} on Sundays"
+        exp += ", holidays left out)"
+    exp += ". "
+    if not d["meta"]:
+        return exp + "No forecast yet: it is trained every night after the ETL, or with Retrain now."
+    w = d.get("weekday_ratio")
+    if w and len(w) == 7:
+        exp += (f"The model has learnt that a Saturday runs at {w[5] * 100:.0f}% of a weekday and a Sunday at "
+                f"{w[6] * 100:.0f}%. ")
+    eff = d["holiday_effect"].get("closure_wd")
+    if eff:
+        exp += f"A weekday holiday or Eid runs at about {eff * 100:.0f}% of a normal day; Ramadan itself changes nothing in LAUMC's data. "
+    if d["growth_per_year"] is not None:
+        exp += f"Underlying growth: {_pct(d['growth_per_year'])} a year. "
+    if d["correction_now"] is not None and abs(d["correction_now"]) >= 0.03:
+        exp += (f"The last days ran {'above' if d['correction_now'] > 0 else 'below'} what the calendar explains, "
+                f"so the next days are pulled {abs(d['correction_now']) * 100:.0f}% "
+                f"{'up' if d['correction_now'] > 0 else 'down'} (the sequential correction). ")
+    t = d.get("totals")
+    if t:
+        exp += f"Next {t['days']} days: about {t['expected']:,.0f} studies (likely between {t['low']:,.0f} and {t['high']:,.0f}). "
+    else:
+        exp += "The forecast shows when the end date reaches the latest data. "
+    if d["upcoming"]:
+        nxt = d["upcoming"][0]
+        exp += (f"Next holiday: {pd.Timestamp(nxt['date']).strftime('%a %d %b')}, {nxt['name']}, "
+                f"about {nxt['expected']:.0f} studies expected.")
+    return exp
 
 
 def _get_utilization_intelligence(start, end):
@@ -445,6 +551,21 @@ def _get_utilization_intelligence(start, end):
     from utils.ae_display import ae_label_map, ae_label
     labels = ae_label_map(db.session)
 
+    # the stored 30-day forecasts of each device's minutes (utils/forecasting.py), turned into
+    # utilization with the device's capacity of that weekday; none where the RIS gives none
+    fc_by_ae = {}
+    runs = {r[0]: r for r in db.session.execute(text("""
+        SELECT series_key, model, trained_to, run_at, info FROM public.ai_forecast_run
+        WHERE series_key LIKE 'device:%'
+    """)).fetchall()}
+    for k, ds, yhat, lo, hi in db.session.execute(text("""
+        SELECT series_key, ds, yhat, yhat_lower, yhat_upper FROM public.ai_forecast
+        WHERE series_key LIKE 'device:%' ORDER BY series_key, ds
+    """)).fetchall():
+        fc_by_ae.setdefault(k[len('device:'):], []).append((ds, float(yhat), float(lo), float(hi)))
+    cal = _calendar_names(start, end)
+    hol = {d for d, (n, k) in cal.items() if k in ('closure', 'half_day')}
+
     for ae, ae_df in df.groupby('ae', sort=False):
         label = ae_label(labels, ae)
         daily_utils = ae_df['util_pct'].tolist()
@@ -459,7 +580,7 @@ def _get_utilization_intelligence(start, end):
         # finishing faster than scheduled (either genuine slack capacity, or
         # the SPS duration for this device's procedure mix is padded).
         gap_pct    = round(avg_util - avg_theoretical, 1)
-        anomalies  = _detect_anomalies(daily_utils, dates=daily_dates)
+        anomalies  = _detect_anomalies(daily_utils, dates=daily_dates, skip=hol)
         anom_count = sum(anomalies)
         all_anomalies += anom_count
 
@@ -468,8 +589,25 @@ def _get_utilization_intelligence(start, end):
         elif 0 < avg_util < 30:
             low_util.append(label)
 
-        # Forecast
-        f_dates, f_vals, r2, slope = _linear_forecast(daily_dates, daily_utils, 30) if len(daily_utils) >= 5 else ([], [], 0, 0)
+        ae_up = str(ae).upper().strip()
+        caps = [float(schedule_lookup.get((ae_up, k)) or 0) for k in range(7)]
+        no_capacity = not any(c > 0 for c in caps)
+        run = runs.get(f"device:{ae_up}")
+        f_dates, f_vals, f_lo, f_hi, f_mins = [], [], [], [], []
+        if run and str(end) >= str(run[2]):
+            for ds, yhat, lo, hi in fc_by_ae.get(ae_up, []):
+                cap = caps[ds.weekday()]
+                f_dates.append(str(ds))
+                f_mins.append(round(yhat))
+                f_vals.append(round(yhat / cap * 100, 1) if cap > 0 else None)
+                f_lo.append(round(lo / cap * 100, 1) if cap > 0 else None)
+                f_hi.append(round(hi / cap * 100, 1) if cap > 0 else None)
+        shown = [v for v in f_vals if v is not None]
+        meta = None
+        if run:
+            meta = {"model": run[1], "trained_to": str(run[2]),
+                    "run_at": run[3].strftime('%Y-%m-%d %H:%M') if run[3] else None,
+                    "accuracy": _accuracy(f"device:{ae_up}")}
 
         ae_results.append({
             "ae": ae,
@@ -478,7 +616,10 @@ def _get_utilization_intelligence(start, end):
             "avg_theoretical_util": avg_theoretical,
             "gap_pct": gap_pct,
             "anomaly_count": anom_count,
-            "slope": slope,
+            "forecast_avg_util": round(float(np.mean(shown)), 1) if shown else None,
+            "forecast_minutes_per_day": round(float(np.mean(f_mins))) if f_mins else None,
+            "no_capacity": no_capacity,
+            "meta": meta,
             "modality_mix": ae_modality_mix.get(ae, []),
             "chart": {
                 "dates":          daily_dates,
@@ -486,7 +627,10 @@ def _get_utilization_intelligence(start, end):
                 "utils":          daily_utils,
                 "anomaly_flags":  anomalies,
                 "forecast_dates": f_dates,
-                "forecast_vals":  f_vals
+                "forecast_vals":  f_vals,
+                "forecast_lower": f_lo,
+                "forecast_upper": f_hi,
+                "holidays":       {d: n for d, (n, k) in cal.items() if k in ('closure', 'half_day')},
             }
         })
 
@@ -496,11 +640,31 @@ def _get_utilization_intelligence(start, end):
         "anomaly_count": all_anomalies,
         "high_stress":   high_stress,
         "low_util":      low_util,
+        "no_capacity":   [a["label"] for a in ae_results if a["no_capacity"]],
         "ae_list":       ae_results
     }
-    data["explanation"] = _generate_explanation("utilization", data)["utilization"]
+    data["explanation"] = _explain_utilization(data)
     _ai_cache_put("utilization", start, end, data)
     return data
+
+
+def _explain_utilization(d):
+    exp = (f"{d['anomaly_count']} unusual days across the devices (a day far from that device's normal "
+           f"for the same weekday; holidays are not counted). ")
+    if d["high_stress"]:
+        exp += f"Running above 85% on average: {', '.join(d['high_stress'][:3])}. "
+    if d["low_util"]:
+        exp += f"Below 30%: {', '.join(d['low_util'][:3])}. "
+    if d["no_capacity"]:
+        exp += (f"{len(d['no_capacity'])} device(s) have no opening hours on the RIS "
+                f"({', '.join(d['no_capacity'][:4])}), so their utilization cannot be worked out; "
+                f"their forecast is shown in minutes. ")
+    if any(a["meta"] for a in d["ae_list"]):
+        exp += ("Each device's next 30 days are forecast from its own weekly pattern and the holiday "
+                "calendar, then divided by its opening minutes of that weekday.")
+    else:
+        exp += "No forecast yet: it is trained every night after the ETL, or with Retrain now."
+    return exp
 
 
 def _get_physician_intelligence(start, end):
@@ -508,17 +672,13 @@ def _get_physician_intelligence(start, end):
     if cached is not None:
         return cached
 
-    rows = db.session.execute(text("""
-        SELECT
-            COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
-                referring_physician_first_name,
-                referring_physician_last_name)), ''), 'Unknown') as physician,
-            TO_CHAR(study_date, 'YYYY-MM') as month,
-            COUNT(*) as cnt
-        FROM etl_didb_studies
-        WHERE study_date BETWEEN :s AND :e
-          AND referring_physician_first_name IS NOT NULL
-          AND COALESCE(study_modality, '') NOT IN ('SR', 'BMD')
+    rows = db.session.execute(text(f"""
+        SELECT {_PHYSICIAN} AS physician, TO_CHAR(s.study_date, 'YYYY-MM') AS month, COUNT(*) AS cnt
+        FROM etl_didb_studies s
+        LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
+        WHERE s.study_date BETWEEN :s AND :e
+          AND s.referring_physician_first_name IS NOT NULL
+          AND COALESCE(am.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
         GROUP BY 1, 2
         ORDER BY 1, 2
     """), {"s": start, "e": end}).fetchall()
@@ -529,11 +689,9 @@ def _get_physician_intelligence(start, end):
     df = pd.DataFrame(rows, columns=['physician', 'month', 'cnt'])
 
     # Per-physician modality referral pattern
-    phys_mod_rows = db.session.execute(text("""
+    phys_mod_rows = db.session.execute(text(f"""
         SELECT
-            COALESCE(NULLIF(TRIM(CONCAT_WS(' ',
-                referring_physician_first_name,
-                referring_physician_last_name)), ''), 'Unknown') as physician,
+            {_PHYSICIAN} AS physician,
             UPPER(TRIM(COALESCE(pm.modality, am.modality, s.study_modality))) AS modality,
             COUNT(*) as cnt
         FROM etl_didb_studies s
@@ -549,38 +707,40 @@ def _get_physician_intelligence(start, end):
     for r in phys_mod_rows:
         phys_modality_map.setdefault(r[0], []).append({"modality": r[1] or "UNMAPPED", "count": int(r[2])})
 
-    physician_data = []
-    churning = []
-    growing  = []
+    # The test (utils/forecasting.referrer_changes): the 13 weeks to the end date against the
+    # 52 weeks before, as a share of everything the site did. Not a straight line through
+    # monthly counts, which read the current, unfinished month as a drop for everyone.
+    base_start, recent_start, test_end = forecasting.referrer_windows(end)
+    counts = db.session.execute(text(f"""
+        SELECT {_PHYSICIAN} AS physician,
+               COUNT(*) FILTER (WHERE s.study_date >= :r) AS recent,
+               COUNT(*) FILTER (WHERE s.study_date <  :r) AS base
+        FROM etl_didb_studies s
+        LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
+        WHERE s.study_date BETWEEN :b AND :e
+          AND COALESCE(am.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
+        GROUP BY 1
+    """), {"b": base_start, "r": recent_start, "e": test_end}).fetchall()
+    trend = forecasting.referrer_changes({r[0]: r[1] for r in counts if r[0] != 'Unknown'},
+                                         {r[0]: r[2] for r in counts if r[0] != 'Unknown'})
+    churning = sorted((n for n, t in trend.items() if t["status"] == "declining"),
+                      key=lambda n: trend[n]["change_pct"])
+    growing = sorted((n for n, t in trend.items() if t["status"] == "growing"),
+                     key=lambda n: -trend[n]["change_pct"])
 
+    physician_data = []
     for physician, p_df in df.groupby('physician'):
         if physician == 'Unknown':
             continue
-        months = p_df['month'].tolist()
-        counts = p_df['cnt'].tolist()
-        total  = sum(counts)
-
-        # Forecast
-        if len(counts) >= 3:
-            f_dates, f_vals, r2, slope = _linear_forecast(months, counts, 3)
-        else:
-            f_dates, f_vals, r2, slope = [], [], 0, 0
-
-        if slope < -0.5 and len(counts) >= 2:
-            churning.append(physician)
-        elif slope > 0.5 and len(counts) >= 2:
-            growing.append(physician)
-
+        t = trend.get(physician)
         physician_data.append({
             "name":         physician,
-            "total":        total,
-            "slope":        slope,
+            "total":        int(p_df['cnt'].sum()),
+            "trend":        {k: t[k] for k in ("status", "recent", "expected", "change_pct")} if t else None,
             "modality_mix": phys_modality_map.get(physician, []),
             "chart": {
-                "months":         months,
-                "counts":         counts,
-                "forecast_months": f_dates,
-                "forecast_vals":   f_vals
+                "months": p_df['month'].tolist(),
+                "counts": [int(c) for c in p_df['cnt'].tolist()],
             }
         })
 
@@ -590,12 +750,34 @@ def _get_physician_intelligence(start, end):
 
     data = {
         "physicians": physician_data,
-        "churning":   churning[:5],
-        "growing":    growing[:5]
+        "churning":   [{"name": n, **{k: trend[n][k] for k in ("recent", "expected", "change_pct")}} for n in churning[:8]],
+        "growing":    [{"name": n, **{k: trend[n][k] for k in ("recent", "expected", "change_pct")}} for n in growing[:8]],
+        "tested":     len(trend),
+        "window":     {"recent_from": str(recent_start), "base_from": str(base_start), "to": str(test_end)},
     }
-    data["explanation"] = _generate_explanation("physician", data)["physician"]
+    data["explanation"] = _explain_physician(data)
     _ai_cache_put("physician", start, end, data)
     return data
+
+
+_PHYSICIAN = """COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name,
+                s.referring_physician_last_name)), ''), 'Unknown')"""
+
+
+def _explain_physician(d):
+    w = d["window"]
+    fmt = lambda x: pd.Timestamp(x).strftime('%d %b %Y')
+    exp = (f"Each referrer's last 13 weeks ({fmt(w['recent_from'])} to {fmt(w['to'])}) are compared with "
+           f"their usual share of the hospital's studies in the 52 weeks before, so holidays, season and growth "
+           f"that move everyone are taken out. {d['tested']} referrers send enough studies to be tested. ")
+    if d["churning"]:
+        exp += (f"{len(d['churning'])} send clearly fewer (at least 25% below their usual share, too large a "
+                f"drop to be chance): {', '.join(c['name'] for c in d['churning'][:3])}. ")
+    if d["growing"]:
+        exp += f"{len(d['growing'])} send clearly more: {', '.join(c['name'] for c in d['growing'][:3])}. "
+    if not d["churning"] and not d["growing"]:
+        exp += "No referrer changed more than chance explains."
+    return exp
 
 
 # ─────────────────────────────────────────────
@@ -719,7 +901,122 @@ def save_storage_capacity():
                 "INSERT INTO settings (key, value) VALUES ('storage_capacity_gb', :v)"
             ), {"v": str(val)})
         db.session.commit()
+        _clear_ai_cache()
         return jsonify({"status": "success", "capacity_gb": val})
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ─────────────────────────────────────────────
+#  CALENDAR AND RETRAIN (settings capability)
+# ─────────────────────────────────────────────
+
+def _calendar_json(row):
+    return {"id": row[0], "start_date": str(row[1]), "end_date": str(row[2]), "name": row[3],
+            "kind": row[4], "kind_label": forecasting.KIND_LABELS.get(row[4], row[4]), "source": row[5]}
+
+
+@report_ai_bp.route("/report/ai/calendar", methods=["GET"])
+@login_required
+def calendar_list():
+    """The holiday calendar the forecasts use: one list for both hospitals (national holidays)."""
+    if not user_has_page(current_user, 'report_ai'):
+        abort(403)
+    rows = db.session.execute(text("""
+        SELECT id, start_date, end_date, name, kind, source FROM public.ai_calendar
+        ORDER BY start_date, id
+    """)).fetchall()
+    return jsonify({"rows": [_calendar_json(r) for r in rows], "kinds": forecasting.KIND_LABELS,
+                    "can_edit": can(current_user, 'settings')})
+
+
+def _parse_day(raw):
+    return datetime.strptime(str(raw or '').strip(), '%Y-%m-%d').date()
+
+
+def _shared_write(view):
+    from utils.site_db import shared_write
+    return shared_write(view)
+
+
+@report_ai_bp.route("/report/ai/calendar", methods=["POST"])
+@login_required
+def calendar_add():
+    if not can(current_user, 'settings'):
+        return jsonify({"status": "error", "message": "Only administrators can change the calendar"}), 403
+    body = request.get_json(silent=True) or {}
+    try:
+        start = _parse_day(body.get("start_date"))
+        end = _parse_day(body.get("end_date") or body.get("start_date"))
+    except ValueError:
+        return jsonify({"status": "error", "message": "Dates as YYYY-MM-DD"}), 400
+    name = str(body.get("name") or "").strip()
+    kind = str(body.get("kind") or "").strip()
+    if end < start or (end - start).days > 366:
+        return jsonify({"status": "error", "message": "The end date must be on or after the start, within a year"}), 400
+    if not name or len(name) > 120:
+        return jsonify({"status": "error", "message": "A name of 1 to 120 characters"}), 400
+    if kind not in forecasting.KINDS:
+        return jsonify({"status": "error", "message": "Unknown kind"}), 400
+    return _save_calendar(start, end, name, kind)
+
+
+@_shared_write
+def _save_calendar(start, end, name, kind):
+    row = db.session.execute(text("""
+        INSERT INTO public.ai_calendar (start_date, end_date, name, kind, source, created_by)
+        VALUES (:s, :e, :n, :k, 'user', :u)
+        ON CONFLICT (start_date, name) DO UPDATE
+            SET end_date = EXCLUDED.end_date, kind = EXCLUDED.kind, source = 'user',
+                created_by = EXCLUDED.created_by, created_at = now()
+        RETURNING id, start_date, end_date, name, kind, source
+    """), {"s": start, "e": end, "n": name, "k": kind, "u": current_user.username}).fetchone()
+    db.session.commit()
+    _clear_ai_cache()
+    return jsonify({"status": "success", "row": _calendar_json(row)})
+
+
+@report_ai_bp.route("/report/ai/calendar/<int:cid>/delete", methods=["POST"])
+@login_required
+def calendar_delete(cid):
+    if not can(current_user, 'settings'):
+        return jsonify({"status": "error", "message": "Only administrators can change the calendar"}), 403
+    return _delete_calendar(cid)
+
+
+@_shared_write
+def _delete_calendar(cid):
+    gone = db.session.execute(text("DELETE FROM public.ai_calendar WHERE id = :i"), {"i": cid}).rowcount
+    db.session.commit()
+    _clear_ai_cache()
+    if not gone:
+        return jsonify({"status": "error", "message": "Not found"}), 404
+    return jsonify({"status": "success"})
+
+
+@report_ai_bp.route("/report/ai/retrain", methods=["POST"])
+@login_required
+def retrain():
+    """Retrain the forecasts of the site picked, in the background (about a minute)."""
+    if not can(current_user, 'settings'):
+        return jsonify({"status": "error", "message": "Only administrators can retrain"}), 403
+    from utils import site_db
+    started = forecasting.start_background(current_app._get_current_object(), site_db.current_site_id())
+    _clear_ai_cache()
+    return jsonify({"status": "started" if started else "running"})
+
+
+@report_ai_bp.route("/report/ai/status", methods=["GET"])
+@login_required
+def forecast_status():
+    if not user_has_page(current_user, 'report_ai'):
+        abort(403)
+    rows = db.session.execute(text("""
+        SELECT series_key, model, trained_to, run_at FROM public.ai_forecast_run ORDER BY series_key
+    """)).fetchall()
+    if not forecasting.is_running():
+        _clear_ai_cache()
+    return jsonify({"running": forecasting.is_running(),
+                    "series": [{"key": r[0], "model": r[1], "trained_to": str(r[2]),
+                                "run_at": r[3].strftime('%Y-%m-%d %H:%M') if r[3] else None} for r in rows]})

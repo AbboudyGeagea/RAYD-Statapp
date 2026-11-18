@@ -1,10 +1,25 @@
+{% macro info(key, what='this figure') %}<i class="bi bi-info-circle chart-info-icon" data-explain="{{ key }}" role="button" tabindex="0" aria-label="About {{ what }}" title="About {{ what }}"></i>{% endmacro %}
 {% if data.volume %}{% set v = data.volume %}
 <div class="explain-box"><strong>AI Analysis:</strong> {{ v.explanation }}</div>
-<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);">
-    <div class="kpi blue"><div class="kpi-label">Total Studies</div><div class="kpi-val">{{ "{:,}".format(v.total) }}</div><div class="kpi-sub">in selected period</div></div>
-    <div class="kpi cyan"><div class="kpi-label">Avg Daily Volume</div><div class="kpi-val">{{ v.avg_daily }}</div><div class="kpi-sub">studies per day</div></div>
-    <div class="kpi {{ 'green' if v.slope > 0 else 'red' }}"><div class="kpi-label">Trend</div><div class="kpi-val">{{ '+' if v.slope > 0 else '' }}{{ v.slope }}</div><div class="kpi-sub">studies/day change (regression)</div></div>
+<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);">
+    <div class="kpi blue"><div class="kpi-label">Total Studies{{ info('ai-volume-total') }}</div><div class="kpi-val">{{ "{:,}".format(v.total) }}</div><div class="kpi-sub">in the dates picked</div></div>
+    <div class="kpi cyan"><div class="kpi-label">Per Day{{ info('ai-volume-avg') }}</div><div class="kpi-val">{{ v.avg_daily }}</div><div class="kpi-sub">{% if v.weekday_avg %}{{ v.weekday_avg|round|int }} Mon–Fri · {{ v.saturday_avg|round|int if v.saturday_avg else '—' }} Sat · {{ v.sunday_avg|round|int if v.sunday_avg else '—' }} Sun{% else %}studies per day{% endif %}</div></div>
+    <div class="kpi purple"><div class="kpi-label">Next {{ v.totals.days if v.totals else 90 }} Days{{ info('ai-volume-next') }}</div><div class="kpi-val">{{ "{:,.0f}".format(v.totals.expected) if v.totals else '—' }}</div><div class="kpi-sub">{% if v.totals %}likely {{ "{:,.0f}".format(v.totals.low) }} – {{ "{:,.0f}".format(v.totals.high) }}{% else %}shown when the end date reaches the latest data{% endif %}</div></div>
+    <div class="kpi {{ 'green' if (v.growth_per_year or 0) >= 0 else 'red' }}"><div class="kpi-label">Growth{{ info('ai-volume-growth') }}</div><div class="kpi-val">{% if v.growth_per_year is not none %}{{ '%+.0f'|format(v.growth_per_year * 100) }}%{% else %}—{% endif %}</div><div class="kpi-sub">a year, the underlying trend</div></div>
 </div>
-<div class="card"><div class="card-head">Daily Study Volume + 90-Day Forecast <span style="font-size:11px;color:#7a9cc9;">R² = {{ v.r2 }} · anomalies highlighted</span></div><div class="card-desc">Daily study count with linear forecast. Red dots = anomalous days (±2σ).</div><div id="chart-volume" style="height:380px;padding:16px;"></div></div>
-<div class="card"><div class="card-head">Volume Split by Modality</div><div class="card-desc">Proportion of total studies per modality in the selected period.</div><div id="chart-volume-mod" style="height:320px;padding:16px;"></div></div>
+<div class="card">
+    <div class="card-head"><span>Daily Study Volume + 90-Day Forecast{{ info('ai-volume-chart', 'this chart') }}</span><span style="font-size:11px;color:#7a9cc9;text-transform:none;letter-spacing:0;font-weight:400;">{% with meta = v.meta %}{% include '_ai_model_meta.html' %}{% endwith %}</span></div>
+    <div class="card-desc">Bars: studies each day. Dashed line: the forecast, its likely range shaded (8 days in 10 should fall inside). Red dots: unusual days. Hover a day to see its holiday, if any.</div>
+    <div id="chart-volume" style="height:380px;padding:16px;"></div>
+</div>
+{% if v.upcoming %}
+<div class="card">
+    <div class="card-head">Coming Holidays{{ info('ai-volume-upcoming', 'this table') }}</div>
+    <div style="overflow-x:auto;"><table class="phys-table">
+        <thead><tr><th>Day</th><th>Holiday</th><th>Kind</th><th>Studies expected</th></tr></thead>
+        <tbody>{% for h in v.upcoming %}<tr><td style="font-family:'JetBrains Mono',monospace;">{{ h.date }}</td><td style="color:white;font-weight:700;">{{ h.name }}</td><td>{{ 'Half day' if h.kind == 'half_day' else 'Closed' }}</td><td style="font-family:'JetBrains Mono',monospace;">{{ h.expected|round|int }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+</div>
+{% endif %}
+<div class="card"><div class="card-head">Volume Split by Modality{{ info('ai-volume-mod', 'this chart') }}</div><div class="card-desc">Share of the studies of the dates picked, per modality.</div><div id="chart-volume-mod" style="height:320px;padding:16px;"></div></div>
 {% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No study data available.</div>{% endif %}

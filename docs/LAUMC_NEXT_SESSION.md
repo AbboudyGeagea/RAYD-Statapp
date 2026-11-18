@@ -212,6 +212,7 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 | 5 | ORU severity + `@sj` logins | open | chief radiologist | blocked |
 | 8 | Super Report residents by wet read | wet reads copied | — | December |
 | 14 | Radiologist TAT and counts from PACS (rest) | turnaround card live | 14A/14B validated | December |
+| 35 | Report AI forecasting revamp (operator 18 Nov: a straight line can't follow weekday/weekend, Ramadan, Christmas) | **steps 1–4 done, step 5 on the laptop 18 Nov.** Built: migration 0169 (`ai_calendar` seeded 2019–2028 and corrected from the data, `ai_forecast`, `ai_forecast_run`, `ai_forecast_check`), `utils/forecasting.py` (Prophet + sequential correction, fallback, referrer share test), nightly job 06:30 per site + first training 3 min after start, Report AI reads the stored forecasts (range band, holidays, calendar editor, Retrain), `prophet==1.5.0`, Dockerfile pip retries; 28 new tests, full suite 1,329 passed. Trial on the production export: daily error 10.5 % (days 2–14), 11.5 % (31–90), holidays 25.7 %, straight line 62–75 % on the same replays; LSTM tested too: next day 13.7 % but 18.5 % at 31–90 days, not used. Trial page: claude.ai/artifact/DyMeshmJxSnPouuTeJcAFP | deploy (update.sh; first training runs 3 min after start); operator: is **Mon 23 Nov** a holiday (calendar says yes); storage capacity 70,000 GB right?; check the forecasts the next morning | 19–20 Nov |
 
 Done: 2, 3, 4, 6, 7, 10, 11, 12, 15, 16, 19 (code), 21, 22–29, 31, 34; 13a, 13b, 13c deployed
 18 Nov; 9 deployed (switch pending).
