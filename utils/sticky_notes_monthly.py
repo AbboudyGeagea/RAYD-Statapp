@@ -117,13 +117,14 @@ def _body(first, row):
         '',
         f"Urgent emergent cases: {row['case_count']:,}",
         f"With a sticky note: {row['noted_count']:,}",
-        f"With a first open seen: {row['open_seen_count']:,}",
+        f"With a first open: {row['open_seen_count']:,}",
         '',
         'The details are in the attachment, which holds patient information. Do not forward it '
         'outside the hospital.',
         '',
-        'PACS keeps only the latest open, so the first open is the earliest one RAYD could see. '
-        'The attachment explains how to read it.',
+        # Since 2026-11-17 the first open comes from the PACS audit trail for the studies it
+        # covers; the workbook's "First open" line says which method applies to which studies.
+        'How the first open was found is explained at the top of the attachment.',
         '',
         'Sent automatically by RAYD.',
     ])

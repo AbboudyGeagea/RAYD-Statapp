@@ -300,6 +300,7 @@ def test_it_is_emailed_once_with_rows_only_in_the_attachment(app, sql, relay):
     assert 'October 2026' in mail.msg['Subject']
     body = mail.msg.get_body().get_content()
     assert 'Urgent emergent cases: 1' in body
+    assert 'latest open' not in body       # outdated once the PACS audit gives the first open
     assert 'MRN00001' not in body and '100501' not in body and 'res.one' not in body
     attachment = next(mail.msg.iter_attachments())
     assert attachment.get_filename() == 'urgent_emergent_2026_10.xlsx'
