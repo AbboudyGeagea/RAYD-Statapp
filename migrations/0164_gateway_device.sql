@@ -24,8 +24,21 @@
 --   AFFINITI50     4 US, May - Jun 2026, no RIS device: SJH, ultrasound
 --   PHILIPSCARM    5 RF, Aug 2025 - Jan 2026: SJH, fluoroscopy (C-arm), not linked yet
 -- Left on the gateway: VIMS_AE (38), AW (2), CBOGT02 (1), SVSM (2), XVIMPORT, no AE (288).
+--
+-- And only when the scanner's mapped site is the gateway's (or either has none). AE_DBT is two
+-- machines under one AE title (production, 18 Nov, by the RIS orders' issuer): stored directly
+-- it is RH's mammography (3,632 of 3,644 studies on SAP_PROD orders, the rest none), behind
+-- SJH's middleware it is SJH's (4,625 of 4,696 on SAP_SJH). It stays mapped to RH; its studies
+-- behind the middleware keep the gateway and the PACS label's site (SJH), as before.
+-- SENOIRIS is SJH's: all 9 direct studies on SAP_SJH orders, 14 of 17 behind the middleware. It
+-- was mapped to RH (migration 0083's seed), so its 9 direct studies counted for RH: moved to SJH.
 
 ALTER TABLE public.etl_didb_studies ADD COLUMN IF NOT EXISTS gateway_ae VARCHAR(100);
+
+UPDATE public.aetitle_modality_map
+   SET site_id = (SELECT id FROM public.sites WHERE code = 'SJH')
+ WHERE UPPER(TRIM(aetitle)) = 'SENOIRIS'
+   AND site_id IS DISTINCT FROM (SELECT id FROM public.sites WHERE code = 'SJH');
 
 INSERT INTO public.aetitle_modality_map (aetitle, modality, site_id, ris_aetitle, description)
 SELECT v.ae, v.modality, s.id, v.ris, v.note
@@ -48,7 +61,10 @@ BEGIN
        AND UPPER(TRIM(s.original_storing_ae)) <> UPPER(TRIM(s.storing_ae))
        AND EXISTS (SELECT 1 FROM public.aetitle_modality_map m
                    WHERE UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.original_storing_ae))
-                     AND NULLIF(TRIM(m.modality), '') IS NOT NULL AND UPPER(TRIM(m.modality)) <> 'PACS');
+                     AND NULLIF(TRIM(m.modality), '') IS NOT NULL AND UPPER(TRIM(m.modality)) <> 'PACS'
+                     AND NOT EXISTS (SELECT 1 FROM public.aetitle_modality_map g
+                                     WHERE UPPER(TRIM(g.aetitle)) = UPPER(TRIM(s.storing_ae))
+                                       AND g.site_id <> m.site_id));
     GET DIAGNOSTICS swapped = ROW_COUNT;
     RAISE NOTICE 'gateway studies given their scanner as device: %', swapped;
 END

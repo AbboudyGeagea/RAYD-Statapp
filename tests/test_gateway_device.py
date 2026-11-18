@@ -6,8 +6,9 @@ SJH's studies reach PACS through its middleware SJHCSAPWFMFIR, which PACS names 
 AE; the scanner is in ORIGINAL_STORING_AE. Every report joins the device mapping on storing_ae,
 so RAYD stores the scanner there and the gateway in gateway_ae, but only when the mapping knows
 the scanner as a device: an import agent (XVIMPORT, mapped PACS), an unmapped or empty AE keeps
-the gateway, as do LAUMCWFM1AR's studies (it names itself as the original AE). The study's site
-then follows the scanner. Report 25 on SJH's database: test_site_databases.py.
+the gateway, as do LAUMCWFM1AR's studies (it names itself as the original AE), and so does a
+scanner mapped to another site than its gateway (AE_DBT: one AE title, two machines). The
+study's site then follows the scanner. Report 25 on SJH's database: test_site_databases.py.
 """
 from types import SimpleNamespace
 
@@ -50,14 +51,19 @@ def stored():
     return rows("SELECT study_db_uid, storing_ae, gateway_ae FROM etl_didb_studies ORDER BY 1")
 
 
-SCANNERS = {'GW_MR': 'MR', 'GW_US': 'US', 'GW_CT': 'CT', 'GW_IMPORT': 'PACS'}   # GW_IMPORT: an import agent
+# GW_IMPORT: an import agent. GW_RH: an RH device (the AE_DBT case behind SJH's middleware).
+SCANNERS = {'GW_MR': ('MR', 'SJH'), 'GW_US': ('US', 'SJH'), 'GW_CT': ('CT', 'SJH'),
+            'GW_IMPORT': ('PACS', 'SJH'), 'GW_RH': ('MG', 'RH')}
 
 
 @pytest.fixture(autouse=True)
 def scanners(ctx):
-    for ae, modality in SCANNERS.items():
+    for ae, (modality, site) in SCANNERS.items():
         sql("""INSERT INTO aetitle_modality_map (aetitle, modality, site_id)
-               SELECT :a, :m, id FROM sites WHERE code = 'SJH'""", a=ae, m=modality)
+               SELECT :a, :m, id FROM sites WHERE code = :s""", a=ae, m=modality, s=site)
+    # the gateways' sites, as migration 0083 seeded them on LAUMC
+    sql("""UPDATE aetitle_modality_map m SET site_id = s.id FROM sites s
+           WHERE (m.aetitle, s.code) IN (('SJHCSAPWFMFIR', 'SJH'), ('LAUMCWFM2FIR', 'RH'))""")
     yield
     sql("DELETE FROM aetitle_modality_map WHERE aetitle = ANY(:a)", a=list(SCANNERS))
 
@@ -89,27 +95,38 @@ def use(monkeypatch, pacs):
     monkeypatch.setattr(studies, 'OracleConnector', SimpleNamespace(get_connection=lambda source: pacs))
 
 
+MAPPING = {'KIZUNA': (True, 2), 'CM_CT_CMW_V1': (True, 2), 'MR750W': (True, 1), 'AE_DBT': (True, 1),
+           'SENO1': (True, 1), 'XVIMPORT': (False, 1), 'SJHCSAPWFMFIR': (False, 2), 'LAUMCWFM2FIR': (False, 1),
+           'NOSITE': (True, None)}
+
+
 @pytest.mark.parametrize('storing, original, expected', [
     ('SJHCSAPWFMFIR', 'KIZUNA', ('KIZUNA', 'SJHCSAPWFMFIR')),
-    ('LAUMCWFM2FIR', 'CM_CT_CMW_V1', ('CM_CT_CMW_V1', 'LAUMCWFM2FIR')),
+    ('LAUMCWFM2FIR', 'MR750W', ('MR750W', 'LAUMCWFM2FIR')),
+    ('LAUMCWFM2FIR', 'SENO1', ('SENO1', 'LAUMCWFM2FIR')),
+    ('SJHCSAPWFMFIR', 'NOSITE', ('NOSITE', 'SJHCSAPWFMFIR')),  # a device with no site: no conflict
     ('SJHCSAPWFMFIR', None, ('SJHCSAPWFMFIR', None)),        # no original AE: keeps the gateway
     ('SJHCSAPWFMFIR', '', ('SJHCSAPWFMFIR', None)),
-    ('SJHCSAPWFMFIR', 'XVIMPORT', ('SJHCSAPWFMFIR', None)),  # not a mapped device
+    ('SJHCSAPWFMFIR', 'XVIMPORT', ('SJHCSAPWFMFIR', None)),  # not a device
     ('SJHCSAPWFMFIR', 'VIMS_AE', ('SJHCSAPWFMFIR', None)),   # not mapped at all
+    ('SJHCSAPWFMFIR', 'AE_DBT', ('SJHCSAPWFMFIR', None)),    # an RH device behind SJH's gateway
+    ('LAUMCWFM2FIR', 'CM_CT_CMW_V1', ('LAUMCWFM2FIR', None)),  # an SJH device behind RH's
     ('LAUMCWFM1AR', 'LAUMCWFM1AR', ('LAUMCWFM1AR', None)),     # names itself: not a gateway here
     ('MR750W', None, ('MR750W', None)),
     ('MR750W', 'KIZUNA', ('MR750W', None)),                  # only gateways are swapped
 ])
 def test_device_of(storing, original, expected):
-    assert studies.device_of(storing, original, {'KIZUNA', 'CM_CT_CMW_V1', 'MR750W'}) == expected
+    assert studies.device_of(storing, original, MAPPING) == expected
 
 
-def test_the_mapped_devices_leave_out_gateways_and_import_agents():
+def test_the_device_map_reads_devices_and_sites():
     from db import db
     with db.engine.connect() as conn:
-        devices = studies.mapped_devices(conn)
-    assert {'GW_MR', 'GW_US', 'GW_CT'} <= devices
-    assert not devices & {'GW_IMPORT', 'SJHCSAPWFMFIR', 'LAUMCWFM2FIR'}
+        mapping = studies.device_map(conn)
+    sjh = rows("SELECT id FROM sites WHERE code = 'SJH'")[0][0]
+    assert mapping['GW_MR'] == (True, sjh)
+    assert mapping['GW_IMPORT'] == (False, sjh)
+    assert mapping['SJHCSAPWFMFIR'] == (False, sjh)
 
 
 # ── the nightly copy ──────────────────────────────────────────────────────────
@@ -138,17 +155,19 @@ def test_the_nightly_copy_stores_the_scanner_and_keeps_the_gateway(monkeypatch):
     from db import db, chunked_upsert
     given = [(1, 'SJHCSAPWFMFIR', 'GW_MR'), (2, 'SJHCSAPWFMFIR', None), (3, 'LAUMCWFM1AR', 'LAUMCWFM1AR'),
              (4, 'MR750W', None), (5, 'LAUMCWFM2FIR', 'GW_US'), (6, 'SJHCSAPWFMFIR', 'GW_IMPORT'),
-             (7, 'SJHCSAPWFMFIR', 'VIMS_AE')]
+             (7, 'SJHCSAPWFMFIR', 'VIMS_AE'), (8, 'SJHCSAPWFMFIR', 'GW_RH')]
     pacs = FakeOracle(lambda q, p: [pacs_row(q, *g) for g in given])
     use(monkeypatch, pacs)
 
     for _night in range(2):                       # the lookback reads the same studies again
         total, _uids = studies.run_studies_etl(db.engine, 'PACS', 'etl_didb_studies', chunked_upsert, '2021-01-01')
-        assert total == 7
+        assert total == 8
         assert stored() == [(1, 'GW_MR', 'SJHCSAPWFMFIR'), (2, 'SJHCSAPWFMFIR', None),
-                            (3, 'LAUMCWFM1AR', None), (4, 'MR750W', None), (5, 'GW_US', 'LAUMCWFM2FIR'),
+                            (3, 'LAUMCWFM1AR', None), (4, 'MR750W', None),
+                            (5, 'LAUMCWFM2FIR', None),       # an SJH device behind RH's gateway
                             (6, 'SJHCSAPWFMFIR', None),      # an import agent keeps the gateway
-                            (7, 'SJHCSAPWFMFIR', None)]      # so does an unmapped AE
+                            (7, 'SJHCSAPWFMFIR', None),      # so does an unmapped AE
+                            (8, 'SJHCSAPWFMFIR', None)]      # and an RH device behind SJH's
     assert 'GATEWAY_AE' not in pacs.queries[0][0].upper()   # RAYD's own column, never asked of PACS
 
 
@@ -170,12 +189,13 @@ def test_swapping_studies_already_loaded_is_idempotent_and_follows_the_mapping()
     study(2, ' sjhcsapwfmfir', 'gw_mr ')          # as PACS might spell them
     study(3, 'SJHCSAPWFMFIR')
     study(4, 'SJHCSAPWFMFIR', 'GW_LATER')         # a scanner not mapped yet
+    study(5, 'SJHCSAPWFMFIR', 'GW_RH')            # an RH device behind SJH's gateway
     with db.engine.begin() as conn:
         assert studies.apply_gateway_devices(conn) == 2
     with db.engine.begin() as conn:
         assert studies.apply_gateway_devices(conn) == 0
     assert stored() == [(1, 'GW_MR', 'SJHCSAPWFMFIR'), (2, 'GW_MR', 'SJHCSAPWFMFIR'),
-                        (3, 'SJHCSAPWFMFIR', None), (4, 'SJHCSAPWFMFIR', None)]
+                        (3, 'SJHCSAPWFMFIR', None), (4, 'SJHCSAPWFMFIR', None), (5, 'SJHCSAPWFMFIR', None)]
     # mapped later: its studies move the next night
     sql("INSERT INTO aetitle_modality_map (aetitle, modality, site_id) SELECT 'GW_LATER', 'DX', id FROM sites WHERE code = 'SJH'")
     try:

@@ -95,9 +95,18 @@ wetread 14,821, all from 1 Oct; `pacs_audit_version` 2, `original_ae_filled` and
   name since May 2024), AFFINITI50 (US, SJH), PHILIPSCARM (RF, SJH, link to RIS PHILIPS "C-Arm 2"
   to confirm).
   **Item 31 closed:** the 232 SJH XA are 231 imports (XVIMPORT) and 1 with no AE, not cardiology.
-  **Before deploying:** AE_DBT (4,698) and SENOIRIS (17) are mapped to RH, but PACS labels all
-  their gateway studies SJH; with the device rule they would move into RH's reports. Check their
-  RIS orders' issuer (query in the reply of 18 Nov), then fix their mapped site in 0164 if SJH.
+  **AE_DBT / SENOIRIS (RIS issuer, production 18 Nov):** AE_DBT is two machines under one AE
+  title: stored directly it is RH's (3,632 of 3,644 on SAP_PROD orders), behind SJH's middleware
+  SJH's (4,625 of 4,696 on SAP_SJH). Rule added: a study moves to its scanner only when the
+  scanner's mapped site is the gateway's (or either has none); AE_DBT behind the middleware
+  keeps it (SJH, modality PACS, as today). SENOIRIS is SJH's (all 9 direct, 14 of 17 behind the
+  middleware on SAP_SJH): 0164 maps it to SJH, so its 9 direct studies leave RH's reports.
+  **Expected on production after 0164** (non-SR studies): SJHCSAPWFMFIR about 141,200 on their
+  scanner, about 5,230 left on it (AE_DBT 4,696, no AE 258, XVIMPORT 231, VIMS_AE 38, 4 others);
+  LAUMCWFM2FIR 476 on their scanner (RH devices), 84 left (SJH devices 53, no AE 30, SVSM 1). RH
+  totals change by a handful in 2021–2025 (SENO1 +10 and AE_DBT +2 behind LAUMCWFM2FIR, both on
+  RH RIS orders; SENOIRIS −9). Later, small: TERRA2 (cardiology, in the excluded list) has 5
+  studies behind LAUMCWFM2FIR; the cardiology filter reads only EPIQCVX/AZURION as original AE.
   **(c) built 18 Nov (migration 0165, not deployed):** the rh views keep the site each database
   serves (`rayd_served_site_id()`, written into the views as a number when they are rebuilt, since
   Report Composer's role cannot read settings), so SJH's database gets the same rules; requests
@@ -137,7 +146,7 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 | 31 | Cardiology out | **done**: 3,948 purged; the 232 SJH XA left are imports (XVIMPORT 231) and 1 with no AE | — | done 18 Nov |
 | 14A/B | Signature turnaround | deployed; approvals re-read | spot-check Report 32; station clocks | 18–19 Nov |
 | 4 | RIS room names | done (0161, 6 links live) | checklist 6 for LEO22529/ARTIS121403 | 18–19 Nov |
-| 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | AE_DBT/SENOIRIS site (RIS issuer query); PHILIPSCARM = C-Arm 2?; deploy; cath lab RIS side; 13d; move Sat 28 | deploy as soon as checked, move 28–29 |
+| 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | deploy 0164 + 0165 (then the check query); PHILIPSCARM = C-Arm 2?; cath lab RIS side; 13d; move Sat 28 | deploy now, move 28–29 |
 | 21 | Patient schedule lead time | booking time filled (0160) | the report (about 2 days) | 23–25 Nov, deploy 26 |
 | 1 | HIS vs RIS orders | HIS order number filled (0160) | Mirth ORM forwarding; then the Report 27 tab (2–3 days) | after the ORMs |
 | 10 | Gateways | SJH and LAUMCWFM2FIR from the original AE; LAUMCWFM1AR from the RIS | built with 13 | with 13 |

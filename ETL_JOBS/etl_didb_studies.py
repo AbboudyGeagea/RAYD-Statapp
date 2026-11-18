@@ -26,7 +26,11 @@ _CARDIOLOGY_SQL = (
 # Only when the original AE is a DEVICE the mapping knows (a modality other than 'PACS'): an
 # import agent (XVIMPORT), a workstation, an unmapped or empty AE keeps the gateway, as before,
 # because reports keep only the site's mapped devices and would lose those studies (production
-# list of 2026-11-18). Mapping a scanner later moves its studies the next night
+# list of 2026-11-18). And only when the scanner's mapped site is the gateway's (or either has
+# none): one AE title can be two machines, AE_DBT is RH's mammography when it stores directly
+# (every RIS order SAP_PROD) and SJH's behind SJH's middleware (4,625 of 4,696 SAP_SJH); there
+# the mapping cannot say which, so the study keeps the gateway and the PACS label's site.
+# Mapping a scanner later moves its studies the next night
 # (apply_gateway_devices runs after every load). LAUMCWFM1AR is not one of these: it names
 # itself as the original AE; its devices come from each exam's RIS room. To undo:
 # UPDATE etl_didb_studies SET storing_ae = gateway_ae, gateway_ae = NULL WHERE gateway_ae IS NOT NULL
@@ -34,28 +38,37 @@ GATEWAY_AES = ('SJHCSAPWFMFIR', 'LAUMCWFM2FIR')
 _GATEWAY_LIST = ", ".join(f"'{ae}'" for ae in GATEWAY_AES)
 # A study that came through a gateway, whether its device was swapped or not.
 GATEWAY_STUDY_SQL = f"UPPER(TRIM(COALESCE(gateway_ae, storing_ae))) IN ({_GATEWAY_LIST})"
-# The AE titles mapped as a device (m.<column>); the same test in Python and SQL.
+# The same tests in Python (device_of) and SQL (_APPLY_GATEWAY_SQL): m is the scanner's mapping
+# row, g the gateway's.
 _IS_DEVICE_SQL = "NULLIF(TRIM(m.modality), '') IS NOT NULL AND UPPER(TRIM(m.modality)) <> 'PACS'"
-_MAPPED_DEVICES_SQL = text(f"SELECT DISTINCT UPPER(TRIM(m.aetitle)) FROM aetitle_modality_map m WHERE {_IS_DEVICE_SQL}")
+_MAPPING_SQL = text("SELECT UPPER(TRIM(m.aetitle)), UPPER(TRIM(COALESCE(m.modality, ''))), m.site_id "
+                    "FROM aetitle_modality_map m")
 _APPLY_GATEWAY_SQL = text(f"""
     UPDATE etl_didb_studies s
        SET gateway_ae = UPPER(TRIM(s.storing_ae)), storing_ae = UPPER(TRIM(s.original_storing_ae))
      WHERE UPPER(TRIM(s.storing_ae)) IN ({_GATEWAY_LIST})
        AND UPPER(TRIM(s.original_storing_ae)) <> UPPER(TRIM(s.storing_ae))
        AND EXISTS (SELECT 1 FROM aetitle_modality_map m
-                   WHERE UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.original_storing_ae)) AND {_IS_DEVICE_SQL})
+                   WHERE UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.original_storing_ae)) AND {_IS_DEVICE_SQL}
+                     AND NOT EXISTS (SELECT 1 FROM aetitle_modality_map g
+                                     WHERE UPPER(TRIM(g.aetitle)) = UPPER(TRIM(s.storing_ae))
+                                       AND g.site_id <> m.site_id))
 """)
 
 
-def mapped_devices(conn):
-    """The AE titles the mapping knows as a device, upper-cased and trimmed."""
-    return set(conn.execute(_MAPPED_DEVICES_SQL).scalars())
+def device_map(conn):
+    """{AE title: (mapped as a device, site_id)} from the mapping, upper-cased and trimmed."""
+    return {ae: (modality not in ('', 'PACS'), site) for ae, modality, site in conn.execute(_MAPPING_SQL)}
 
 
-def device_of(storing_ae, original_ae, devices):
-    """(storing_ae, gateway_ae) as RAYD stores a study PACS gives with these two AEs, given
-    the mapped devices (mapped_devices())."""
-    if storing_ae in GATEWAY_AES and original_ae and original_ae != storing_ae and original_ae in devices:
+def device_of(storing_ae, original_ae, mapping):
+    """(storing_ae, gateway_ae) as RAYD stores a study PACS gives with these two AEs, given the
+    mapping (device_map())."""
+    if storing_ae not in GATEWAY_AES or not original_ae or original_ae == storing_ae:
+        return storing_ae, None
+    is_device, site = mapping.get(original_ae, (False, None))
+    gateway_site = mapping.get(storing_ae, (False, None))[1]
+    if is_device and (site is None or gateway_site is None or site == gateway_site):
         return original_ae, storing_ae
     return storing_ae, None
 
@@ -233,15 +246,15 @@ def run_studies_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_
         _AE, _ORIGINAL = col_names.index('storing_ae'), col_names.index('original_storing_ae')
         try:
             with pg_engine.connect() as conn:
-                devices = mapped_devices(conn)
+                mapping = device_map(conn)
         except Exception as dev_err:          # no swap tonight; apply_gateway_devices catches up
-            logging.warning(f"Studies ETL: mapped devices not read, gateway studies keep the gateway: {dev_err}")
-            devices = set()
+            logging.warning(f"Studies ETL: device mapping not read, gateway studies keep the gateway: {dev_err}")
+            mapping = {}
 
         def _with_device(row):
             """The PACS row as RAYD stores it: a gateway study gets its scanner as storing_ae."""
             row = list(row)
-            row[_AE], gateway = device_of(row[_AE], row[_ORIGINAL], devices)
+            row[_AE], gateway = device_of(row[_AE], row[_ORIGINAL], mapping)
             return tuple(row) + (gateway,)
 
         ora_conn = OracleConnector.get_connection(oracle_source)
