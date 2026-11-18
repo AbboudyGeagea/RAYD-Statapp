@@ -35,8 +35,8 @@ wetread 14,821, all from 1 Oct; `pacs_audit_version` 2, `original_ae_filled` and
    Expect: audit kinds open, lock, approve, wetread from 1 Oct; `pacs_audit_version` 2,
    `original_ae_filled` and `orders_header_filled` true; SJH XA about 120 and US about 1,360
    (were 3,514 and 1,924 before the cardiology purge).
-2. **Item 2 (due Fri 20), spot-check** (October was already regenerated on the audit, 18 Nov
-   01:02; no workbook needed). (a) On the server, picks 6 October ER studies spread over the
+2. **Item 2: DONE 18 Nov**, 6 of 6 equal to the second. Kept for a later re-check
+   (October was already regenerated on the audit, 18 Nov 01:02; no workbook needed). (a) On the server, picks 6 October ER studies spread over the
    month with RAYD's first open (Report 37's rule) and prints their accessions in quotes:
    ```bash
    sudo docker exec rayd_db psql -U etl_user -d etl_db -c "CREATE TEMP TABLE spot AS WITH role_lookup AS (SELECT DISTINCT ON (login_id) login_id, role FROM (SELECT UPPER(BTRIM(o.login_id)) AS login_id, LOWER(BTRIM(o.role)) AS role, 1 AS src_rank FROM pacs_user_role_override o WHERE o.login_id IS NOT NULL UNION ALL SELECT UPPER(BTRIM(g.login_id)), CASE LOWER(BTRIM(g.group_name)) WHEN 'mammography' THEN 'radiologists' ELSE LOWER(BTRIM(g.group_name)) END, 2 FROM std_pacs_user_groups g WHERE g.login_id IS NOT NULL AND LOWER(BTRIM(g.group_name)) IN ('radiologists', 'residents', 'mammography')) src ORDER BY login_id, src_rank, CASE role WHEN 'residents' THEN 0 ELSE 1 END), cases AS (SELECT s.accession_number AS accession, s.study_instance_uid, s.insert_time AS arrived, NTILE(6) OVER (ORDER BY s.insert_time) AS part, random() AS r FROM etl_didb_studies s WHERE s.insert_time >= '2026-10-01' AND s.insert_time < '2026-11-01' AND (UPPER(BTRIM(s.patient_location)) = 'ER' OR s.accession_number LIKE '2XE%') AND s.site_id = (SELECT id FROM sites WHERE is_default) AND COALESCE(s.study_modality, '') <> 'SR' AND s.accession_number IS NOT NULL AND s.study_instance_uid IS NOT NULL) SELECT DISTINCT ON (c.part) c.accession, c.arrived, ao.event_at AS rayd_first_open, ao.user_name AS opened_by FROM cases c LEFT JOIN LATERAL (SELECT a.event_at, a.user_name FROM etl_pacs_audit_events a JOIN role_lookup reader ON reader.login_id = UPPER(SPLIT_PART(a.user_name, '@', 1)) WHERE a.study_instance_uid = BTRIM(c.study_instance_uid) AND a.kind IN ('open', 'lock') ORDER BY a.event_at, a.log_dbid LIMIT 1) ao ON TRUE ORDER BY c.part, c.r;" -c "SELECT accession, arrived, rayd_first_open, opened_by FROM spot ORDER BY arrived;" -c "SELECT string_agg(quote_literal(accession), ', ' ORDER BY arrived) AS paste_into_oracle FROM spot;"
@@ -155,7 +155,7 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 |---|------|--------------|----------|------|
 | 33 | Report 27 RIS-vs-PACS card at 0 | fixed (0163: RIS orders and reports get their site from the issuer); 0163 applied 18 Nov | reload Report 27 | 18 Nov |
 | 34 | update.sh and the app migrating at once | fixed (update.sh takes the app's migration lock) | the next deploy | next deploy |
-| 2 | First open (**due Fri 20**) | deployed; audit re-read from 1 Oct (checked 18 Nov); October regenerated 18 Nov 01:02 after the re-read: 1,429 cases, all with a first open; no recipients, nothing emailed; monthly email no longer says "PACS keeps only the latest open" (f8c13210, next deploy) | spot-check with `scripts/sql/report_37_first_open_spotcheck.sql` | 18–20 Nov |
+| 2 | First open | **done 18 Nov**: spot-check 6 of 6 October ER studies equal to the second (time and login) against `AUDITING.AUDIT_LOG`; the HIS viewer account (`his_vue_motion@ad`), which opens most studies minutes after arrival, is rightly not counted; October 1,429 cases, all with a first open; email wording fix deployed | — | done |
 | 32 | HIS duplicate orders | live (0162); Rizk October: 76 % twins, 18.5 % no-shows; SJH twins not matched by patient | checklist 5 (HIS order number) | 18 Nov |
 | 9 | Staff who left | deployed (0157, 0158), switch off | checklist 4, then switch on; Tanios Jalkh; Jessica Saad's PACS account | 18 Nov |
 | 31 | Cardiology out | **done**: 3,948 purged; the 232 SJH XA left are imports (XVIMPORT 231) and 1 with no AE | — | done 18 Nov |
@@ -174,7 +174,8 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 | 14 | Radiologist TAT and counts from PACS (rest) | turnaround card live | 14A/14B validated | December |
 | 17 | R2I and BRAYN switch-on checks | waiting | live R2I feed | blocked |
 
-Done: 3, 4, 6, 7, 11, 12, 15, 16, 19 (code), 22–29, 31, 34; 9 deployed (switch pending).
+Done: 2, 3, 4, 6, 7, 10, 11, 12, 15, 16, 19 (code), 21, 22–29, 31, 34; 13a, 13b, 13c deployed
+18 Nov; 9 deployed (switch pending).
 
 ---
 
