@@ -89,7 +89,7 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 |---|------|--------------|----------|------|
 | 33 | Report 27 RIS-vs-PACS card at 0 | fixed (0163: RIS orders and reports get their site from the issuer); 0163 applied 18 Nov | reload Report 27 | 18 Nov |
 | 34 | update.sh and the app migrating at once | fixed (update.sh takes the app's migration lock) | the next deploy | next deploy |
-| 2 | First open (**due Fri 20**) | deployed; readers include mammography; audit re-read from 1 Oct | checklist 1–3; regenerate October | 18–20 Nov |
+| 2 | First open (**due Fri 20**) | deployed; audit re-read from 1 Oct (checked 18 Nov); monthly email no longer says "PACS keeps only the latest open" (f8c13210, next deploy) | email state check, then regenerate October; spot-check with `scripts/sql/report_37_first_open_spotcheck.sql` | 18–20 Nov |
 | 32 | HIS duplicate orders | live (0162); Rizk October: 76 % twins, 18.5 % no-shows; SJH twins not matched by patient | checklist 5 (HIS order number) | 18 Nov |
 | 9 | Staff who left | deployed (0157, 0158), switch off | checklist 4, then switch on; Tanios Jalkh; Jessica Saad's PACS account | 18 Nov |
 | 31 | Cardiology out | 3,948 purged (0159); SJH US 1,361 as expected; SJH XA 232, expected about 120 | XA by original AE | 18 Nov |
