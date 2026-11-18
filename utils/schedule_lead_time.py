@@ -21,6 +21,7 @@ department from the RIS ordering organisation. Reads through the site's views (r
 database's site, without the HIS's duplicate orders or test patients.
 """
 import io
+import math
 import statistics
 from datetime import date, timedelta
 
@@ -198,12 +199,21 @@ def build(start, end, chosen=None):
     heat = [[0] * 24 for _ in WEEKDAYS]
     for c in cases:
         heat[c['booked_at'].weekday()][c['booked_at'].hour] += 1
+    heat_max = max((max(r) for r in heat), default=0)
+    peak = max(((n, d, h) for d, row in enumerate(heat) for h, n in enumerate(row)), default=(0, 0, 0))
     summary = {
         'kpi': _block(cases),
         'buckets': [{'key': k, 'label': label, 'exams': sum(c['bucket'] == k for c in cases)}
                     for k, label in BUCKETS],
         'breakdowns': {k: _breakdown(cases, k) for k, _ in DIMENSIONS},
-        'heat': heat, 'heat_max': max((max(r) for r in heat), default=0),
+        'heat': heat, 'heat_max': heat_max,
+        # the colour step of each cell: 0 = none, 1..7 = the ramp, by the square root of its
+        # share of the busiest cell, so a quiet hour still shows against an empty one
+        'heat_steps': [[(max(1, min(7, math.ceil((n / heat_max) ** 0.5 * 7))) if n and heat_max else 0)
+                        for n in row] for row in heat],
+        'heat_rows': [sum(row) for row in heat],
+        'heat_cols': [sum(heat[d][h] for d in range(len(WEEKDAYS))) for h in range(24)],
+        'heat_peak': {'n': peak[0], 'weekday': WEEKDAYS[peak[1]], 'hour': peak[2]} if peak[0] else None,
         'options': options(every),
         'filters': {k: sorted(map(str, v)) for k, v in chosen.items()},
     }

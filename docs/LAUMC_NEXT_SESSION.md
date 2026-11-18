@@ -1309,6 +1309,13 @@ The readiness panel on Admin > CRN > Settings shows each of these as ok / missin
 ## Low priority
 
 
+- **BRAYN revamp (operator, 18 Nov, low priority).** With the HIS and RIS feeds now reaching
+  BRAYN, the operator found mistakes in the manual mappings and finds them rigid. Ask which
+  mappings were wrong and what should be easier before changing anything (status map, field map,
+  accession field per sender: SAP_P should be identified by ORC-2).
+- **Live Department board (operator, 18 Nov, low priority):** needs cleaning and some changes,
+  now that the RIS lifecycle feed is live. Ask for the list.
+
 ## Very low priority — later, as a goodwill gesture (added 2026-11-14)
 
 - **Patient schedule lead time.** The time between when the patient booked the exam and the

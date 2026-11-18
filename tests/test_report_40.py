@@ -81,6 +81,9 @@ def test_the_figures_for_a_month(october):
     assert by_modality == {'CT': 3, 'MR': 1}
     assert summary['breakdowns']['department']['rows'][0]['value'] == 'Emergency room B1'
     assert sum(map(sum, summary['heat'])) == 4
+    assert sum(summary['heat_rows']) == sum(summary['heat_cols']) == 4
+    assert summary['heat_peak']['n'] == 1 and summary['heat_max'] == 1
+    assert {s for row in summary['heat_steps'] for s in row} == {0, 7}   # empty, or the busiest
 
 
 def test_a_filter_keeps_its_values(october):

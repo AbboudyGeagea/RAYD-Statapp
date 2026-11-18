@@ -23,8 +23,30 @@
         .bar-track { background:#1b2320; border-radius:4px; height:14px; }
         .bar-fill  { background:var(--accent); border-radius:4px; height:14px; }
         .bar-fill.after { background:#f59e0b; }
-        .heat td { padding:0; width:3.6%; height:18px; text-align:center; font-size:9px; color:#0f172a; }
-        .heat th { padding:0.2rem; font-size:9px; }
+        /* Bookings per weekday and hour: one blue ramp (dataviz sequential, steps 100-700). Dark
+           mode runs dark -> light so a quiet hour sinks toward the surface; light mode the reverse.
+           Text takes the ink that reads on its step. */
+        :root { --h0:#1b2320; --h1:#0d366b; --h2:#184f95; --h3:#256abf; --h4:#3987e5; --h5:#6da7ec; --h6:#9ec5f4; --h7:#cde2fb;
+                --hl:#e2e8f0; --hd:#0f172a; }
+        body.light { --h0:#f1f5f9; --h1:#cde2fb; --h2:#9ec5f4; --h3:#6da7ec; --h4:#3987e5; --h5:#256abf; --h6:#184f95; --h7:#0d366b; }
+        .heat { width:100%; table-layout:fixed; border-collapse:separate; border-spacing:3px; }
+        .heat th { padding:0.25rem 0.1rem; font-size:11px; font-weight:800; color:#94a3b8; text-transform:none; letter-spacing:0; text-align:center; }
+        .heat th.day { width:7.5rem; text-align:left; padding-left:0.25rem; color:#cbd5e1; }
+        .heat th.tot, .heat td.tot { width:4.5rem; text-align:right; padding-right:0.4rem; }
+        .heat td, .heat th { vertical-align:middle; }
+        .heat td.c { height:38px; padding:0; border-radius:5px; text-align:center; font-size:12px; font-weight:800;
+                     font-variant-numeric:tabular-nums; background:var(--h0); }
+        .heat td.c:hover { outline:2px solid #f8fafc; outline-offset:1px; }
+        .heat td.tot { font-size:12px; font-weight:800; color:#cbd5e1; font-variant-numeric:tabular-nums; }
+        .heat tfoot td { font-size:11px; font-weight:800; color:#94a3b8; text-align:center; font-variant-numeric:tabular-nums; padding-top:0.3rem; }
+        .h1 { background:var(--h1)!important; color:var(--hl); } .h2 { background:var(--h2)!important; color:var(--hl); }
+        .h3 { background:var(--h3)!important; color:var(--hl); } .h4 { background:var(--h4)!important; color:var(--hl); }
+        .h5 { background:var(--h5)!important; color:var(--hd); } .h6 { background:var(--h6)!important; color:var(--hd); }
+        .h7 { background:var(--h7)!important; color:var(--hd); }
+        body.light .h1, body.light .h2, body.light .h3 { color:var(--hd); }
+        body.light .h4, body.light .h5, body.light .h6, body.light .h7 { color:#fff; }
+        body.light .heat th.day, body.light .heat td.tot { color:#334155; }
+        .swatch { display:inline-block; width:28px; height:14px; border-radius:3px; }
         select.dim { background:#1b2320; border:1px solid #28332e; border-radius:0.5rem; color:#e2e8f0; font-size:12px; padding:0.35rem 0.6rem; }
         body.light { background:#f0f4f8; color:#1a202c; }
         body.light main { background:#f0f4f8!important; }
@@ -75,7 +97,7 @@
         <div class="card p-6 text-sm text-slate-400">No exam with a booking time has its appointment in this period.</div>
         {% else %}
 
-        <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+        <div class="mb-6">
             <div class="card p-5">
                 <p class="section-title">How far ahead<i class="bi bi-info-circle chart-info-icon ml-1" data-explain="r40-buckets" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
                 {% set most = summary.buckets | map(attribute='exams') | max %}
@@ -92,24 +114,49 @@
                 </table>
             </div>
 
-            <div class="card p-5">
-                <p class="section-title">When bookings are made<i class="bi bi-info-circle chart-info-icon ml-1" data-explain="r40-heat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
-                <div class="overflow-x-auto">
-                    <table class="heat w-full">
-                        <thead><tr><th></th>{% for h in range(24) %}<th scope="col">{{ '%02d' % h }}</th>{% endfor %}</tr></thead>
-                        <tbody>
-                        {% for day in weekdays %}
-                        <tr>
-                            <th scope="row" class="text-left">{{ day[:3] }}</th>
-                            {% for n in summary.heat[loop.index0] %}
-                            {% set a = (0.12 + 0.88 * n / summary.heat_max) if summary.heat_max and n else 0 %}
-                            <td title="{{ day }} {{ '%02d' % loop.index0 }}:00 — {{ n }} bookings" style="background:rgba(96,165,250,{{ a | round(2) }});">{{ n if n else '' }}</td>
-                            {% endfor %}
-                        </tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
+        </div>
+
+        <div class="card p-5 mb-6">
+            <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+                <div>
+                    <p class="section-title mb-1">When bookings are made<i class="bi bi-info-circle chart-info-icon ml-1" data-explain="r40-heat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
+                    {% if summary.heat_peak %}
+                    <p class="text-sm text-slate-400">Busiest hour: <strong class="text-white">{{ summary.heat_peak.weekday }} {{ '%02d' % summary.heat_peak.hour }}:00–{{ '%02d' % ((summary.heat_peak.hour + 1) % 24) }}:00</strong>, {{ '{:,}'.format(summary.heat_peak.n) }} bookings.</p>
+                    {% endif %}
                 </div>
+                <div class="flex items-center gap-2 text-[11px] text-slate-400" aria-label="Colour scale">
+                    <span>Fewer</span>
+                    {% for s in range(1, 8) %}<span class="swatch h{{ s }}"></span>{% endfor %}
+                    <span>More ({{ '{:,}'.format(summary.heat_max) }} in the busiest hour)</span>
+                    <span class="ml-2"><span class="swatch" style="background:var(--h0);border:1px solid #334155;"></span> none</span>
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="heat" aria-label="Bookings by weekday and hour">
+                    <thead><tr>
+                        <th scope="col" class="day">Booked on</th>
+                        {% for h in range(24) %}<th scope="col" title="{{ '%02d' % h }}:00–{{ '%02d' % ((h + 1) % 24) }}:00">{{ '%02d' % h }}</th>{% endfor %}
+                        <th scope="col" class="tot">Total</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for day in weekdays %}
+                    {% set d = loop.index0 %}
+                    <tr>
+                        <th scope="row" class="day">{{ day }}</th>
+                        {% for n in summary.heat[d] %}
+                        <td class="c h{{ summary.heat_steps[d][loop.index0] }}"
+                            title="{{ day }} {{ '%02d' % loop.index0 }}:00–{{ '%02d' % ((loop.index0 + 1) % 24) }}:00 · {{ '{:,}'.format(n) }} booking{{ '' if n == 1 else 's' }}{% if k.exams %} ({{ (100 * n / k.exams) | round(1) }}% of all){% endif %}">{{ '{:,}'.format(n) if n else '' }}</td>
+                        {% endfor %}
+                        <td class="tot">{{ '{:,}'.format(summary.heat_rows[d]) }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                    <tfoot><tr>
+                        <td class="text-left pl-1">Total</td>
+                        {% for n in summary.heat_cols %}<td>{{ '{:,}'.format(n) if n else '' }}</td>{% endfor %}
+                        <td class="tot">{{ '{:,}'.format(k.exams) }}</td>
+                    </tr></tfoot>
+                </table>
             </div>
         </div>
 
