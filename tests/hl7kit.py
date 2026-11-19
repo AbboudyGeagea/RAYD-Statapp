@@ -132,9 +132,10 @@ def status(code, acc, when=None, pat=PATIENT, app='RIS', ctrl=None, placer=None,
            ae='CT64_RH', mod='CT', proc='CTABD', desc='CT ABDOMEN AND PELVIS',
            tech='TECH01^HADDAD^RIMA', cls='O', loc='RAD^CT-ROOM-2^^RH',
            ref='20000191^WAKIM^GERARD', visit=None, msh_when=None, control='SC',
-           orc9=True, room=None, appt=None, minutes=None, obr18=None):
-    """A RIS lifecycle event (ORC-5 = code) for one accession. room, appt, minutes and obr18 (the
-    modality) are where LAUMC's RIS puts them: ORC-16, OBR-36, OBR-27, OBR-18 (0173, 0174)."""
+           orc9=True, room=None, appt=None, minutes=None, obr18=None, obr20=None):
+    """A RIS lifecycle event (ORC-5 = code) for one accession. room, appt, minutes, obr18 (the
+    modality) and obr20 (the PACS accession, on the completion) are where LAUMC's RIS puts them:
+    ORC-16, OBR-36, OBR-27, OBR-18, OBR-20 (0173, 0174, 0175)."""
     when = when or ts(0)
     return message(msh(app, ctrl, 'ORM^O01', msh_when or when),
                    pid(pat),
@@ -142,7 +143,7 @@ def status(code, acc, when=None, pat=PATIENT, app='RIS', ctrl=None, placer=None,
                    orc(control, placer=placer, acc=acc, status=code,
                        when=when if orc9 else None, action_by=tech, room=room),
                    obr(acc=acc, placer=placer, code=proc, desc=desc, ae=ae, mod=mod,
-                       extra={27: minutes, 36: appt, 18: obr18}))
+                       extra={27: minutes, 36: appt, 18: obr18, 20: obr20}))
 
 
 def report(acc, when=None, result_status='F', pat=PATIENT, app='PACS', ctrl=None,

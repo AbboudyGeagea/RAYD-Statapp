@@ -6,7 +6,9 @@ here are about LAUMC, not BRAYN: what the listener writes and answers is the sam
 with BRAYN on or off, and BRAYN failing cannot reach it. The rest check that BRAYN,
 once on, sees what it sees on the HL7 branch — in its own tables only.
 """
+import os
 import time
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -268,6 +270,115 @@ def test_the_ris_arrival_and_the_his_sap_codes_are_classified(pipe):
                            signed_final_at IS NOT NULL AS signed
                       FROM brayn_study_state WHERE accession_number = 'ACC80'""")
     assert s == {'arrived': True, 'started': True, 'signed': True}
+
+
+def test_an_his_rq_with_orc5_empty_is_the_order_changing(pipe):
+    """The wildcard is any status, none included; a RIS SC with ORC-5 empty has no wildcard and
+    stays "not identified"."""
+    pipe.brayn()
+    pipe.send(k.order('PL-71', when=k.ts(30), app='SAP_P'))
+    pipe.send(k.status(None, None, k.ts(20), placer='PL-71', app='SAP_P', control='RQ'))
+    pipe.send(k.status(None, 'ACC72', k.ts(10)))
+    pipe.screen()
+    held = pipe.q("SELECT sending_app FROM hl7_message_archive WHERE brayn_status = 'quarantined'")
+    assert [r['sending_app'] for r in held] == ['RIS']
+
+
+# ── the HIS's time and the RIS study's report (migration 0175, 2026-11-20) ────
+
+def test_the_his_times_are_its_message_time_not_its_planned_orc9(pipe):
+    """SAP's ORC-9 is a planned time (production: later than MSH-7 on all 147 "future" HIS
+    messages), and it made the order read as ordered after the RIS scheduled it."""
+    pipe.brayn()
+    planned = k.hl7(k.now() + timedelta(days=3))
+    pipe.send(k.order('PL-70', when=planned, msh_when=k.ts(60), app='SAP_P'))
+    pipe.send(k.status('^E0003', None, planned, placer='PL-70', app='SAP_P', control='RQ',
+                       msh_when=k.ts(50)))
+    pipe.send(k.status('SC', 'ACC70', k.ts(40), placer='PL-70'))
+    pipe.send(k.status('c^E0001', None, planned, placer='PL-79', app='SAP_P', control='CA',
+                       msh_when=k.ts(30)))
+    pipe.screen()
+    assert pipe.count('brayn_findings', "rule_code IN ('FUTURE_EVENT', 'TIME_CONTRADICTION')") == 0
+    s = pipe.one("SELECT ordered_at, scheduled_at FROM brayn_study_state WHERE accession_number = 'ACC70'")
+    assert abs((s['ordered_at'] - k.ago(60)).total_seconds()) < 120
+    assert s['ordered_at'] < s['scheduled_at']
+    times = [r['event_time'] for r in pipe.q(
+        "SELECT event_time FROM hl7_study_events WHERE placer_order_number IN ('PL-70', 'PL-79')")]
+    assert times and max(times) < datetime.now()
+
+
+def test_the_pacs_report_reaches_the_ris_study(app, pipe):
+    """BRAYN keys a RIS study by the RIS number and the report by the PACS accession, which the
+    RIS's completion names in OBR-20: all 148 UNREPORTED in production were such studies."""
+    from utils import brayn_shadow
+    pipe.brayn()
+    pipe.exec("UPDATE brayn_rules SET threshold_minutes = 120 WHERE rule_code = 'UNREPORTED'")
+    for acc, pacs in (('1003000000071', 'PACS71'), ('1003000000073', 'PACS73')):
+        for code, mins in (('SC', 300), ('IP', 260), ('CM', 240)):
+            pipe.send(k.status(code, acc, k.ts(mins), obr20=pacs if code == 'CM' else None))
+    pipe.send(k.report('PACS71', k.ts(30), result_status='FAP', app='CARESTREAM'))
+    # the report first, the RIS's completion after it
+    pipe.send(k.report('PACS72', k.ts(200), result_status='FAP', app='CARESTREAM'))
+    for code, mins in (('SC', 300), ('CM', 240)):
+        pipe.send(k.status(code, '1003000000072', k.ts(mins), obr20='PACS72' if code == 'CM' else None))
+    pipe.screen()
+    brayn_shadow.sweep(app)
+    rows = {r['accession_number']: r for r in pipe.q(
+        "SELECT accession_number, pacs_accession, reported_at FROM brayn_study_state "
+        "WHERE accession_number LIKE '1003%'")}
+    assert {a: r['pacs_accession'] for a, r in rows.items()} == {
+        '1003000000071': 'PACS71', '1003000000072': 'PACS72', '1003000000073': 'PACS73'}
+    assert abs((rows['1003000000071']['reported_at'] - k.ago(30)).total_seconds()) < 120
+    assert abs((rows['1003000000072']['reported_at'] - k.ago(200)).total_seconds()) < 120
+    assert rows['1003000000073']['reported_at'] is None
+    open_ = pipe.q("SELECT accession_number FROM brayn_findings WHERE rule_code = 'UNREPORTED' AND resolved_at IS NULL")
+    assert [r['accession_number'] for r in open_] == ['1003000000073']
+
+
+def test_migration_0175_corrects_the_studies_already_in_brayn(pipe):
+    raw_his = k.order('PL81', when='20261121083000', msh_when='20261118100000', app='SAP_P', ctrl='H81')
+    raw_prov = k.order('PL82', when='20261125090000', msh_when='20261118120000', app='SAP_P', ctrl='H82')
+    raw_ris = k.status('CM', '1003000000083', '20261119080000', obr20='PACS83', ctrl='R83')
+    ids = {}
+    for ctrl, app_, raw, at in (('H81', 'SAP_P', raw_his, '2026-11-18 10:00'),
+                                ('H82', 'SAP_P', raw_prov, '2026-11-18 12:00'),
+                                ('R83', 'RIS', raw_ris, '2026-11-19 08:00')):
+        ids[ctrl] = pipe.scalar("""INSERT INTO hl7_message_archive (message_control_id, sending_app, raw_message,
+                                                                    content_hash, message_datetime)
+                                   VALUES (:c, :a, :r, :c, :t) RETURNING id""", c=ctrl, a=app_, r=raw, t=at)
+    pipe.exec("""INSERT INTO hl7_study_events (message_archive_id, accession_number, placer_order_number,
+                                               canonical_state, ladder_rank, event_time) VALUES
+                 (:h81, '1003000000081', 'PL81', 'ordered', 20, '2026-11-21 08:30'),
+                 (NULL, '1003000000081', 'PL81', 'scheduled', 40, '2026-11-18 11:00'),
+                 (:h82, NULL, 'PL82', 'ordered', 20, '2026-11-25 09:00')""", h81=ids['H81'], h82=ids['H82'])
+    pipe.exec("""INSERT INTO brayn_study_state (accession_number, placer_order_number, ordered_at, scheduled_at,
+                                                completed_at, reported_at, signed_final_at, last_event_at,
+                                                current_rank, is_provisional) VALUES
+                 ('1003000000081', 'PL81', '2026-11-21 08:30', '2026-11-18 11:00', NULL, NULL, NULL,
+                  '2026-11-21 08:30', 40, FALSE),
+                 ('~ORD:PL82', 'PL82', '2026-11-25 09:00', NULL, NULL, NULL, NULL, '2026-11-25 09:00', 20, TRUE),
+                 ('1003000000083', NULL, NULL, '2026-11-19 07:00', '2026-11-19 08:00', NULL, NULL,
+                  '2026-11-19 08:00', 100, FALSE),
+                 ('PACS83', NULL, NULL, NULL, NULL, '2026-11-19 09:00', '2026-11-19 09:00',
+                  '2026-11-19 09:00', 140, FALSE)""")
+    pipe.exec("""INSERT INTO brayn_findings (message_archive_id, rule_code, severity, accession_number, sending_app, detail)
+                 VALUES (NULL, 'TIME_CONTRADICTION', 'warning', '1003000000081', NULL,
+                         '{"pairs": [{"earlier_rung": "ordered", "later_rung": "scheduled"}]}'),
+                        (:h81, 'FUTURE_EVENT', 'warning', '1003000000081', 'SAP_P', '{}')""", h81=ids['H81'])
+
+    sql = open(os.path.join(os.path.dirname(__file__), '..', 'migrations', '0175_brayn_his_time_report_link.sql'),
+               encoding='utf-8').read()
+    pipe.exec(sql)
+
+    s = {r['accession_number']: r for r in pipe.q(
+        "SELECT accession_number, ordered_at, last_event_at, pacs_accession, reported_at FROM brayn_study_state")}
+    assert s['1003000000081']['ordered_at'] == datetime(2026, 11, 18, 10, 0)
+    assert s['1003000000081']['last_event_at'] == datetime(2026, 11, 18, 11, 0)
+    assert s['~ORD:PL82']['ordered_at'] == datetime(2026, 11, 18, 12, 0)
+    assert s['1003000000083']['pacs_accession'] == 'PACS83'
+    assert s['1003000000083']['reported_at'] == datetime(2026, 11, 19, 9, 0)
+    assert s['PACS83']['pacs_accession'] is None
+    assert pipe.count('brayn_findings', "resolved_at IS NULL") == 0
 
 
 def test_an_exact_status_row_beats_the_wildcard(app, pipe):

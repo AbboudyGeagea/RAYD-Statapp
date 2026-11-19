@@ -175,6 +175,10 @@ class ParsedMessage:
     ris_room:          str  = None
     appointment_at:    datetime = None
     booked_minutes:    float = None
+    # The PACS accession a RIS study is read under (migration 0175: OBR-20 on the RIS's
+    # completion). BRAYN keys a RIS study by the RIS number (ORC-3) and the PACS report by the
+    # accession (OBR-3), so without it no report ever reached a RIS study.
+    pacs_accession:    str  = None
 
     modality:          str  = None
     procedure_code:    str  = None
@@ -358,11 +362,16 @@ def resolve_status(sending_app, order_control, order_status):
     — which UNKNOWN_STATUS_CODE treats as critical, because an unclassified
     transition would otherwise be dropped on the floor without anyone noticing.
     """
-    if not order_status:
-        return (None, None)
     smap = status_map()
     app  = sending_app or ''
     ctl  = order_control or ''
+    if not order_status:
+        # '*' is any status, none included (2026-11-20): an HIS RQ with ORC-5 empty is still the
+        # order changing. Only a wildcard row matches an empty ORC-5.
+        for key in ((app, ctl, '*'), ('', ctl, '*')):
+            if key in smap:
+                return smap[key]
+        return (None, None)
     st   = order_status.upper()
     # '*' as the status (LAUMC, 2026-11-19): any status for this sender and order control.
     # The HIS sends its own SAP code in ORC-5 (^E0001 ... ^E0006 so far, more to come), so one

@@ -162,6 +162,23 @@ Report 25's TAT duplicates, per-resident adjustable bands, counts per radiologis
 on Report 32, validation against Oracle on random dates.
 **Item 17, BRAYN enhancement (built, migration 0174):** the RIS's modality from OBR-18 (BRAYN read
 only OBR-24/-19/-17, empty at LAUMC), with the RIS studies already stored filled.
+**Item 17, BRAYN's first findings (operator's queries, 19 Nov night; built, migration 0175):**
+- "Not identified": 860 held, every code but one already mapped by 0170 (they stopped at 09:24,
+  when 0170 went in) → cleared by **Re-check**. New: 3 RIS SC with ORC-5 empty (no rule yet; look
+  at them, query below). '*' in hl7_status_map now matches an empty ORC-5 too.
+- FUTURE_EVENT 147, all HIS: ORC-9 filled and later than MSH-7 on every one (up to over a week):
+  SAP's ORC-9 is a planned time. It was also the order's "ordered" time, hence 23 TIME_CONTRADICTION
+  ordered > scheduled (26.7 h). Now the HIS's time is MSH-7 (mappings for SAP_P, order + status,
+  priority 5), events and studies corrected, those findings closed.
+- UNREPORTED 148, all keyed by the RIS number: the PACS report (keyed by OBR-3 accession) never
+  reached the RIS study. Now the RIS's completion's OBR-20 (the PACS accession) is kept
+  (`brayn_study_state.pacs_accession`) and the report's time copied to the RIS study
+  (`brayn_shadow._link_report`, either order), filled from the archive; the sweep closes them.
+- The other TIME_CONTRADICTION pairs (scheduled > arrived / started by 6 min, 3 + 3; arrived >
+  started 2; started > completed 1) look like walk-ins registered before booking: left as notes.
+- **Order after the deploy: deploy (0175) first, then Re-check** (Re-check parses the held HIS
+  messages again, with the new times), then the 24-hour check; the STALLED / ORPHAN rules only
+  once that is clean.
 
 **Waiting for the next deploy (`cd /opt/rayd && sudo bash update.sh LAUMC`), all pushed, tests
 passing (1369):** the TV layout of the Live board and Floor Plan removal (2b7ba3cb ...), Report 36

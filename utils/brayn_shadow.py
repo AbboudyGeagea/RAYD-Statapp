@@ -223,6 +223,44 @@ def _store_room_booking(msg):
         logger.exception("BRAYN shadow: room/appointment not stored | acc=%s", msg.accession_number)
 
 
+_PACS_ACCESSION_SQL = text("""
+    UPDATE brayn_study_state SET pacs_accession = :pacs
+     WHERE accession_number = :acc AND accession_number <> :pacs
+       AND pacs_accession IS DISTINCT FROM :pacs
+""")
+
+# A RIS study whose PACS accession has a report: reported_at from the PACS study's earliest
+# report or signature (any of them answers UNREPORTED), earliest kept.
+_REPORT_LINK_SQL = text("""
+    UPDATE brayn_study_state r
+       SET reported_at = LEAST(r.reported_at, p.t), updated_at = NOW()
+      FROM (SELECT accession_number, LEAST(reported_at, signed_prelim_at, signed_final_at) AS t
+              FROM brayn_study_state WHERE accession_number = :pacs) p
+     WHERE r.pacs_accession = p.accession_number
+       AND r.accession_number <> p.accession_number
+       AND p.t IS NOT NULL
+       AND (r.reported_at IS NULL OR r.reported_at > p.t)
+""")
+
+
+def _link_report(msg):
+    """The PACS report onto the RIS study (migration 0175). The RIS's completion names the PACS
+    accession (OBR-20) and the report arrives under it, on its own study row; whichever comes
+    second links the two. BRAYN's own table; fail-open."""
+    if not msg.accession_number:
+        return
+    pacs = (msg.pacs_accession or '').strip() or None
+    try:
+        with db.session.begin_nested():
+            if msg.kind == 'status' and pacs:
+                db.session.execute(_PACS_ACCESSION_SQL, {'acc': msg.accession_number, 'pacs': pacs})
+                db.session.execute(_REPORT_LINK_SQL, {'pacs': pacs})
+            elif msg.kind == 'result':
+                db.session.execute(_REPORT_LINK_SQL, {'pacs': msg.accession_number})
+    except Exception:
+        logger.exception("BRAYN shadow: report not linked to the RIS study | acc=%s", msg.accession_number)
+
+
 def screen_one(archive_id, live=True):
     """
     Screen one archived message and write BRAYN's own tables, in one transaction.
@@ -261,6 +299,7 @@ def screen_one(archive_id, live=True):
         if verdict.may_project:
             persist_parsed(msg, archive_id)           # events, study state, patients
             _store_room_booking(msg)                  # RIS room, appointment (0173)
+            _link_report(msg)                         # PACS report onto the RIS study (0175)
             evaluate_study(msg.accession_number)      # quality notes on the study
             mark_parsed(archive_id, projected=False)  # LAUMC's reports come from Oracle
         else:
