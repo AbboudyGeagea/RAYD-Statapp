@@ -371,9 +371,6 @@ const ChartExplanations = {
       interpretation: 'A large Unknown bar for an old period means orders that were never done or never linked; see Orphan Orders.'
     },
 
-    // Report 31 (Operations) computes exactly like Report 25's Operations tab and uses
-    // the r25- notes above.
-
     // ── Report 32 — Radiologist Intelligence ────────────────────────────────────
     'r32-sla': {
       title: 'TAT Target Compliance by Patient Class',

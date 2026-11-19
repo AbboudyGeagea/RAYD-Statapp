@@ -173,14 +173,6 @@ def test_report_23_patient_class_and_sex(two_ct_studies):
         assert n == want, form
 
 
-def test_report_31_patient_class(two_ct_studies):
-    from routes.report_31 import get_report_config
-    base, start, end, params, extra, _site = get_report_config(
-        period(f_class_active='on', f_class='O'))
-    assert scalar(f"WITH base_data AS ({base}) SELECT COUNT(*) FROM base_data WHERE 1=1{extra}",
-                  params) == 1
-
-
 def test_report_32_patient_class_main_and_secondary(two_ct_studies):
     from routes.report_32 import get_report_config
     base, start, end, params, extra, sec, _join = get_report_config(

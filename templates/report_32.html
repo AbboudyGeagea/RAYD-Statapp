@@ -178,8 +178,8 @@
                     <p class="text-[11px] text-slate-600 italic mt-2">Avg: {{ data.summary.dept_avg_tat }}m</p>
                 </div>
                 {# Two totals, never one. Summing clinical + technical double-counts the
-                   same money as if it were two revenue streams — see the convention note
-                   in routes/report_31.py. Kept in a single card so the KPI row stays a
+                   same money as if it were two revenue streams (clinical and technical RVU
+                   are two views of one study). Kept in a single card so the KPI row stays a
                    clean 4-up. #}
                 <div class="data-card p-6 border-l-4 border-l-emerald-500 !h-auto">
                     <p class="text-xs font-bold text-slate-500 uppercase mb-1">Revenue Capture (RVU)</p>

@@ -102,7 +102,7 @@ def get_report_config(form):
         # LAUMC site rule (operator instruction): reports show RH (main site) only,
         # SJH (satellite) excluded — for Report 23 specifically: "exclude everything that
         # contains SJH, modalities, aetitles, radiologists." Primary mechanism is the SAME
-        # one report_25.py/report_31.py already use — aetitle_modality_map.site_id via
+        # one report_25.py already uses — aetitle_modality_map.site_id via
         # served_site_id() — NOT a hardcoded 'SJH' string match, so the whole block below
         # skips cleanly (no filter applied at all) on a non-LAUMC/single-site install where
         # served_site_id() returns None. `m` is already joined above (the modality-fallback

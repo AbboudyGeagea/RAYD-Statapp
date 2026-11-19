@@ -97,8 +97,8 @@ def daily_briefing():
                 -- feed was mixing a live, partial "today" count into a card whose other
                 -- numbers are all last-complete-day). Orders land via the same nightly
                 -- ETL as studies, so "last day" order volume is a same-day-safe proxy.
-                -- Site resolved via the order's matched study (if any) -> storing_ae, same
-                -- join report_31.py uses for order-level site scoping; orders with no
+                -- Site resolved via the order's matched study (if any) -> storing_ae, the
+                -- order-level site scoping join; orders with no
                 -- matched study yet fall out of a site-scoped count (acceptable here vs.
                 -- re-leaking SJH into the RH-only numbers).
                 SELECT o.scheduled_datetime::date AS order_date
