@@ -15,12 +15,15 @@ one row per RIS order), each with the HIS order number it was created from
                     cancelled on the RIS (all of them) | open on the RIS | not on the RIS |
                     not copied yet (no RIS order, ordered after the last nightly RIS copy
                     began: the RIS side is a day late, so it cannot be missing yet)
-    hospital        the HIS numbers both hospitals' orders from one sequence. An order on
-                    the RIS takes its RIS order's issuer (sites.ris_issuer); one not on the
-                    RIS takes its HIS location's hospital, learned from the orders that are
-                    (a location seen at one hospital only); otherwise it is unknown and only
-                    counted, never listed. The matching reads every site's RIS orders
-                    (public.etl_orders), then keeps this database's site.
+    hospital        SAP_P sends both hospitals' orders, numbered from one sequence. An order on
+                    the RIS takes its RIS order's issuer (sites.ris_issuer). One not on the RIS
+                    takes the hospital the HIS names: PV1-3's 7th component, 1000 = RH and
+                    2000 = SJH (production, 19 Nov: every order of 18 Nov, against its RIS
+                    order's issuer), else an SJH location or entering unit ending in "-J" (EM-J,
+                    ENDOS-J), else its HIS location's hospital learned from the orders on the
+                    RIS; otherwise it is unknown and only counted, never listed. The matching
+                    reads every site's RIS orders (public.etl_orders), then keeps this
+                    database's site.
     RIS only        RIS orders created since the HIS feed began with no HIS message for
                     their number, or with no HIS number at all (created on the RIS)
 
@@ -36,6 +39,8 @@ from db import db
 
 TITLE = 'HIS orders vs RIS'
 DEFAULT_HIS_APPS = ('SAP_P',)
+HIS_FACILITY_SITES = {'1000': 'RH', '2000': 'SJH'}   # PV1-3.7, the HIS's hospital code
+SJH_SUFFIX = '-J'                                    # SJH's HIS locations and units: EM-J, MRI-J
 HIS_APPS_KEY = 'his_sending_apps'
 UNKNOWN = 'Not recorded'
 
@@ -71,7 +76,9 @@ WITH msgs AS (
     SELECT BTRIM(h.placer_order_number) AS his_no,
            COALESCE(h.message_datetime, h.received_at) AS at, h.received_at,
            UPPER(BTRIM(substring(h.raw_message from 'ORC\\|([^|]*)'))) AS control,
-           h.procedure_code, h.procedure_text, h.patient_location, h.patient_class, h.patient_id
+           h.procedure_code, h.procedure_text, h.patient_location, h.patient_class, h.patient_id,
+           BTRIM(split_part(split_part(substring(h.raw_message from 'PV1\\|[^\\r]*'), '|', 4), '^', 7)) AS facility,
+           UPPER(BTRIM(split_part(split_part(substring(h.raw_message from 'ORC\\|[^\\r]*'), '|', 18), '^', 1))) AS entering
     FROM public.hl7_orders h
     WHERE NULLIF(BTRIM(h.placer_order_number), '') IS NOT NULL
       AND UPPER(BTRIM(split_part(h.raw_message, '|', 3))) = ANY(:apps)
@@ -83,7 +90,7 @@ ranked AS (
     FROM msgs m
 )
 SELECT his_no, ordered_at, messages, control, procedure_code, procedure_text,
-       patient_location, patient_class, patient_id
+       patient_location, patient_class, patient_id, facility, entering
 FROM ranked
 WHERE rn = 1 AND ordered_at >= :start AND ordered_at < :end
 """
@@ -171,6 +178,7 @@ def _shape(row, ris, copied_until):
         'location': _clean(row['patient_location']) or UNKNOWN,
         'patient_class': _clean(row['patient_class']) or UNKNOWN,
         'patient_id': _clean(row['patient_id']), 'ris': ris,
+        'facility': _clean(row.get('facility')), 'entering': _clean(row.get('entering')),
     }
     case['outcome'] = _outcome(case, copied_until)
     case['outcome_label'] = OUTCOME_LABELS[case['outcome']]
@@ -189,16 +197,29 @@ def _shape(row, ris, copied_until):
     return case
 
 
-def _assign_sites(cases):
-    """An order on the RIS: its RIS orders' site. Otherwise its HIS location's, when every
-    order of that location on the RIS is at one site."""
+def _his_site(case, site_ids):
+    """The hospital the HIS message names: its PV1-3.7 code, else an SJH location or unit."""
+    code = HIS_FACILITY_SITES.get(case['facility'] or '')
+    if code:
+        return site_ids.get(code)
+    if any((v or '').upper().endswith(SJH_SUFFIX) for v in (case['location'], case['entering'])):
+        return site_ids.get('SJH')
+    return None
+
+
+def _assign_sites(cases, site_ids):
+    """An order on the RIS: its RIS orders' site. Otherwise the hospital its HIS message names,
+    else its HIS location's, when every order of that location on the RIS is at one site."""
     seen = {}
     for c in cases:
         if len(c['ris_sites']) == 1 and c['location'] != UNKNOWN:
             seen.setdefault(c['location'], set()).update(c['ris_sites'])
     for c in cases:
+        his_site = _his_site(c, site_ids)
         if len(c['ris_sites']) == 1:
             c['site_id'], c['site_from'] = next(iter(c['ris_sites'])), 'ris'
+        elif his_site is not None:
+            c['site_id'], c['site_from'] = his_site, 'his'
         elif len(seen.get(c['location'], ())) == 1:
             c['site_id'], c['site_from'] = next(iter(seen[c['location']])), 'location'
         else:
@@ -248,7 +269,8 @@ def build(start, end, site_id):
             ris_by_no.setdefault(r['his_no'], []).append(dict(r))
     copied_until = last_ris_copy()
     every = [_shape(h, ris_by_no.get(h['his_no'], []), copied_until) for h in his]
-    _assign_sites(every)
+    site_ids = {code: sid for code, sid in db.session.execute(text("SELECT code, id FROM public.sites"))}
+    _assign_sites(every, site_ids)
     cases = [c for c in every if site_id is None or c['site_id'] == site_id]
     unknown_site = sum(1 for c in every if c['site_id'] is None) if site_id is not None else 0
     cases.sort(key=lambda c: c['ordered_at'])
@@ -266,6 +288,7 @@ def build(start, end, site_id):
         'not_on_ris': [c for c in cases if c['outcome'] == 'not_on_ris'][:200],
         'unknown_site': unknown_site,
         'feed_start': started, 'copied_until': copied_until, 'apps': apps, 'ris_only': ris_only,
+        'site_from_his': sum(1 for c in cases if c['site_from'] == 'his'),
         'site_from_location': sum(1 for c in cases if c['site_from'] == 'location'),
     }
     return cases, summary

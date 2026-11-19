@@ -358,7 +358,10 @@ def resolve_status(sending_app, order_control, order_status):
     app  = sending_app or ''
     ctl  = order_control or ''
     st   = order_status.upper()
-    for key in ((app, ctl, st), (app, '', st), ('', ctl, st), ('', '', st)):
+    # '*' as the status (LAUMC, 2026-11-19): any status for this sender and order control.
+    # The HIS sends its own SAP code in ORC-5 (^E0001 ... ^E0006 so far, more to come), so one
+    # row per code would break on each new one. An exact row still wins over the wildcard.
+    for key in ((app, ctl, st), (app, '', st), ('', ctl, st), ('', '', st), (app, ctl, '*'), ('', ctl, '*')):
         if key in smap:
             return smap[key]
     return (None, None)

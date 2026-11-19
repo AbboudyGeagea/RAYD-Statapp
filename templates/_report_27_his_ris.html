@@ -54,9 +54,10 @@
         <p class="s">{% if his.ris_only %}{{ his.ris_only.no_his_number }} with no HIS number, {{ his.ris_only.not_sent }} the HIS never sent, of {{ '{:,}'.format(his.ris_only.created) }} created{% else %}no HIS feed yet{% endif %}</p></div>
 </div>
 
-{% if his.unknown_site or k.several_ris or his.site_from_location %}
+{% if his.unknown_site or k.several_ris or his.site_from_location or his.site_from_his %}
 <p class="text-[11px] text-slate-500">
-    {% if his.unknown_site %}{{ his.unknown_site }} HIS order{{ 's' if his.unknown_site != 1 }} not counted here: not on the RIS and from an HIS location not yet seen at one hospital. {% endif %}
+    {% if his.unknown_site %}{{ his.unknown_site }} HIS order{{ 's' if his.unknown_site != 1 }} not counted here: not on the RIS, and the HIS message does not say which hospital. {% endif %}
+    {% if his.site_from_his %}{{ his.site_from_his }} without a RIS order are counted for this hospital because the HIS message names it. {% endif %}
     {% if his.site_from_location %}{{ his.site_from_location }} without a RIS order are counted for this hospital by their HIS location. {% endif %}
     {% if k.several_ris %}{{ k.several_ris }} HIS order{{ 's' if k.several_ris != 1 }} became more than one RIS order.{% endif %}
 </p>

@@ -41,11 +41,15 @@ def site(code):
 _n = iter(range(1, 10_000))
 
 
-def his(number, control, at, location='CTSCAN', app='SAP_P', cls='O'):
+def his(number, control, at, location='CTSCAN', app='SAP_P', cls='O', facility='1000', entering=''):
+    """An HIS ORM as SAP_P sends it: PV1-3 = location^room^bed^^^^facility (1000 RH, 2000 SJH),
+    ORC-17 = the entering unit."""
     ctrl = f'MSG{next(_n)}'
+    orc = '|'.join(['ORC', control, f'{number}^HIS'] + [''] * 14 + [f'{entering}^^'])
     raw = (f"MSH|^~\\&|{app}||RAYD||{at:%Y%m%d%H%M%S}||ORM^O01|{ctrl}|P|2.3\r"
            f"PID|1||P0001^^^HIS\r"
-           f"ORC|{control}|{number}^HIS||||||||||\r"
+           f"PV1|1|{cls}|{location}^^^^^^{facility}\r"
+           f"{orc}\r"
            f"OBR|1|{number}^HIS||J17A-01^CT SCAN, BRAIN\r")
     sql("""INSERT INTO hl7_orders (message_id, message_datetime, message_type, patient_id, placer_order_number,
                                    procedure_code, procedure_text, patient_location, patient_class, raw_message, received_at)
@@ -71,9 +75,11 @@ def feeds():
     ris(66002, '0019400002', d(11), status='scheduled')
     his('0019400003', 'NW', d(11)); his('0019400003', 'CA', d(11, 30))
     his('0019400004', 'NW', d(12))                                            # never registered
-    his('0019400005', 'NW', d(12, 30), location='EM-J'); ris(66005, '0019400005', d(12, 40), issuer='SAP_SJH')
-    his('0019400006', 'NW', d(13), location='EM-J')                           # SJH by its location
-    his('0019400007', 'NW', d(13, 30), location='NEWWARD')                    # hospital unknown
+    his('0019400005', 'NW', d(12, 30), location='EM-J', facility='2000'); ris(66005, '0019400005', d(12, 40), issuer='SAP_SJH')
+    his('0019400006', 'NW', d(13), location='EM-J', facility='2000')          # SJH: the HIS says 2000
+    his('0019400007', 'NW', d(13, 30), location='NEWWARD', facility='')      # hospital unknown
+    his('0019400012', 'NW', d(13, 40), location='', facility='', entering='ENDOS-J')   # SJH by its unit
+    his('0019400013', 'NW', d(13, 50), location='WARD9', facility='1000')    # RH: the HIS says 1000
     his('0019400008', 'NW', d(6, day=19))                                     # after the last RIS copy
     his('0019400009', 'NW', d(14), app='OTHERAPP')                            # not the HIS
     ris(66010, None, d(15))                                                   # created on the RIS
@@ -87,21 +93,23 @@ def test_the_tab_for_rh(feeds):
         cases, s = his_ris.build(date(2026, 11, 18), date(2026, 11, 19), site('RH'))
     got = {c['his_no']: c['outcome'] for c in cases}
     assert got == {'0019400001': 'done', '0019400002': 'open', '0019400003': 'cancelled_his',
-                   '0019400004': 'not_on_ris', '0019400008': 'pending'}
+                   '0019400004': 'not_on_ris', '0019400008': 'pending', '0019400013': 'not_on_ris'}
     k = s['kpi']
-    assert k['orders'] == 5 and k['on_ris_pct'] == 50.0 and k['not_on_ris_pct'] == 25.0
+    assert k['orders'] == 6 and k['on_ris_pct'] == 40.0 and k['not_on_ris_pct'] == 40.0
+    assert s['site_from_his'] == 4                   # 3, 4, 8 and 13: no RIS order, the HIS names RH
     assert k['median_to_ris_min'] == 25.0            # 20 and 30 minutes
     assert k['median_to_done_h'] == 2.0
     assert s['unknown_site'] == 1                    # NEWWARD: not listed, only counted
     assert s['ris_only'] == {'no_his_number': 1, 'not_sent': 1, 'created': 4}
     two = next(c for c in cases if c['his_no'] == '0019400002')
     assert two['messages'] == 2 and two['control'] == 'RQ' and two['ordered'] == '2026-11-18 10:30'
-    assert [c['his_no'] for c in s['not_on_ris']] == ['0019400004']
+    assert [c['his_no'] for c in s['not_on_ris']] == ['0019400004', '0019400013']
 
 
 def test_the_tab_for_sjh_takes_the_other_orders(feeds):
     cases, s = his_ris.build(date(2026, 11, 18), date(2026, 11, 19), site('SJH'))
-    assert {c['his_no']: c['outcome'] for c in cases} == {'0019400005': 'done', '0019400006': 'not_on_ris'}
+    assert {c['his_no']: c['outcome'] for c in cases} == {'0019400005': 'done', '0019400006': 'not_on_ris',
+                                                          '0019400012': 'not_on_ris'}
 
 
 def test_the_page_and_the_excel(client, feeds):
@@ -117,7 +125,7 @@ def test_the_page_and_the_excel(client, feeds):
     from openpyxl import load_workbook
     sheet = load_workbook(io.BytesIO(r.data)).active
     numbers = sorted(sheet.cell(row=i, column=1).value for i in range(6, sheet.max_row + 1))
-    assert numbers == ['0019400001', '0019400002', '0019400003', '0019400004', '0019400008']
+    assert numbers == ['0019400001', '0019400002', '0019400003', '0019400004', '0019400008', '0019400013']
 
 
 def test_the_ris_tab_shows_both_tabs_and_an_empty_range_says_so(client):

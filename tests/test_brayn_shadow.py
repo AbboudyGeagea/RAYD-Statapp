@@ -242,3 +242,44 @@ def test_a_study_left_unreported_is_found_on_hospital_time(app, pipe):
     assert pipe.count('brayn_findings',
                       "rule_code = 'UNREPORTED' AND accession_number = 'ACC90' "
                       "AND resolved_at IS NULL") == 1
+
+
+# ── the LAUMC feeds' own codes (migration 0170, 2026-11-19) ───────────────────
+
+def test_the_ris_arrival_and_the_his_sap_codes_are_classified(pipe):
+    """First day of the live feeds: RIS "SC/A" (arrived) and the HIS's RQ / CA with SAP codes in
+    ORC-5 (^E0001 ...) were "not identified"; PACS FAP / AAP were unknown result statuses."""
+    pipe.brayn()
+    pipe.send(k.order('PL-80', when=k.ts(200), app='SAP_P'))
+    pipe.send(k.status('^E0003', None, k.ts(190), placer='PL-80', app='SAP_P', control='RQ'))
+    pipe.send(k.status('^E0006', None, k.ts(185), placer='PL-80', app='SAP_P', control='RQ'))   # a code never seen
+    pipe.send(k.status('SC', 'ACC80', k.ts(180), placer='PL-80'))
+    pipe.send(k.status('A', 'ACC80', k.ts(120), placer='PL-80'))
+    pipe.send(k.status('IP', 'ACC80', k.ts(110), placer='PL-80'))
+    pipe.send(k.status('CM', 'ACC80', k.ts(90), placer='PL-80'))
+    pipe.send(k.report('ACC80', k.ts(10), result_status='FAP', app='CARESTREAM'))
+    pipe.send(k.status('c^E0001', None, k.ts(5), placer='PL-81', app='SAP_P', control='CA'))
+    pipe.screen()
+
+    assert pipe.count('hl7_message_archive', "brayn_status = 'quarantined'") == 0
+    assert pipe.count('brayn_findings', "rule_code = 'UNKNOWN_STATUS_CODE'") == 0
+    assert pipe.count('brayn_unknown_values', "kind IN ('status_code', 'result_status')") == 0
+    s = pipe.one("""SELECT arrived_at IS NOT NULL AS arrived, started_at IS NOT NULL AS started,
+                           signed_final_at IS NOT NULL AS signed
+                      FROM brayn_study_state WHERE accession_number = 'ACC80'""")
+    assert s == {'arrived': True, 'started': True, 'signed': True}
+
+
+def test_an_exact_status_row_beats_the_wildcard(app, pipe):
+    from utils import brayn
+    pipe.exec("""INSERT INTO hl7_status_map (sending_app, order_control, order_status, canonical_state, ladder_rank)
+                 VALUES ('SAP_P', 'RQ', '^E0009', 'scheduled', 40)""")
+    brayn._cache.pop('status_map', None)
+    try:
+        with app.app_context():
+            assert brayn.resolve_status('SAP_P', 'RQ', '^E0009') == ('scheduled', 40)
+            assert brayn.resolve_status('SAP_P', 'RQ', '^E0004') == ('ordered', 20)
+            assert brayn.resolve_status('OTHER', 'RQ', '^E0004') == (None, None)    # the wildcard is SAP_P's
+    finally:
+        pipe.exec("DELETE FROM hl7_status_map WHERE order_status = '^E0009'")
+        brayn._cache.pop('status_map', None)
