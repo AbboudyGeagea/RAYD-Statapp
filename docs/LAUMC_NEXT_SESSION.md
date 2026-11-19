@@ -187,11 +187,18 @@ only OBR-24/-19/-17, empty at LAUMC), with the RIS studies already stored filled
   the booking re-sent when it changes → **migration 0176**: RIS SC + empty ORC-5 = still
   scheduled (a status-map row with order_status '', matched to an empty ORC-5), so the board gets
   the new room and time.
-- **Open questions (queries sent 20 Nov):** are the 151 really unreported (PACS copy signed or
-  not, ORU stored or not, per hospital and modality)? And one RIS number on two rooms (MRI and
-  mammography): how often does one RIS number (ORC-3, BRAYN's key) hold several exams? If often,
-  BRAYN merges them into one study and needs an exam-level key (OBR-1 looks like the RIS worklist
-  row: the query checks it against etl_orders.order_dbid).
+- **Answers (20 Nov):** one RIS number = one exam (955 numbers: none with two accessions, one
+  with two procedures; 12 on two rooms = rebookings): BRAYN's key is right, no change. The 110
+  UNREPORTED (RF 37, US 24, CT 25, MR 16 ...; RH and SJH alike, all since 18 Nov): **none had a
+  PACS study row in BRAYN, 50 had their report in hl7_oru_reports**; `rep_final_timestamp` is
+  empty at LAUMC (the PACS fills REP_STUDY_LAST_COMPOSED_*), so "pacs_final_signed 0" says
+  nothing. Cause: an ORU whose OBX-11 BRAYN does not map (0170 mapped FAP and AAP only) opens no
+  study row, so the link through the PACS row missed it. **Built (no migration):** an arriving
+  ORU gives its time to the RIS studies under its accession whatever its status; and every
+  15-minute sweep first gives any RIS study whose report RAYD stores (hl7_oru_reports: the live
+  ORU or the nightly RIS report copy) its report time, so UNREPORTED means no report anywhere.
+  Still to learn (query sent): the unmapped ORU statuses (to map them: the signature rungs) and
+  how many of the rest PACS approved without any report reaching RAYD (an ORU feed gap).
 
 **Waiting for the next deploy (`cd /opt/rayd && sudo bash update.sh LAUMC`), all pushed, tests
 passing (1369):** the TV layout of the Live board and Floor Plan removal (2b7ba3cb ...), Report 36

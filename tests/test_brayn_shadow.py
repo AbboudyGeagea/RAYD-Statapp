@@ -341,6 +341,39 @@ def test_the_pacs_report_reaches_the_ris_study(app, pipe):
     assert [r['accession_number'] for r in open_] == ['1003000000073']
 
 
+def test_a_report_with_a_status_brayn_does_not_map_still_reaches_the_ris_study(pipe):
+    """Such an ORU opens no study row of its own (no signature rung): production, 20 Nov, none of
+    the 110 UNREPORTED RIS studies had a PACS row in BRAYN, 50 had their report stored."""
+    pipe.brayn()
+    for code, mins in (('SC', 300), ('IP', 260), ('CM', 240)):
+        pipe.send(k.status(code, '1003000000074', k.ts(mins), obr20='PACS74' if code == 'CM' else None))
+    pipe.send(k.report('PACS74', k.ts(30), result_status='ZZW', app='CARESTREAM'))
+    pipe.screen()
+    assert pipe.count('brayn_study_state', "accession_number = 'PACS74'") == 0
+    t = pipe.scalar("SELECT reported_at FROM brayn_study_state WHERE accession_number = '1003000000074'")
+    assert t is not None and abs((t - k.ago(30)).total_seconds()) < 120
+
+
+def test_a_report_rayd_stores_closes_unreported_on_the_next_sweep(app, pipe):
+    """The RIS's report copied at night (report_source 'ris') reaches hl7_oru_reports with no HL7
+    message: the sweep reads it before judging UNREPORTED."""
+    from utils import brayn_shadow
+    pipe.brayn()
+    pipe.exec("UPDATE brayn_rules SET threshold_minutes = 120 WHERE rule_code = 'UNREPORTED'")
+    for code, mins in (('SC', 300), ('CM', 240)):
+        pipe.send(k.status(code, '1003000000075', k.ts(mins), obr20='PACS75' if code == 'CM' else None))
+    pipe.screen()
+    brayn_shadow.sweep(app)
+    open_ = "rule_code = 'UNREPORTED' AND accession_number = '1003000000075' AND resolved_at IS NULL"
+    assert pipe.count('brayn_findings', open_) == 1
+    pipe.exec("""INSERT INTO hl7_oru_reports (accession_number, report_text, result_datetime, received_at, report_source)
+                 VALUES ('PACS75', 'Normal.', :t, now(), 'ris')""", t=k.ago(100))
+    brayn_shadow.sweep(app)
+    assert pipe.count('brayn_findings', open_) == 0
+    t = pipe.scalar("SELECT reported_at FROM brayn_study_state WHERE accession_number = '1003000000075'")
+    assert abs((t - k.ago(100)).total_seconds()) < 120
+
+
 def test_migration_0175_corrects_the_studies_already_in_brayn(pipe):
     raw_his = k.order('PL81', when='20261121083000', msh_when='20261118100000', app='SAP_P', ctrl='H81')
     raw_prov = k.order('PL82', when='20261125090000', msh_when='20261118120000', app='SAP_P', ctrl='H82')

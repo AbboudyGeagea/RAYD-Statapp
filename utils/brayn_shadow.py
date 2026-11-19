@@ -243,6 +243,28 @@ _REPORT_LINK_SQL = text("""
 """)
 
 
+# A report arriving: the RIS studies under its accession get its time, whatever its OBX-11 says.
+# An ORU whose status BRAYN does not map opens no study row of its own (no rung), so linking
+# through the PACS row alone missed it (production, 20 Nov: none of the 110 UNREPORTED had one).
+_ORU_LINK_SQL = text("""
+    UPDATE brayn_study_state
+       SET reported_at = LEAST(reported_at, :t), updated_at = NOW()
+     WHERE pacs_accession = :acc AND accession_number <> :acc
+       AND (reported_at IS NULL OR reported_at > :t)
+""")
+
+# Every sweep: a RIS study whose report RAYD holds (hl7_oru_reports: the live ORU, stored by the
+# listener, or the RIS's report copied each night) is reported, however it got there.
+_STORED_REPORTS_SQL = text("""
+    UPDATE brayn_study_state r
+       SET reported_at = COALESCE(o.result_datetime, o.received_at), updated_at = NOW()
+      FROM hl7_oru_reports o
+     WHERE o.accession_number = r.pacs_accession
+       AND r.pacs_accession IS NOT NULL AND r.reported_at IS NULL
+       AND COALESCE(o.result_datetime, o.received_at) IS NOT NULL
+""")
+
+
 def _link_report(msg):
     """The PACS report onto the RIS study (migration 0175). The RIS's completion names the PACS
     accession (OBR-20) and the report arrives under it, on its own study row; whichever comes
@@ -256,9 +278,25 @@ def _link_report(msg):
                 db.session.execute(_PACS_ACCESSION_SQL, {'acc': msg.accession_number, 'pacs': pacs})
                 db.session.execute(_REPORT_LINK_SQL, {'pacs': pacs})
             elif msg.kind == 'result':
-                db.session.execute(_REPORT_LINK_SQL, {'pacs': msg.accession_number})
+                t = msg.event_time or msg.message_datetime
+                if t:
+                    db.session.execute(_ORU_LINK_SQL, {'acc': msg.accession_number, 't': t})
     except Exception:
         logger.exception("BRAYN shadow: report not linked to the RIS study | acc=%s", msg.accession_number)
+
+
+def link_stored_reports():
+    """RIS studies whose report RAYD already stores (see _STORED_REPORTS_SQL). Returns how many;
+    fail-open. Runs before the sweep, so UNREPORTED closes in the same pass."""
+    try:
+        with db.session.begin_nested():
+            n = db.session.execute(_STORED_REPORTS_SQL).rowcount
+        db.session.commit()
+        return n
+    except Exception:
+        db.session.rollback()
+        logger.exception("BRAYN shadow: stored reports not linked")
+        return 0
 
 
 def screen_one(archive_id, live=True):
@@ -426,6 +464,7 @@ def sweep(app):
         try:
             with clock():
                 from utils.brayn_sweep import run_sweep
+                link_stored_reports()
                 return run_sweep()
         except Exception:
             db.session.rollback()
