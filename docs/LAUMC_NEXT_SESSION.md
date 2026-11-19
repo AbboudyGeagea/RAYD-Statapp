@@ -77,6 +77,11 @@ had a catalogue row, licence entry or grant).
   board reworked as above, always on the main database. An open room shows only if the RIS booked
   something on it in the last 30 days (keeps "RH-PACS" upload and "USDemoPhilips" off). After the
   deploy: open the board on RH and SJH; `sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT ris_room, COUNT(*) AS studies, COUNT(*) FILTER (WHERE appointment_at::date = CURRENT_DATE) AS today FROM brayn_study_state WHERE ris_room IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 20;"`.
+- **Wall TV layout (operator, 19 Nov evening, 2b7ba3cb, not deployed yet):** the board runs all
+  day on a smart TV for the manager: one screen, no scrolling, everything on the cards (running
+  exam with countdown, booked / to come / arrived / done / util, waiting patients with live waits,
+  next appointments, "+n more"), Full-screen button, screen kept awake, initials unless Names.
+  Any later change must still fit 1920x1080 with ~25 rooms.
 - Noted for the BRAYN enhancements (item 17): the RIS's modality is in OBR-18, which BRAYN does not
   read (it looks at OBR-24, -19, -17).
 
