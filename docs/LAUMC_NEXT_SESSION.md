@@ -9,10 +9,11 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 
 ## Where we stopped (2026-11-19, evening) — START HERE in a new session
 
-**Production.** Deployed 19 Nov morning (Report AI, `update_offline`): everything up to the Report AI
-commits, so items 1 (first tab), 21 (Report 40), the BRAYN console fix and the gateway-cardiology
-fix are live. **Waiting for the next `cd /opt/rayd && sudo bash update.sh LAUMC`** (check:
-`SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 2;` shows 0170 when done):
+**Production.** **Everything is deployed, up to 23fa83ff** (`update.sh`, 19 Nov evening; 0172 at
+15:08 and 0173 after it). Check after 0173: BRAYN placed the studies archived since 18 Nov on 20 RIS
+rooms of both hospitals (SJH-XR/FLUORO 114, SJH-US2 67, SJH-MRI 65 ... BMD 6), every code a RIS room
+RAYD knows. Also live since: Report 31 removed, Report 40 on Generate. Deployed 19 Nov in two
+`update.sh` runs, after the morning's Report AI (`update_offline`):
 - migration **0170**: BRAYN classifies the live feeds' codes (RIS SC/A = arrived, HIS RQ/* =
   ordered, CA/* = cancelled, PACS FAP/AAP = final; '*' = any status in `brayn.resolve_status`);
 - Report 27 **HIS vs RIS** tab: billed orders only (ORC-1 NW), hospital from the HIS message
@@ -25,9 +26,10 @@ fix are live. **Waiting for the next `cd /opt/rayd && sudo bash update.sh LAUMC`
   order not performed yet is then the booked one;
 - the fix of `static/js/chart-explanations.js` (19 Nov evening): e7274a70 left two unescaped
   apostrophes, so the file did not load and **every (i) on every page was empty** on the laptop
-  since 19 Nov afternoon; never deployed. Check after the deploy: any (i) opens.
-The check afterwards shows 0172.
-After the deploy: **BRAYN console → Re-check** (814 held messages from the first day).
+  since 19 Nov afternoon; never deployed. Check after the deploy: any (i) opens;
+- migration **0173** (item 38): the Live Department board by RIS room (above).
+Still to do after the deploy: **BRAYN console → Re-check** (814 held messages from the first day),
+if not done yet.
 
 **Morning checklist, 20 Nov (after the 05:00 ETL):**
 1. Item 1, the first full day: RIS MRI exams of 19 Nov (rebuilt from RAYD's RIS copy exactly as the
