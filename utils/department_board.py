@@ -1,50 +1,51 @@
 """
 utils/department_board.py
 ────────────────────────────────────────────────────────────────
-The Live Department board: for every device, what it is doing now, who is waiting
-for it, what is coming to it, and how busy it has been today — read from BRAYN's
-study ladder (brayn_study_state), so it moves with the HL7 messages.
+The Live Department board: for every RIS room of one hospital, how many exams are booked on
+it today, who has arrived and how long they have waited, the exam running and when it should
+end, and how busy the room has been today. Read from BRAYN's study ladder
+(brayn_study_state), so it moves with the HL7 messages. LAUMC to-do item 38 (operator,
+2026-11-19), which reworked the board ported from the HL7 branch (2026-11-02).
 
-ON LAUMC the ladder is the BRAYN shadow's (utils/brayn_shadow.py): it fills only
-while settings.brayn_enabled = 'true', and arrivals / starts / RIS completions need
-the RIS lifecycle feed (R2I). Until that feed reaches RAYD the board shows HIS
-orders as incoming and PACS completions as done, and nobody waiting or in progress.
-Ported from the HL7 branch with the same logic (operator, 2026-11-02).
+    RIS message ─▶ BRAYN: ris_room (ORC-16), appointment_at (OBR-36), booked_minutes (OBR-27),
+                   scheduled / arrived / started / completed (migration 0173)
+               ─▶ the room: aetitle_modality_map row of the RIS room whose room_code it is
 
-    brayn_study_state ──▶ device (aetitle → aetitle_modality_map) ──▶ modality lane
+One card per RIS room (aetitle_modality_map rows the RIS copy wrote: ris_modality_key, a
+room_code), named by its room name, never by an AE title. The cardiology rooms and the
+excluded devices stay out (etl_didb_studies.CARDIOLOGY_AES, EXCLUDED_AES), as everywhere.
+A room shows when it has anything booked, waiting, running or done today, or when it is
+open today (the RIS weekly availability, a device exception or a weekly schedule says so)
+and the RIS booked something on it in the last 30 days: the PACS upload "room" and a demo
+device, open on paper, stay off.
 
-    in progress   started, not completed (no CM, no images in PACS), last 12 h
-    waiting       arrived, not started, last 12 h        — wait = now − arrived
-    incoming      ordered or scheduled in the last 24 h, not arrived
-    done today    completed (else images in PACS) since midnight
+    scheduled     appointments today (OBR-36), cancelled ones left out; "to come" = not
+                  arrived yet
+    waiting       arrived, not started, last 12 h — wait = now − arrived; red from the
+                  room's modality's limit (Live board limits, default 30 min)
+    running       started, not done, last 12 h; expected end = start + the booked minutes
+                  (OBR-27), else the procedure's duration (procedure_duration_map), else the
+                  modality's median, else DEFAULT_MINUTES; orange when past it
+    done early    the room's last exam done today took less than early_pct % of its expected
+                  minutes (default 50 %): yellow until the room's next exam starts
+    utilization   busy minutes ÷ open minutes so far, as before: both counted from the day
+                  start (the morning shift's start, settings.shift_morning_start, 07:00 by
+                  default; midnight for a room open 24 hours) up to now. Open minutes: the
+                  device exception, else the RIS weekly availability, else the daily
+                  capacity, else the weekly schedule. Overlapping exams count once.
 
-Each device carries its floor-plan position (aetitle_modality_map.floor_x / floor_y,
-percent of the plan, set in Admin > Floor plan), and the board lists every site's
-plan image (floor_plans). A site filter keeps that site's devices and the ones with
-no site, which belong to no plan.
+A study whose room code no RIS room has is not placed: the board lists those codes, with
+how many studies, so nothing is hidden. Patient names come from the patient record (ADT),
+else from the patient's latest HIS order (hl7_* tables only).
 
-A study with no device yet (an order the RIS has not assigned) sits in its
-modality's "Unassigned" card. A device that sends messages but is not in the AE
-map gets a card of its own, flagged, so nothing it does is hidden. A device with no
-room in the AE map shows the room its messages carry (PV1-3.2). Patient names come
-from the patient record (ADT), else from the patient's latest HIS order.
+BRAYN's tables and every HL7 message stay in the main database until BRAYN routes by site
+(item 13d), so the board always reads the main database (utils.site_db.MAIN_BLUEPRINTS) and
+picks the hospital itself: its own RH / SJH switch (operator's choice), one site at a time.
 
-Expected finish = start + the procedure's duration (procedure_duration_map), else
-the median duration of the device's modality there, else DEFAULT_MINUTES. Past it,
-the device is "overrun".
-
-Utilization so far = busy minutes ÷ open minutes so far, both counted from the day
-start (the morning shift's start, settings.shift_morning_start, 07:00 by default;
-midnight for a device open 24 hours) up to now. Open minutes are Capacity Ladder's
-for the day: the device exception, else the RIS weekly availability, else the daily
-capacity, else the weekly schedule. Busy minutes merge overlapping studies, so two studies on one
-device at once never count twice; over 100 % means the device worked past its
-opening minutes.
-
-All times are the hospital's naive local time, as BRAYN stores them; "now" is the
-database's LOCALTIMESTAMP on hospital time (brayn_shadow.clock) — LAUMC's Postgres
-runs on UTC, and its own clock would put every wait two or three hours off.
+All times are the hospital's naive local time, as BRAYN stores them; "now" is the database's
+LOCALTIMESTAMP on hospital time (brayn_shadow.clock) — LAUMC's Postgres runs on UTC.
 """
+import json
 from collections import defaultdict
 from datetime import datetime, timedelta
 from statistics import median
@@ -55,16 +56,25 @@ from db import db
 from utils.brayn_shadow import clock
 from utils.ae_display import ae_display_sql
 
-DEFAULT_MINUTES = 20          # expected duration when neither procedure nor modality has one
+DEFAULT_MINUTES = 20          # expected duration when nothing else gives one
 ACTIVE_HOURS = 12             # how far back an arrival / a start still counts as open
-INCOMING_HOURS = 24           # how far back an order / a scheduling still counts as coming
-WAIT_WARN_MIN = 30            # waiting longer than this: amber
-WAIT_ALERT_MIN = 60           # waiting longer than this: red
 DEFAULT_DAY_START_HOUR = 7
+DEFAULT_WAIT_LIMIT = 30       # minutes of waiting before a patient turns red
+DEFAULT_EARLY_PCT = 50        # done in less than this share of its expected minutes: too early
+USED_DAYS = 30                # an open room shows only if the RIS booked anything on it lately
+LIMITS_KEY = 'department_board_limits'
 
 # Lanes in the order a department reads them; anything else follows alphabetically.
 MODALITY_ORDER = ['CT', 'MR', 'US', 'DX', 'CR', 'XR', 'RF', 'MG', 'XA', 'NM', 'PT', 'BMD', 'OT']
-_NOT_LANES = {'SR', 'PR', 'KO', 'PACS'}
+_NOT_LANES = ('SR', 'PR', 'KO', 'PACS')
+
+
+def _left_out_aes():
+    try:
+        from ETL_JOBS.etl_didb_studies import CARDIOLOGY_AES, EXCLUDED_AES
+        return [a.upper() for a in CARDIOLOGY_AES + EXCLUDED_AES]
+    except Exception:
+        return []
 
 
 def _minutes(delta):
@@ -92,7 +102,7 @@ def merged_busy_minutes(intervals, window_start, now):
 
 
 def window_start_for(day0, opening_minutes, day_start_hour):
-    """Where today's opening starts: midnight for a 24-hour device, else the day start."""
+    """Where today's opening starts: midnight for a 24-hour room, else the day start."""
     if opening_minutes is not None and opening_minutes >= 24 * 60:
         return day0
     return day0 + timedelta(hours=day_start_hour)
@@ -104,18 +114,78 @@ def open_minutes_so_far(window_start, now, opening_minutes):
     return max(0.0, min(_minutes(now - window_start), float(opening_minutes)))
 
 
+# ── the limits (wait per modality, done-too-early share) ──────────────────────
+
+def load_limits():
+    """{'wait_min': {modality: minutes}, 'default_wait_min': n, 'early_pct': n} from
+    settings.department_board_limits; the defaults where it says nothing."""
+    raw = db.session.execute(text("SELECT value FROM settings WHERE key = :k"), {'k': LIMITS_KEY}).scalar()
+    try:
+        data = json.loads(raw) if raw else {}
+    except ValueError:
+        data = {}
+    wait = {}
+    for mod, value in (data.get('wait_min') or {}).items():
+        try:
+            if 1 <= int(value) <= 600:
+                wait[str(mod).strip().upper()] = int(value)
+        except (TypeError, ValueError):
+            pass
+    try:
+        default_wait = int(data.get('default_wait_min', DEFAULT_WAIT_LIMIT))
+        default_wait = default_wait if 1 <= default_wait <= 600 else DEFAULT_WAIT_LIMIT
+    except (TypeError, ValueError):
+        default_wait = DEFAULT_WAIT_LIMIT
+    try:
+        early = int(data.get('early_pct', DEFAULT_EARLY_PCT))
+        early = early if 1 <= early <= 99 else DEFAULT_EARLY_PCT
+    except (TypeError, ValueError):
+        early = DEFAULT_EARLY_PCT
+    return {'wait_min': wait, 'default_wait_min': default_wait, 'early_pct': early}
+
+
+def save_limits(wait_min, default_wait_min, early_pct):
+    """Validate and store the limits; returns them as load_limits() reads them. Raises
+    ValueError with a message for the person when a value is out of range."""
+    clean = {}
+    for mod, value in (wait_min or {}).items():
+        mod = str(mod).strip().upper()
+        if not mod or value in (None, ''):
+            continue
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            raise ValueError(f'The wait limit for {mod} must be a whole number of minutes.')
+        if not 1 <= n <= 600:
+            raise ValueError(f'The wait limit for {mod} must be between 1 and 600 minutes.')
+        clean[mod] = n
+    try:
+        default_wait = int(default_wait_min)
+        early = int(early_pct)
+    except (TypeError, ValueError):
+        raise ValueError('The default wait limit and the early share must be whole numbers.')
+    if not 1 <= default_wait <= 600:
+        raise ValueError('The default wait limit must be between 1 and 600 minutes.')
+    if not 1 <= early <= 99:
+        raise ValueError('"Done too early" must be between 1 and 99 % of the expected time.')
+    value = json.dumps({'wait_min': clean, 'default_wait_min': default_wait, 'early_pct': early})
+    db.session.execute(text("INSERT INTO settings (key, value) VALUES (:k, :v) "
+                            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"),
+                       {'k': LIMITS_KEY, 'v': value})
+    db.session.commit()
+    return load_limits()
+
+
+def wait_limit(limits, modality):
+    return limits['wait_min'].get((modality or '').upper()) or limits['default_wait_min']
+
+
 # ── reads ─────────────────────────────────────────────────────────────────────
 
 _STUDIES_SQL = """
 WITH cand AS (
-    -- each branch reads one of brayn_study_state's partial indexes (0119, 0140)
     SELECT accession_number FROM brayn_study_state
-     WHERE arrived_at IS NULL AND cancelled_at IS NULL AND NOT is_closed
-       AND scheduled_at >= :incoming_since
-    UNION
-    SELECT accession_number FROM brayn_study_state
-     WHERE scheduled_at IS NULL AND cancelled_at IS NULL AND NOT is_closed
-       AND ordered_at >= :incoming_since
+     WHERE appointment_at >= :day0 AND appointment_at < :day1
     UNION
     SELECT accession_number FROM brayn_study_state
      WHERE started_at IS NULL AND cancelled_at IS NULL AND NOT is_closed
@@ -128,15 +198,13 @@ WITH cand AS (
     SELECT accession_number FROM brayn_study_state WHERE started_at >= :day0
     UNION
     SELECT accession_number FROM brayn_study_state WHERE completed_at >= :day0
-    UNION
-    SELECT accession_number FROM brayn_study_state WHERE pacs_completed_at >= :day0
 )
 SELECT s.accession_number, s.placer_order_number, s.patient_id,
        COALESCE(NULLIF(btrim(p.patient_name), ''), o.patient_name) AS patient_name,
-       s.modality, s.aetitle, s.room_name, s.procedure_code, s.procedure_text,
-       s.patient_class, s.patient_location, s.ordered_at, s.scheduled_at,
-       s.arrived_at, s.started_at, COALESCE(s.completed_at, s.pacs_completed_at) AS done_at,
-       s.is_provisional, s.first_seen_at
+       upper(btrim(s.ris_room)) AS room_key, btrim(s.ris_room) AS ris_room,
+       s.procedure_code, s.procedure_text, s.patient_class, s.patient_location,
+       s.appointment_at, s.booked_minutes, s.arrived_at, s.started_at,
+       COALESCE(s.completed_at, s.pacs_completed_at) AS done_at, s.cancelled_at
   FROM cand
   JOIN brayn_study_state s USING (accession_number)
   LEFT JOIN hl7_patients p ON p.patient_id = s.patient_id
@@ -149,16 +217,18 @@ SELECT s.accession_number, s.placer_order_number, s.patient_id,
        ORDER BY ho.received_at DESC NULLS LAST
        LIMIT 1
   ) o ON TRUE
- WHERE s.cancelled_at IS NULL
+ WHERE NULLIF(btrim(s.ris_room), '') IS NOT NULL
 """
 
-_DEVICES_SQL = """
-SELECT m.aetitle, upper(btrim(m.aetitle)) AS ae_key, m.modality,
-       -- the RIS room name (utils.ae_display); the board shows it first, the AE under it
-       """ + ae_display_sql('m', 'NULL') + """ AS room, si.code AS site_code, si.name AS site_name,
-       m.floor_x, m.floor_y,
+# The RIS rooms: the rows the nightly RIS copy writes (ETL_JOBS/etl_ris_modality.py).
+_ROOMS_SQL = """
+SELECT m.aetitle, upper(btrim(m.room_code)) AS room_key, btrim(m.room_code) AS room_code,
+       upper(btrim(COALESCE(m.modality, ''))) AS modality,
+       """ + ae_display_sql('m', 'btrim(m.room_code)') + """ AS room,
+       si.code AS site_code, si.name AS site_name, m.floor_x, m.floor_y,
        COALESCE(ex.actual_opening_minutes, dwa.available_minutes, m.daily_capacity_minutes,
                 ws.std_opening_minutes) AS opening_minutes,
+       COALESCE(ex.actual_opening_minutes, dwa.available_minutes, ws.std_opening_minutes, 0) > 0 AS open_today,
        (ex.actual_opening_minutes IS NOT NULL) AS has_exception, ex.reason AS exception_reason
   FROM aetitle_modality_map m
   LEFT JOIN sites si ON si.id = m.site_id
@@ -168,10 +238,13 @@ SELECT m.aetitle, upper(btrim(m.aetitle)) AS ae_key, m.modality,
          ON upper(btrim(dwa.aetitle)) = upper(btrim(m.aetitle)) AND dwa.day_of_week = :dow
   LEFT JOIN device_weekly_schedule ws
          ON upper(btrim(ws.aetitle)) = upper(btrim(m.aetitle)) AND ws.day_of_week = :dow
- WHERE m.active IS NOT FALSE
-   AND COALESCE(m.modality, '') NOT IN ('SR', 'PR', 'KO', 'PACS')
-   AND COALESCE(m.site_id = rayd_served_site_id(), TRUE)
- ORDER BY m.modality, m.aetitle
+ WHERE m.ris_modality_key IS NOT NULL
+   AND NULLIF(btrim(m.room_code), '') IS NOT NULL
+   AND m.active IS NOT FALSE
+   AND upper(btrim(COALESCE(m.modality, ''))) <> ALL(CAST(:not_lanes AS text[]))
+   AND upper(btrim(m.aetitle)) <> ALL(CAST(:left_out AS text[]))
+   AND (CAST(:site AS text) IS NULL OR si.code = CAST(:site AS text))
+ ORDER BY m.modality, m.room_code, m.id
 """
 
 
@@ -201,9 +274,9 @@ def _day_start_hour():
     return hour if 0 <= hour <= 23 else DEFAULT_DAY_START_HOUR
 
 
-# ── the board ─────────────────────────────────────────────────────────────────
-
-def _expected(code, modality, by_code, by_mod):
+def _expected(booked, code, modality, by_code, by_mod):
+    if booked and booked > 0:
+        return int(booked), 'booked'
     m = by_code.get((code or '').strip().upper())
     if m:
         return m, 'procedure'
@@ -214,224 +287,215 @@ def _expected(code, modality, by_code, by_mod):
 
 
 def _person(r):
-    return {'accession': r['accession_number'] if not r['is_provisional'] else None,
-            'order': r['placer_order_number'], 'patient_id': r['patient_id'],
+    return {'accession': r['accession_number'], 'order': r['placer_order_number'],
+            'patient_id': r['patient_id'],
             'patient': r['patient_name'] or r['patient_id'] or 'Unknown patient',
             'procedure': r['procedure_text'] or r['procedure_code'] or '—',
-            'patient_class': r['patient_class'], 'location': r['patient_location']}
+            'patient_class': r['patient_class'], 'location': r['patient_location'],
+            'appointment_at': _iso(r['appointment_at'])}
 
 
 def _iso(dt):
     return dt.isoformat(timespec='seconds') if dt else None
 
 
-def build_board(site=None, now=None):
-    """The whole board as plain data (see routes/department_board.py for the JSON)."""
+# ── the board ─────────────────────────────────────────────────────────────────
+
+def build_board(site=None, now=None, sites=None):
+    """The board of one hospital (site = its code; None = every site, for tests and the
+    side-by-side view) as plain data; see routes/department_board.py for the JSON.
+    sites = [{'code', 'name'}] the switch offers (the account's sites)."""
     if now is None:
         with clock():
             now = db.session.execute(text('SELECT LOCALTIMESTAMP(0)')).scalar()
     day0 = datetime.combine(now.date(), datetime.min.time())
+    day1 = day0 + timedelta(days=1)
     day_start_hour = _day_start_hour()
     by_code, by_mod = _durations()
+    limits = load_limits()
 
-    devices = {}
-    for d in db.session.execute(text(_DEVICES_SQL), {'day0': day0, 'dow': now.weekday()}).mappings():
-        if site and d['site_code'] and d['site_code'] != site:
-            continue                       # another site's device; one with no site shows everywhere
+    # Rooms the RIS booked anything on in the last USED_DAYS days (BRAYN, the appointment
+    # index): an "open" room nobody books (the PACS upload, a demo device) stays off the board.
+    used = {k for (k,) in db.session.execute(text(
+        "SELECT DISTINCT upper(btrim(ris_room)) FROM brayn_study_state "
+        "WHERE appointment_at >= :since AND NULLIF(btrim(ris_room), '') IS NOT NULL"),
+        {'since': day0 - timedelta(days=USED_DAYS)})}
+    rooms = {}
+    for d in db.session.execute(text(_ROOMS_SQL), {
+            'day0': day0, 'dow': now.weekday(), 'site': site,
+            'not_lanes': list(_NOT_LANES), 'left_out': _left_out_aes()}).mappings():
+        if d['room_key'] in rooms:
+            continue                       # one room code, one card (the first row wins)
         placed = d['floor_x'] is not None and d['floor_y'] is not None
-        devices[d['ae_key']] = {
-            'aetitle': d['aetitle'], 'name': d['aetitle'],
-            'room': d['room'], 'modality': (d['modality'] or 'OT').upper(),
-            'site': d['site_name'], 'site_code': d['site_code'], 'mapped': True,
+        modality = d['modality'] or 'OT'
+        rooms[d['room_key']] = {
+            'key': d['room_key'], 'room_code': d['room_code'], 'aetitle': d['aetitle'],
+            'room': d['room'], 'modality': modality,
+            'site': d['site_name'], 'site_code': d['site_code'],
             'x': float(d['floor_x']) if placed else None,
             'y': float(d['floor_y']) if placed else None,
             'opening_minutes': d['opening_minutes'] or 0,
+            'open_today': bool(d['open_today']) and d['room_key'] in used,
             'exception': d['exception_reason'] if d['has_exception'] else None,
-            'in_progress': [], 'waiting': [], 'incoming': [], 'intervals': [],
-            'done_today': 0, 'last_done_at': None,
+            'wait_limit_min': wait_limit(limits, modality),
+            'scheduled_today': 0, 'coming': [], 'waiting': [], 'running': [], 'done': [],
+            'intervals': [],
         }
-    lanes_unassigned = defaultdict(lambda: {'waiting': [], 'incoming': [], 'in_progress': []})
 
     rows = db.session.execute(text(_STUDIES_SQL), {
-        'day0': day0,
-        'active_since': now - timedelta(hours=ACTIVE_HOURS),
-        'incoming_since': now - timedelta(hours=INCOMING_HOURS),
+        'day0': day0, 'day1': day1, 'active_since': now - timedelta(hours=ACTIVE_HOURS),
     }).mappings().all()
-    # An HIS order is first held as a provisional lifecycle; once the RIS schedules it
-    # under an accession, the real one carries it. Never list the same order twice.
-    real_placers = {r['placer_order_number'] for r in rows
-                    if not r['is_provisional'] and r['placer_order_number']}
-
+    # Every RIS room code, any site, cardiology included: a study on one of those that is not
+    # on this board belongs to the other hospital or to a room left out, not to "unknown".
+    known = {k for (k,) in db.session.execute(text(
+        "SELECT DISTINCT upper(btrim(room_code)) FROM aetitle_modality_map "
+        "WHERE ris_modality_key IS NOT NULL AND NULLIF(btrim(room_code), '') IS NOT NULL"))}
+    unknown = defaultdict(int)
     for r in rows:
-        if r['is_provisional'] and r['placer_order_number'] in real_placers:
+        room = rooms.get(r['room_key'])
+        if room is None:
+            if r['room_key'] not in known:
+                unknown[r['ris_room']] += 1
             continue
-        ae_key = (r['aetitle'] or '').strip().upper()
-        dev = devices.get(ae_key) if ae_key else None
-        if ae_key and dev is None:
-            mod = (r['modality'] or 'OT').upper()
-            if mod in _NOT_LANES:
-                continue
-            dev = devices[ae_key] = {
-                'aetitle': r['aetitle'].strip(), 'name': r['aetitle'].strip(),
-                'room': r['room_name'], 'modality': mod, 'site': None, 'site_code': None,
-                'mapped': False, 'x': None, 'y': None, 'opening_minutes': 0, 'exception': None,
-                'in_progress': [], 'waiting': [], 'incoming': [], 'intervals': [],
-                'done_today': 0, 'last_done_at': None,
-            }
-        modality = dev['modality'] if dev else (r['modality'] or 'OT').upper()
-        if modality in _NOT_LANES:
+        if r['cancelled_at']:
             continue
-        if dev is not None and not dev['room'] and r['room_name']:
-            dev['room'] = r['room_name']        # no room in the AE map: the one the RIS sends
-        minutes, source = _expected(r['procedure_code'], modality, by_code, by_mod)
+        minutes, source = _expected(r['booked_minutes'], r['procedure_code'], room['modality'],
+                                    by_code, by_mod)
         item = _person(r)
+        item.update(expected_minutes=minutes, expected_source=source)
+        appt = r['appointment_at']
+        if appt is not None and day0 <= appt < day1:
+            room['scheduled_today'] += 1
 
         if r['done_at']:
-            if dev is not None and r['done_at'] >= day0:
-                dev['done_today'] += 1
-                dev['last_done_at'] = max(filter(None, [dev['last_done_at'], r['done_at']]))
+            if r['done_at'] >= day0:
                 start = r['started_at'] or r['done_at'] - timedelta(minutes=minutes)
-                dev['intervals'].append((start, r['done_at']))
+                room['intervals'].append((start, r['done_at']))
+                room['done'].append((r['done_at'], r['started_at'], item))
             continue
         if r['started_at']:
             if r['started_at'] < now - timedelta(hours=ACTIVE_HOURS):
                 continue
             end = r['started_at'] + timedelta(minutes=minutes)
-            item.update(started_at=_iso(r['started_at']), expected_minutes=minutes,
-                        expected_source=source, expected_end=_iso(end),
+            item.update(started_at=_iso(r['started_at']), expected_end=_iso(end),
                         elapsed_min=round(_minutes(now - r['started_at']), 1),
-                        remaining_min=round(_minutes(end - now), 1))
-            if dev is not None:
-                dev['in_progress'].append((r['started_at'], item))
-                dev['intervals'].append((r['started_at'], now))
-            else:
-                lanes_unassigned[modality]['in_progress'].append(item)
+                        remaining_min=round(_minutes(end - now), 1), late=now > end)
+            room['running'].append((r['started_at'], item))
+            room['intervals'].append((r['started_at'], now))
             continue
         if r['arrived_at']:
             if r['arrived_at'] < now - timedelta(hours=ACTIVE_HOURS):
                 continue
             wait = _minutes(now - r['arrived_at'])
             item.update(arrived_at=_iso(r['arrived_at']), wait_min=round(wait, 1),
-                        expected_minutes=minutes,
-                        level='alert' if wait >= WAIT_ALERT_MIN else 'warn' if wait >= WAIT_WARN_MIN else 'ok')
-            (dev['waiting'] if dev is not None else lanes_unassigned[modality]['waiting']).append(item)
+                        over=wait >= room['wait_limit_min'])
+            room['waiting'].append(item)
             continue
-        since = r['scheduled_at'] or r['ordered_at'] or r['first_seen_at']
-        item.update(scheduled_at=_iso(r['scheduled_at']), ordered_at=_iso(r['ordered_at']),
-                    since=_iso(since), expected_minutes=minutes,
-                    state='Scheduled' if r['scheduled_at'] else 'Ordered')
-        (dev['incoming'] if dev is not None else lanes_unassigned[modality]['incoming']).append(item)
+        if appt is not None and day0 <= appt < day1:
+            room['coming'].append(item)
 
-    lanes = defaultdict(lambda: {'devices': []})
-    for dev in devices.values():
-        lanes[dev['modality']]['devices'].append(_finish_device(dev, now, day0, day_start_hour))
-    for mod, extra in lanes_unassigned.items():
-        if any(extra.values()):
-            extra['waiting'].sort(key=lambda x: x['arrived_at'])
-            extra['incoming'].sort(key=lambda x: x['since'] or '')
-            lanes[mod]['unassigned'] = extra
+    cards = [_finish_room(room, now, day0, day_start_hour, limits) for room in rooms.values()]
+    cards = [c for c in cards if c['show']]
 
+    lanes = defaultdict(list)
+    for c in cards:
+        lanes[c['modality']].append(c)
     out = []
     for mod in sorted(lanes, key=lambda m: (MODALITY_ORDER.index(m) if m in MODALITY_ORDER
                                             else len(MODALITY_ORDER), m)):
-        lane = lanes[mod]
-        devs = sorted(lane['devices'], key=lambda d: (not d['mapped'], d['name']))
-        un = lane.get('unassigned') or {'waiting': [], 'incoming': [], 'in_progress': []}
-        waiting = [w for d in devs for w in d['waiting']] + un['waiting']
-        busy = sum(d['busy_min'] for d in devs)
-        opened = sum(d['open_min'] for d in devs)
-        out.append({
-            'modality': mod, 'devices': devs, 'unassigned': lane.get('unassigned'),
-            'summary': {
-                'devices': len(devs),
-                'busy': sum(1 for d in devs if d['status'] in ('busy', 'overrun')),
-                'free': sum(1 for d in devs if d['status'] == 'free'),
-                'waiting': len(waiting),
-                'longest_wait_min': max((w['wait_min'] for w in waiting), default=None),
-                'longest_wait_since': min((w['arrived_at'] for w in waiting), default=None),
-                'incoming': sum(len(d['incoming']) for d in devs) + len(un['incoming']),
-                'done_today': sum(d['done_today'] for d in devs),
-                'utilization_pct': round(100 * busy / opened) if opened else None,
-            },
-        })
+        rs = sorted(lanes[mod], key=lambda c: (c['room'] or '').upper())
+        out.append({'modality': mod, 'rooms': rs, 'summary': _summary(rs)})
 
-    all_dev = [d for lane in out for d in lane['devices']]
-    all_wait = [w for lane in out for d in lane['devices'] for w in d['waiting']] + \
-               [w for lane in out if lane['unassigned'] for w in lane['unassigned']['waiting']]
-    busy = sum(d['busy_min'] for d in all_dev)
-    opened = sum(d['open_min'] for d in all_dev)
-    sites = db.session.execute(text("""
-        SELECT s.code, s.name FROM sites s
-         WHERE s.active IS NOT FALSE
-           AND COALESCE(s.id = rayd_served_site_id(), TRUE)
-         ORDER BY s.name
-    """)).mappings().all()
-    # The floor plan of each site (Admin > Floor plan): the image, under static/.
     plans = db.session.execute(text("""
         SELECT si.code AS site_code, si.name AS site_name, fp.image_path,
                fp.image_width AS width, fp.image_height AS height
           FROM floor_plans fp JOIN sites si ON si.id = fp.site_id
          WHERE fp.image_path IS NOT NULL AND si.active IS NOT FALSE
-           AND COALESCE(si.id = rayd_served_site_id(), TRUE)
+           AND (CAST(:site AS text) IS NULL OR si.code = CAST(:site AS text))
          ORDER BY si.name
-    """)).mappings().all()
+    """), {'site': site}).mappings().all()
+    if sites is None:
+        sites = [dict(s) for s in db.session.execute(text(
+            "SELECT code, name FROM sites WHERE active IS NOT FALSE ORDER BY is_default DESC, id")).mappings()]
+    modalities = sorted({c['modality'] for c in cards} | set(limits['wait_min']),
+                        key=lambda m: (MODALITY_ORDER.index(m) if m in MODALITY_ORDER else len(MODALITY_ORDER), m))
     return {
         'now': _iso(now), 'day_start': _iso(day0 + timedelta(hours=day_start_hour)),
-        'lanes': out,
-        'totals': {
-            'devices': len(all_dev),
-            'busy': sum(1 for d in all_dev if d['status'] in ('busy', 'overrun')),
-            'overrun': sum(1 for d in all_dev if d['status'] == 'overrun'),
-            'waiting': len(all_wait),
-            'longest_wait_min': max((w['wait_min'] for w in all_wait), default=None),
-            'longest_wait_since': min((w['arrived_at'] for w in all_wait), default=None),
-            'incoming': sum(lane['summary']['incoming'] for lane in out),
-            'done_today': sum(d['done_today'] for d in all_dev),
-            'utilization_pct': round(100 * busy / opened) if opened else None,
-        },
-        'sites': [dict(s) for s in sites],
+        'site': site, 'sites': sites, 'lanes': out,
+        'totals': _summary(cards),
+        'unknown_rooms': [{'code': k, 'studies': n} for k, n in sorted(unknown.items(), key=lambda x: -x[1])],
         'plans': [dict(p) for p in plans],
-        'site': site,
-        'thresholds': {'wait_warn_min': WAIT_WARN_MIN, 'wait_alert_min': WAIT_ALERT_MIN},
+        'limits': {'wait_min': {m: wait_limit(limits, m) for m in modalities},
+                   'default_wait_min': limits['default_wait_min'], 'early_pct': limits['early_pct']},
     }
 
 
-def _finish_device(dev, now, day0, day_start_hour):
-    """Status, current study, queue estimate and utilization of one device."""
+def _finish_room(room, now, day0, day_start_hour, limits):
+    """Status, the exam running, the last exam done early, queue and utilization of a room."""
     current, also = None, 0
-    if dev['in_progress']:
-        dev['in_progress'].sort(key=lambda x: x[0], reverse=True)
-        current = dev['in_progress'][0][1]
-        also = len(dev['in_progress']) - 1     # older starts with no completion: a missing CM
-    dev['waiting'].sort(key=lambda x: x['arrived_at'])
-    dev['incoming'].sort(key=lambda x: x['since'] or '')
+    if room['running']:
+        room['running'].sort(key=lambda x: x[0], reverse=True)
+        current = room['running'][0][1]
+        also = len(room['running']) - 1     # older starts with no completion: a missing CM
+    room['waiting'].sort(key=lambda x: x['arrived_at'])
+    room['coming'].sort(key=lambda x: x['appointment_at'] or '')
+
+    early, last_done_at = None, None
+    if room['done']:
+        room['done'].sort(key=lambda x: x[0], reverse=True)
+        done_at, started_at, item = room['done'][0]
+        last_done_at = done_at
+        if started_at is not None:
+            took = _minutes(done_at - started_at)
+            # yellow until the room's next exam starts
+            later_start = current is not None and datetime.fromisoformat(current['started_at']) > done_at
+            if took < item['expected_minutes'] * limits['early_pct'] / 100.0 and not later_start:
+                early = dict(item, started_at=_iso(started_at), done_at=_iso(done_at),
+                             took_min=round(took, 1))
 
     if current:
-        status = 'overrun' if current['remaining_min'] < 0 else 'busy'
-    elif dev['opening_minutes'] <= 0 and dev['mapped'] and not dev['waiting']:
+        status = 'late' if current['late'] else 'busy'
+    elif room['opening_minutes'] <= 0 and room['exception'] is not None:
         status = 'closed'
     else:
         status = 'free'
 
-    free_at = now
-    if current:
-        free_at = max(now, datetime.fromisoformat(current['expected_end']))
-    queue_clear = free_at + timedelta(minutes=sum(w['expected_minutes'] for w in dev['waiting']))
-
-    start = window_start_for(day0, dev['opening_minutes'], day_start_hour)
-    busy = merged_busy_minutes(dev['intervals'], start, now)
-    opened = open_minutes_so_far(start, now, dev['opening_minutes'])
+    start = window_start_for(day0, room['opening_minutes'], day_start_hour)
+    busy = merged_busy_minutes(room['intervals'], start, now)
+    opened = open_minutes_so_far(start, now, room['opening_minutes'])
+    activity = room['scheduled_today'] or room['waiting'] or current or room['done']
     return {
-        'aetitle': dev['aetitle'], 'name': dev['name'], 'room': dev['room'],
-        'modality': dev['modality'], 'site': dev['site'], 'site_code': dev['site_code'],
-        'x': dev['x'], 'y': dev['y'],
-        'mapped': dev['mapped'], 'status': status, 'exception': dev['exception'],
-        'current': current, 'also_in_progress': also,
-        'waiting': dev['waiting'], 'incoming': dev['incoming'],
-        'free_at': _iso(free_at) if current else None,
-        'queue_clear_at': _iso(queue_clear) if dev['waiting'] else None,
-        'done_today': dev['done_today'], 'last_done_at': _iso(dev['last_done_at']),
-        'opening_minutes': dev['opening_minutes'], 'window_start': _iso(start),
+        'key': room['key'], 'room_code': room['room_code'], 'aetitle': room['aetitle'],
+        'room': room['room'], 'modality': room['modality'],
+        'site': room['site'], 'site_code': room['site_code'], 'x': room['x'], 'y': room['y'],
+        'status': status, 'exception': room['exception'], 'show': bool(room['open_today'] or activity),
+        'scheduled_today': room['scheduled_today'], 'to_come': len(room['coming']),
+        'coming': room['coming'], 'waiting': room['waiting'],
+        'waiting_over': sum(1 for w in room['waiting'] if w['over']),
+        'wait_limit_min': room['wait_limit_min'],
+        'current': current, 'also_in_progress': also, 'early': early,
+        'done_today': len(room['done']), 'last_done_at': _iso(last_done_at),
+        'opening_minutes': room['opening_minutes'], 'window_start': _iso(start),
         'busy_min': round(busy, 1), 'open_min': round(opened, 1),
+        'utilization_pct': round(100 * busy / opened) if opened else None,
+    }
+
+
+def _summary(cards):
+    waiting = [w for c in cards for w in c['waiting']]
+    busy = sum(c['busy_min'] for c in cards)
+    opened = sum(c['open_min'] for c in cards)
+    return {
+        'rooms': len(cards),
+        'busy': sum(1 for c in cards if c['status'] in ('busy', 'late')),
+        'late': sum(1 for c in cards if c['status'] == 'late'),
+        'early': sum(1 for c in cards if c['early']),
+        'scheduled_today': sum(c['scheduled_today'] for c in cards),
+        'to_come': sum(c['to_come'] for c in cards),
+        'waiting': len(waiting),
+        'waiting_over': sum(1 for w in waiting if w['over']),
+        'longest_wait_min': max((w['wait_min'] for w in waiting), default=None),
+        'longest_wait_since': min((w['arrived_at'] for w in waiting), default=None),
+        'done_today': sum(c['done_today'] for c in cards),
         'utilization_pct': round(100 * busy / opened) if opened else None,
     }

@@ -169,6 +169,12 @@ class ParsedMessage:
     # Where
     aetitle:           str  = None
     room_name:         str  = None
+    # LAUMC's RIS (migration 0173, field mappings for sender RIS): the imaging room's RIS code
+    # (ORC-16), the appointment (OBR-36) and the booked minutes (OBR-27). The Live
+    # Department board groups by the room and counts the day's appointments.
+    ris_room:          str  = None
+    appointment_at:    datetime = None
+    booked_minutes:    float = None
 
     modality:          str  = None
     procedure_code:    str  = None

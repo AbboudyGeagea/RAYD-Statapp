@@ -403,17 +403,29 @@ def test_the_side_by_side_is_for_accounts_holding_both_sites(client, app, people
     assert 'id="super-sites-card"' in client.get('/viewer/super-report-page', headers=hdr(both)).get_data(as_text=True)
 
 
-def test_the_live_board_puts_the_sites_side_by_side_per_modality(client, app, people, sjh, ids):
-    """Each site's board, built on its own database, summarised per modality."""
+def test_the_live_board_puts_the_sites_side_by_side_per_modality(client, app, people, ids):
+    """Each hospital's RIS rooms, from BRAYN in the main database (item 38: BRAYN's tables stay
+    there until item 13d), summarised per modality."""
+    from datetime import datetime
+    from db import db
     uid = people('board', 'administrator', ('RH', 'SJH'))
-    rh_study(app, BASE + 950)
-    sjh_study(sjh, BASE + 951)
+    with app.app_context():
+        for key, (ae, code, site) in enumerate((('BRDCT_RH', 'BRD CT RH', 'RH'), ('BRDCT_SJH', 'SJH-BRD CT', 'SJH'))):
+            db.session.execute(text("""INSERT INTO aetitle_modality_map (aetitle, modality, room_code, ris_modality_key, site_id)
+                                       VALUES (:ae, 'CT', :code, :k, :s)"""),
+                               {'ae': ae, 'code': code, 'k': 990900 + key, 's': ids[site]})
+            db.session.execute(text("""INSERT INTO brayn_study_state (accession_number, ris_room, appointment_at,
+                                           current_rank, event_count, is_closed, first_seen_at, updated_at)
+                                       VALUES (:a, :r, :t, 40, 1, FALSE, now(), now())"""),
+                               {'a': 'ACC-' + ae, 'r': code, 't': datetime.now()})
+        db.session.commit()
     r = client.get('/viewer/department/api/sites', headers=hdr(uid))
     assert r.status_code == 200, r.get_data(as_text=True)
     d = r.get_json()
     assert [s['code'] for s in d['sites']] == ['RH', 'SJH']
     ct = next(m for m in d['modalities'] if m['modality'] == 'CT')['by_site']
-    assert ct['RH']['devices'] >= 1 and ct['SJH']['devices'] == 1
+    assert ct['RH']['rooms'] == 1 and ct['SJH']['rooms'] == 1
+    assert ct['RH']['scheduled_today'] == 1 and ct['SJH']['scheduled_today'] == 1
     assert set(d['totals']) == {'RH', 'SJH'}
 
 
@@ -421,8 +433,8 @@ def test_the_board_offers_the_sites_only_with_two_sites(client, app, people):
     one = people('board_one', 'administrator', ('RH',))
     both = people('board_two', 'administrator', ('RH', 'SJH'))
     assert client.get('/viewer/department/api/sites', headers=hdr(one)).get_json()['sites'] == []
-    assert 'id="sites-btn"' not in client.get('/viewer/department', headers=hdr(one)).get_data(as_text=True)
-    assert 'id="sites-btn"' in client.get('/viewer/department', headers=hdr(both)).get_data(as_text=True)
+    assert [s['code'] for s in client.get('/viewer/department/api/board', headers=hdr(one)).get_json()['sites']] == ['RH']
+    assert [s['code'] for s in client.get('/viewer/department/api/board', headers=hdr(both)).get_json()['sites']] == ['RH', 'SJH']
 
 
 # ── SJH's own tables point at users ───────────────────────────────────────────

@@ -61,6 +61,14 @@ def test_device_lists_leave_out_other_sites(devices):
 
 
 def test_the_department_board_leaves_out_other_sites(client, devices):
+    """The board (item 38) shows the RIS rooms of one hospital, among the account's."""
+    from datetime import datetime
+    sql("""UPDATE aetitle_modality_map SET ris_modality_key = 990000 + length(aetitle), room_code = aetitle
+            WHERE aetitle IN ('RH_SCANNER', 'SJH_SCANNER')""")
+    for room in ('RH_SCANNER', 'SJH_SCANNER'):             # a booking today on each
+        sql("""INSERT INTO brayn_study_state (accession_number, ris_room, appointment_at, current_rank,
+                                              event_count, is_closed, first_seen_at, updated_at)
+               VALUES (:a, :r, :t, 40, 1, FALSE, now(), now())""", a='ACC-' + room, r=room, t=datetime.now())
     r = client.get('/viewer/department/api/board', headers={'X-Test-Role': 'administrator', 'X-Test-Uid': '1'})
     assert r.status_code == 200
     body = r.get_data(as_text=True)

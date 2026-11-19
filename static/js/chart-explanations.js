@@ -486,6 +486,18 @@ const ChartExplanations = {
       valueMeaning: 'HIS order number, when it was placed, its latest HIS message, procedure, the HIS location and class. Patient ID is in the Excel download; no names.',
       interpretation: 'Check them on the RIS: never registered, registered under another order, or cancelled on paper only.'
     },
+    'live-board': {
+      title: 'Live Department',
+      purpose: 'What each imaging room of the chosen hospital is doing right now, from the RIS messages as they arrive: one card per room, by its RIS room name.',
+      valueMeaning: 'Scheduled = exams booked on the room for today (cancelled ones left out); "to come" = not arrived yet. Arrived = patients who arrived and have not started, with the longest wait; a wait turns red once it passes the limit set for that modality. The running exam shows when it should end: its start plus the minutes the RIS booked for it (else the procedure\'s usual duration). Orange = still running past that time. Yellow = the room\'s last exam was marked done in less than the set share of its expected time (50 % unless changed), until the next exam starts. Utilization = busy time ÷ opening time so far today. A room shows when it has anything booked, waiting, running or done today, or when it is open today and the RIS booked something on it in the last 30 days.',
+      interpretation: 'Red waits point to a room that cannot keep up; orange to an exam running long; yellow to an exam closed on the RIS sooner than it could really have been done (a status entered late or early). Unlike the reports, the board is not a day late: it moves with each message.'
+    },
+    'live-board-kpis': {
+      title: 'Live Department, the figures at the top',
+      purpose: 'The whole hospital at a glance, for the rooms on the board.',
+      valueMeaning: 'Busy = rooms with an exam running / rooms shown. Late = exams running past their expected end. Arrived = patients waiting, with how many are over their wait limit. Longest wait = the patient who has waited longest. Scheduled = today\'s bookings on these rooms, with how many have not arrived. Done today = exams completed since midnight. Utilization = busy time ÷ opening time so far today, all rooms together.',
+      interpretation: 'Compare Scheduled with Done today through the day; a growing "over the limit" count means patients are waiting longer than the department allows.'
+    },
     'r40-report': {
       title: 'Patient Schedule Lead Time',
       purpose: 'How long before their appointment patients were booked, for the exams whose appointment falls in the date range.',

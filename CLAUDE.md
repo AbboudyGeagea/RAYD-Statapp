@@ -94,12 +94,18 @@ routes/
   viewer_controller.py          — daily briefing, home dashboard
   mapping_controller.py         — AE/modality/procedure mapping config (lazy-loaded tabs)
   hl7_orders_route.py           — HL7 order analytics
-  department_board.py           — Live Department board (/viewer/department), ported from HL7
-                                   (2026-11-02): per device, study in progress + expected
-                                   finish, who waits, what is coming, utilization. Reads
-                                   brayn_study_state only (data in utils/department_board.py),
-                                   on hospital time — EMPTY while BRAYN is off; no waiting /
-                                   in progress until the R2I lifecycle feed is live.
+  department_board.py           — Live Department board (/viewer/department), reworked 2026-11-19
+                                   (item 38): one card per RIS room (room name; RIS rows of
+                                   aetitle_modality_map by room_code) of ONE hospital, its own
+                                   RH/SJH switch; per room today's appointments, arrived + wait
+                                   (red past a per-modality limit), the running exam's expected
+                                   end (booked minutes; orange late), done too early (yellow),
+                                   utilization. Limits in settings department_board_limits
+                                   (settings capability). Reads brayn_study_state only (data in
+                                   utils/department_board.py; ris_room / appointment_at /
+                                   booked_minutes from the RIS's ORC-16 / OBR-36 / OBR-27,
+                                   migration 0173), always on the MAIN database (MAIN_BLUEPRINTS),
+                                   hospital time — EMPTY while BRAYN is off.
                                    /viewer/live (live_feed, RIS SPS via Oracle) redirects here.
                                    Licence + page permission `live_feed`
   worklists.py                  — Report Composer (/report-composer; RAYD V2.0 editor from HL7 via

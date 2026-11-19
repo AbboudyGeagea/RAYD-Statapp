@@ -84,10 +84,10 @@ def pv1(cls='O', loc='RAD^CT-ROOM-2^^RH', ref='20000191^WAKIM^GERARD', visit=Non
 
 
 def orc(control='SC', placer=None, acc=None, status=None, when=None, action_by=None,
-        ordering=None):
+        ordering=None, room=None):
     return seg('ORC', {1: control, 2: f'{placer}^HIS' if placer else None,
                        3: f'{acc}^HIS' if acc else None, 5: status, 9: when,
-                       12: ordering, 19: action_by})
+                       12: ordering, 16: room, 19: action_by})
 
 
 def obr(acc=None, placer=None, code='CTABD', desc='CT ABDOMEN AND PELVIS', ae='CT64_RH',
@@ -132,15 +132,17 @@ def status(code, acc, when=None, pat=PATIENT, app='RIS', ctrl=None, placer=None,
            ae='CT64_RH', mod='CT', proc='CTABD', desc='CT ABDOMEN AND PELVIS',
            tech='TECH01^HADDAD^RIMA', cls='O', loc='RAD^CT-ROOM-2^^RH',
            ref='20000191^WAKIM^GERARD', visit=None, msh_when=None, control='SC',
-           orc9=True):
-    """A RIS lifecycle event (ORC-5 = code) for one accession."""
+           orc9=True, room=None, appt=None, minutes=None):
+    """A RIS lifecycle event (ORC-5 = code) for one accession. room, appt and minutes are
+    where LAUMC's RIS puts them: ORC-16, OBR-36 and OBR-27 (migration 0173)."""
     when = when or ts(0)
     return message(msh(app, ctrl, 'ORM^O01', msh_when or when),
                    pid(pat),
                    pv1(cls, loc, ref, visit),
                    orc(control, placer=placer, acc=acc, status=code,
-                       when=when if orc9 else None, action_by=tech),
-                   obr(acc=acc, placer=placer, code=proc, desc=desc, ae=ae, mod=mod))
+                       when=when if orc9 else None, action_by=tech, room=room),
+                   obr(acc=acc, placer=placer, code=proc, desc=desc, ae=ae, mod=mod,
+                       extra={27: minutes, 36: appt}))
 
 
 def report(acc, when=None, result_status='F', pat=PATIENT, app='PACS', ctrl=None,

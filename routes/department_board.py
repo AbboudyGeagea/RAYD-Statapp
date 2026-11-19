@@ -2,13 +2,16 @@
 routes/department_board.py — the Live Department board on HL7 data.
 
     /viewer/department              the board (a wall display: no sidebar, refreshes itself)
-    /viewer/department/api/board    the board as JSON (utils/department_board.build_board)
-    /viewer/department/api/sites    RH and SJH side by side, per modality (item 13b)
+    /viewer/department/api/board    one hospital's board as JSON (?site=RH|SJH, utils/department_board)
+    /viewer/department/api/limits   POST: the wait limit per modality and the "done too early"
+                                    share (settings capability: Super user, CHT, Administrator)
+    /viewer/department/api/sites    the account's hospitals side by side, per modality (item 13b)
 
-A passive view: it reads brayn_study_state, the ladder the BRAYN shadow keeps from
-the HL7 messages, and changes nothing. Ported from the HL7 branch unchanged; it
-replaces live_feed's page (RIS SPS through Oracle) on LAUMC too, by the operator's
-choice (2026-11-02), so /viewer/live redirects here. Empty while BRAYN is off.
+A passive view: it reads brayn_study_state, the ladder the BRAYN shadow keeps from the HL7
+messages, and changes nothing but its own limits. BRAYN's tables live in the main database
+until BRAYN routes by site (item 13d), so this blueprint always reads the main database
+(utils.site_db.MAIN_BLUEPRINTS) and the hospital is chosen on the board itself, among the
+account's sites (operator, 2026-11-19). /viewer/live redirects here. Empty while BRAYN is off.
 
 ACCESS: the live_feed licence key and page permission, as the page it replaces.
 """
@@ -18,7 +21,7 @@ from flask import Blueprint, abort, jsonify, render_template, request
 from flask_login import current_user, login_required
 
 from db import db, user_has_page
-from utils.department_board import build_board
+from utils.department_board import build_board, load_limits, save_limits
 
 logger = logging.getLogger("DEPARTMENT_BOARD")
 
@@ -34,62 +37,106 @@ def _require_access():
         abort(403)
 
 
+def _account_sites():
+    """[{'code', 'name'}] of the hospitals the account holds, the default one first."""
+    from utils.roles import all_sites, granted_site_ids
+    held = granted_site_ids(current_user)
+    return [{'code': code, 'name': name} for sid, code, name in all_sites() if sid in held]
+
+
+def _chosen_site(sites):
+    """The ?site= asked for when the account holds it, else the header's site, else the first."""
+    codes = [s['code'] for s in sites]
+    asked = (request.args.get('site') or '').strip().upper()
+    if asked in codes:
+        return asked
+    try:
+        from flask import session
+        from utils import site_db
+        here = site_db.site_code(session.get('site_id'))    # the header's pick
+    except Exception:
+        here = None
+    return here if here in codes else (codes[0] if codes else None)
+
+
+def _can_edit_limits():
+    from utils.roles import can
+    return can(current_user, 'settings')
+
+
 @department_board_bp.route('/viewer/department')
 @login_required
 def page():
     _require_access()
-    return render_template('department_board.html', refresh_seconds=REFRESH_SECONDS)
+    return render_template('department_board.html', refresh_seconds=REFRESH_SECONDS,
+                           can_edit_limits=_can_edit_limits())
 
 
 @department_board_bp.route('/viewer/department/api/board')
 @login_required
 def api_board():
     _require_access()
-    site = (request.args.get('site') or '').strip() or None
+    sites = _account_sites()
+    if not sites:
+        return jsonify({'error': 'Your account holds no hospital.'}), 403
     try:
-        return jsonify(build_board(site=site))
+        board = build_board(site=_chosen_site(sites), sites=sites)
     except Exception:
         db.session.rollback()
         logger.exception("department board failed")
         return jsonify({'error': 'The board could not be read. See the app log.'}), 500
+    board['can_edit_limits'] = _can_edit_limits()
+    return jsonify(board)
+
+
+@department_board_bp.route('/viewer/department/api/limits', methods=['POST'])
+@login_required
+def api_limits():
+    _require_access()
+    if not _can_edit_limits():
+        abort(403)
+    data = request.get_json(silent=True) or {}
+    current = load_limits()
+    try:
+        limits = save_limits(data.get('wait_min') or {},
+                             data.get('default_wait_min', current['default_wait_min']),
+                             data.get('early_pct', current['early_pct']))
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    from utils.audit import log_event
+    log_event('settings_change', category='settings', resource_type='department_board_limits',
+              detail=limits)
+    return jsonify({'limits': limits})
 
 
 @department_board_bp.route('/viewer/department/api/sites')
 @login_required
 def api_sites():
-    """RH and SJH side by side, per modality (meeting of 2026-11-13, item 13b: "direct
-    comparison only in the Super Report and the Live Department board, per modality"). For
-    an account holding two or more sites that have a database (utils/site_db.py): the board
-    is built on each site's own database and its per-modality summary returned side by
-    side. Anyone else gets no sites."""
-    from utils import site_db
-    from utils.roles import all_sites
+    """The account's hospitals side by side, per modality (meeting of 2026-11-13, item 13b:
+    "direct comparison only in the Super Report and the Live Department board, per
+    modality"). Each hospital's board from the same BRAYN tables, the same definitions.
+    An account holding one site gets none."""
     _require_access()
-    site_ids = sorted(site_db.selectable_site_ids(current_user))
-    if len(site_ids) < 2:
+    sites = _account_sites()
+    if len(sites) < 2:
         return jsonify({'sites': [], 'modalities': [], 'totals': {}})
-    names = {sid: (code, name) for sid, code, name in all_sites()}
-    codes = {sid: names[sid][0] if sid in names else str(sid) for sid in site_ids}
     boards = {}
     try:
-        for sid in site_ids:
-            with site_db.use_site(sid):
-                boards[codes[sid]] = build_board()
+        for s in sites:
+            boards[s['code']] = build_board(site=s['code'], sites=sites)
     except Exception:
         db.session.rollback()
         logger.exception("department board sites failed")
         return jsonify({'error': 'The sites could not be read. See the app log.'}), 500
-    by_mod = {}
+    by_mod, seen = {}, []
     for code, board in boards.items():
         for lane in board['lanes']:
             by_mod.setdefault(lane['modality'], {})[code] = lane['summary']
-    order = [lane['modality'] for b in boards.values() for lane in b['lanes']]
-    seen = []
-    for m in order:
-        if m not in seen:
-            seen.append(m)
+            if lane['modality'] not in seen:
+                seen.append(lane['modality'])
     return jsonify({
-        'sites': [{'code': codes[sid], 'name': names[sid][1] if sid in names else ''} for sid in site_ids],
+        'sites': sites,
         'modalities': [{'modality': m, 'by_site': by_mod[m]} for m in seen],
         'totals': {code: board['totals'] for code, board in boards.items()},
     })

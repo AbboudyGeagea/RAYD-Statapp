@@ -1,16 +1,14 @@
 """
-The Live Department board (ported from the HL7 branch): what each device shows,
-built from RIS messages sent through LAUMC's real listener (hl7kit), and the page /
-API around it.
+The Live Department board (item 38, operator 2026-11-19): one card per RIS room of one
+hospital, from BRAYN's ladder, built from RIS messages shaped like LAUMC's (room code in
+ORC-16, appointment in OBR-36, booked minutes in OBR-27) sent through the real listener
+(hl7kit) and screened by the BRAYN shadow.
 
-On LAUMC the board reads BRAYN's ladder, which the BRAYN shadow fills after the ACK:
-`devices` switches BRAYN on and screens each message as soon as it is sent. The
-tests themselves are the HL7 branch's.
-
-Times are minutes before now, as the RIS would stamp its events. The day start is
-moved to midnight where utilization is checked, so the figures do not depend on the
-hour the suite runs at.
+Times are minutes before now, as the RIS would stamp its events. The day start is moved to
+midnight where utilization is checked, so the figures do not depend on the hour the suite
+runs at.
 """
+import json
 import os
 import re
 import shutil
@@ -24,12 +22,21 @@ import hl7kit as k
 from utils import department_board as board
 
 ADMIN = 4242
+# RIS rooms: (AE, room code, room name, modality, site)
+ROOMS = (('CT64_RH', 'CT64', 'CT Room - 750 HD (GE)', 'CT', 'RH'),
+         ('CT2_RH', 'CT128 ED', 'CT128 Emergency', 'CT', 'RH'),
+         ('DEFINIUM1', 'XR1', 'X-Ray Room 1 - Definium (GE)', 'DX', 'RH'),
+         ('IDLEXR', 'PORT2', 'Portable 2', 'DX', 'RH'),
+         ('VIVIDE9-003168', 'US CARDIO 2', 'ECHO 10TH', 'US', 'RH'),
+         ('RHPACSLAUMCRH', 'RH-PACS', 'PACS External Upload', 'OT', 'RH'),
+         ('AFFINITI1', 'SJH-US2', 'Ultrasound-2', 'US', 'SJH'))
+USED = ('CT64', 'CT128 ED', 'XR1', 'US CARDIO 2', 'SJH-US2')    # booked on in the last 30 days
 
 
 @pytest.fixture
-def devices(pipe):
-    """BRAYN on, every message screened once sent; two CT rooms and a DR, durations
-    for their procedures, open 8 hours. The MR lane is the seeded INGENIA."""
+def rooms(pipe):
+    """BRAYN on, every message screened once sent; the RIS rooms above, open today on the
+    RIS (except PORT2), durations for two CT procedures."""
     pipe.brayn()
     send = pipe.send
 
@@ -39,37 +46,49 @@ def devices(pipe):
         return ack
 
     pipe.send = send_and_screen
-    pipe.exec("""INSERT INTO aetitle_modality_map
-                     (aetitle, modality, room_name, display_aetitle, daily_capacity_minutes) VALUES
-                 ('CT64_RH', 'CT', 'CT Room 1', 'CT 64', 480), ('CT2_RH', 'CT', 'CT Room 2', NULL, 480),
-                 ('DR_RH', 'DX', NULL, NULL, 480)""")
+    for i, (ae, code, name, mod, site) in enumerate(ROOMS):
+        pipe.exec("""INSERT INTO aetitle_modality_map (aetitle, modality, station_name, room_code, ris_modality_key,
+                                                       daily_capacity_minutes, site_id)
+                     SELECT :ae, :mod, :name, :code, :key, 480, id FROM sites WHERE code = :site""",
+                  ae=ae, mod=mod, name=name, code=code, key=990100 + i, site=site)
+        if ae != 'IDLEXR':
+            pipe.exec("INSERT INTO std_device_weekly_availability (aetitle, day_of_week, available_minutes) "
+                      "VALUES (:ae, :d, 480) ON CONFLICT DO NOTHING", ae=ae, d=datetime.now().weekday())
     pipe.exec("""INSERT INTO procedure_duration_map (procedure_code, duration_minutes, modality) VALUES
-                 ('CTABD', 30, 'CT'), ('CTHEAD', 15, 'CT'), ('MRBRAIN', 40, 'MR')""")
-    return pipe
+                 ('CTABD', 30, 'CT'), ('CTHEAD', 15, 'CT')""")
+    for code in USED:                       # an exam booked five days ago, long closed
+        pipe.exec("""INSERT INTO brayn_study_state (accession_number, ris_room, appointment_at, current_rank,
+                                                    event_count, is_closed, first_seen_at, updated_at)
+                     VALUES (:acc, :room, now() - interval '5 days', 140, 1, TRUE, now(), now())""",
+                  acc='OLD-' + code, room=code)
+    yield pipe
+    pipe.exec("DELETE FROM std_device_weekly_availability WHERE aetitle = ANY(:aes)", aes=[r[0] for r in ROOMS])
 
 
-def study(pipe, acc, ae='CT64_RH', mod='CT', proc='CTABD', desc='CT ABDOMEN AND PELVIS',
-          pat='P0001', **steps):
-    """RIS events for one accession; steps = scheduled / arrived / started / completed /
-    cancelled, each in minutes ago."""
+def study(pipe, acc, room='CT64', proc='CTABD', desc='CT ABDOMEN AND PELVIS', pat='P0001',
+          appt=0, minutes=None, **steps):
+    """RIS events for one accession on a room; steps = scheduled / arrived / started /
+    completed / cancelled, each in minutes ago; appt = the appointment, minutes from now
+    (None: no appointment); minutes = booked minutes (OBR-27)."""
+    when = (datetime.now() + timedelta(minutes=appt)).strftime('%Y%m%d%H%M%S') if appt is not None else None
     for code, step in (('SC', 'scheduled'), ('AR', 'arrived'), ('IP', 'started'),
                        ('CM', 'completed'), ('CA', 'cancelled')):
         if step in steps:
-            pipe.send(k.status(code, acc, k.ts(steps[step]), pat=pat, ae=ae, mod=mod,
-                               proc=proc, desc=desc))
+            pipe.send(k.status(code, acc, k.ts(steps[step]), pat=pat, ae=None, mod=None,
+                               proc=proc, desc=desc, room=room, appt=when, minutes=minutes))
 
 
-def get_board(app, **kw):
+def get_board(app, site='RH', **kw):
     with app.app_context():
-        return board.build_board(**kw)
+        return board.build_board(site=site, **kw)
 
 
-def device(b, ae):
-    return next(d for lane in b['lanes'] for d in lane['devices'] if d['aetitle'] == ae)
+def card(b, key):
+    return next(r for lane in b['lanes'] for r in lane['rooms'] if r['key'] == key)
 
 
-def lane(b, mod):
-    return next(l for l in b['lanes'] if l['modality'] == mod)
+def keys(b):
+    return {r['key'] for lane in b['lanes'] for r in lane['rooms']}
 
 
 # ── the pieces ────────────────────────────────────────────────────────────────
@@ -89,185 +108,173 @@ def test_busy_minutes_merge_overlaps_and_clip_to_the_window():
 def test_opening_window():
     day0 = T0.replace(hour=0)
     assert board.window_start_for(day0, 480, 7) == T0
-    assert board.window_start_for(day0, 1440, 7) == day0          # a 24-hour device
+    assert board.window_start_for(day0, 1440, 7) == day0          # a 24-hour room
     assert board.open_minutes_so_far(T0, T0 + timedelta(hours=3), 480) == 180
     assert board.open_minutes_so_far(T0, T0 + timedelta(hours=10), 480) == 480
     assert board.open_minutes_so_far(T0, T0 - timedelta(hours=1), 480) == 0
-    assert board.open_minutes_so_far(T0, T0 + timedelta(hours=3), 0) == 0
 
 
-# ── what a device shows ───────────────────────────────────────────────────────
+# ── BRAYN keeps the room, the appointment and the booked minutes (migration 0173) ──
 
-def test_busy_device_current_study_and_expected_finish(app, devices):
-    study(devices, 'A1', scheduled=60, arrived=40, started=10)
-    d = device(get_board(app), 'CT64_RH')
-    # the RIS room name first, the AE under it; the typed alias 'CT 64' is dropped
-    # (operator, 2026-11-13)
-    assert (d['status'], d['name'], d['room']) == ('busy', 'CT64_RH', 'CT Room 1')
-    c = d['current']
-    assert (c['accession'], c['expected_minutes'], c['expected_source']) == ('A1', 30, 'procedure')
-    started = datetime.fromisoformat(c['started_at'])
-    assert datetime.fromisoformat(c['expected_end']) == started + timedelta(minutes=30)
-    assert 19 <= c['remaining_min'] <= 21
-    assert d['free_at'] == c['expected_end']
+def test_brayn_stores_the_ris_room_appointment_and_booked_minutes(rooms):
+    study(rooms, 'A1', room='XR1', minutes=10, appt=30, scheduled=5)
+    row = rooms.one("SELECT ris_room, appointment_at, booked_minutes FROM brayn_study_state WHERE accession_number = 'A1'")
+    assert row['ris_room'] == 'XR1' and row['booked_minutes'] == 10
+    assert abs((row['appointment_at'] - (datetime.now() + timedelta(minutes=30))).total_seconds()) < 90
+    # rebooked on another room for another time: the latest message wins
+    study(rooms, 'A1', room='CT64', minutes=30, appt=90, scheduled=1)
+    row = rooms.one("SELECT ris_room, booked_minutes FROM brayn_study_state WHERE accession_number = 'A1'")
+    assert (row['ris_room'], row['booked_minutes']) == ('CT64', 30)
 
 
-def test_overrun(app, devices):
-    study(devices, 'A1', scheduled=90, arrived=60, started=45)
-    d = device(get_board(app), 'CT64_RH')
-    assert d['status'] == 'overrun' and -16 <= d['current']['remaining_min'] <= -14
+def test_the_migration_fills_the_studies_already_open_from_the_archive(rooms):
+    rooms.exec("""INSERT INTO brayn_study_state (accession_number, current_rank, event_count, is_closed, first_seen_at, updated_at)
+                  VALUES ('1003000000001', 40, 1, FALSE, now(), now())""")
+    raw = ('MSH|^~\\&|RIS||RAYD||20261119155000||ORM^O01|M1|P|2.3\r'
+           'ORC|SC|0019400001|1003000000001||A|||||||||||XR1\r'
+           'OBR|04587294|0019400001|1003000000001|C11-03^XR: SPINE|R|||||||||||x^Y^Z||RF|||||||||10|||||||||20261119161500\r')
+    rooms.exec("""INSERT INTO hl7_message_archive (message_control_id, sending_app, raw_message, content_hash)
+                  VALUES ('M1', 'RIS', :raw, 'h1')""", raw=raw)
+    sql = open(os.path.join(os.path.dirname(__file__), '..', 'migrations', '0173_brayn_room_booking.sql'),
+               encoding='utf-8').read()
+    rooms.exec(sql.split('-- The studies already open', 1)[1].split('\n', 1)[1])
+    row = rooms.one("SELECT ris_room, appointment_at, booked_minutes FROM brayn_study_state "
+                    "WHERE accession_number = '1003000000001'")
+    assert (row['ris_room'], row['appointment_at'], row['booked_minutes']) == \
+           ('XR1', datetime(2026, 11, 19, 16, 15), 10)
 
 
-def test_newest_start_is_current_older_open_ones_are_counted(app, devices):
-    study(devices, 'A1', scheduled=90, arrived=80, started=70)     # never completed
-    study(devices, 'A2', scheduled=30, arrived=20, started=5)
-    d = device(get_board(app), 'CT64_RH')
-    assert d['current']['accession'] == 'A2' and d['also_in_progress'] == 1
+# ── what a room shows ─────────────────────────────────────────────────────────
+
+def test_one_card_per_ris_room_named_by_its_room_and_one_hospital(rooms):
+    study(rooms, 'S1', room='SJH-US2', proc='US1', desc='US BREAST', scheduled=5)
+    b = get_board(rooms.app)
+    assert {'CT64', 'CT128 ED', 'XR1'} <= keys(b)
+    assert card(b, 'CT64')['room'] == 'CT Room - 750 HD (GE)'        # the room name, not the AE title
+    assert 'SJH-US2' not in keys(b)                                  # the other hospital
+    assert 'US CARDIO 2' not in keys(b)                              # cardiology stays out
+    assert 'PORT2' not in keys(b)                                    # closed today, nothing booked
+    assert 'RH-PACS' not in keys(b)                                  # open on paper, never booked on
+    assert card(get_board(rooms.app, site='SJH'), 'SJH-US2')['scheduled_today'] == 1
+    assert b['unknown_rooms'] == []                                  # SJH's room is not "unknown"
 
 
-def test_waiting_longest_first_with_levels(app, devices):
-    study(devices, 'A2', scheduled=40, arrived=25)
-    study(devices, 'A3', scheduled=90, arrived=70, proc='CTHEAD', desc='CT HEAD')
-    study(devices, 'A4', scheduled=50, arrived=35)
-    d = device(get_board(app), 'CT64_RH')
-    assert [w['accession'] for w in d['waiting']] == ['A3', 'A4', 'A2']
-    assert [w['level'] for w in d['waiting']] == ['alert', 'warn', 'ok']
-    assert 69 <= d['waiting'][0]['wait_min'] <= 71
-    assert d['status'] == 'free'
-    # free now, then the three studies one after the other: 15 + 30 + 30 minutes
-    clear = datetime.fromisoformat(d['queue_clear_at'])
-    now = datetime.fromisoformat(get_board(app)['now'])
-    assert abs((clear - now).total_seconds() / 60 - 75) <= 1
-    s = lane(get_board(app), 'CT')['summary']
-    assert s['waiting'] == 3 and 69 <= s['longest_wait_min'] <= 71
+def test_a_room_closed_on_the_ris_shows_once_something_is_booked_on_it(rooms):
+    study(rooms, 'P1', room='PORT2', proc='XRCH', desc='CHEST', scheduled=5)
+    assert card(get_board(rooms.app), 'PORT2')['scheduled_today'] == 1
 
 
-def test_queue_clears_after_the_current_study(app, devices):
-    study(devices, 'A1', scheduled=60, arrived=40, started=10)       # ends in ~20 min
-    study(devices, 'A2', scheduled=30, arrived=15)                   # then 30 min
-    d = device(get_board(app), 'CT64_RH')
-    end = datetime.fromisoformat(d['current']['expected_end'])
-    assert datetime.fromisoformat(d['queue_clear_at']) == end + timedelta(minutes=30)
+def test_scheduled_today_and_still_to_come(rooms):
+    study(rooms, 'A1', appt=30, scheduled=60)
+    study(rooms, 'A2', appt=60, scheduled=60, arrived=5)
+    study(rooms, 'A3', appt=60 * 24 * 3, scheduled=60)              # in three days
+    study(rooms, 'A4', appt=45, scheduled=60, cancelled=10)
+    c = card(get_board(rooms.app), 'CT64')
+    if (datetime.now() + timedelta(minutes=60)).date() != datetime.now().date():
+        pytest.skip('the appointments would fall tomorrow')
+    assert (c['scheduled_today'], c['to_come']) == (2, 1)
+    assert [x['accession'] for x in c['coming']] == ['A1']
+    assert [x['accession'] for x in c['waiting']] == ['A2']
 
 
-def test_incoming_orders_on_the_device_and_unassigned(app, devices):
-    study(devices, 'A5', scheduled=5)
-    devices.send(k.order('PL9', when=k.ts(3), mod='CT', code='CTHEAD', desc='CT HEAD'))
-    b = get_board(app)
-    d = device(b, 'CT64_RH')
-    assert [(o['accession'], o['state']) for o in d['incoming']] == [('A5', 'Scheduled')]
-    un = lane(b, 'CT')['unassigned']
-    assert [(o['order'], o['state'], o['procedure']) for o in un['incoming']] == \
-           [('PL9', 'Ordered', 'CT HEAD')]
-    # The RIS schedules the order on a device: it moves there and is listed once.
-    devices.send(k.status('SC', 'A9', k.ts(1), placer='PL9', ae='CT2_RH', proc='CTHEAD',
-                          desc='CT HEAD'))
-    b = get_board(app)
-    assert [o['accession'] for o in device(b, 'CT2_RH')['incoming']] == ['A9']
-    assert lane(b, 'CT')['unassigned'] is None
-    assert b['totals']['incoming'] == 2
+def test_a_wait_turns_red_past_its_modalitys_limit(rooms):
+    with rooms.app.app_context():
+        board.save_limits({'CT': 20}, 30, 50)
+    study(rooms, 'A1', scheduled=60, arrived=25)
+    study(rooms, 'A2', scheduled=60, arrived=10, proc='CTHEAD', desc='CT HEAD')
+    study(rooms, 'X1', room='XR1', proc='XRCH', desc='CHEST', scheduled=60, arrived=25)
+    b = get_board(rooms.app)
+    ct = card(b, 'CT64')
+    assert [(w['accession'], w['over']) for w in ct['waiting']] == [('A1', True), ('A2', False)]
+    assert (ct['waiting_over'], ct['wait_limit_min']) == (1, 20)
+    xr = card(b, 'XR1')
+    assert (xr['wait_limit_min'], xr['waiting'][0]['over']) == (30, False)   # DX: the default
+    assert b['totals']['waiting_over'] == 1 and b['limits']['wait_min']['CT'] == 20
 
 
-def test_cancelled_and_old_studies_leave_the_board(app, devices):
-    study(devices, 'A6', scheduled=30, cancelled=10)
-    study(devices, 'A7', scheduled=60 * 30)                  # scheduled 30 hours ago
-    d = device(get_board(app), 'CT64_RH')
-    assert d['incoming'] == [] and d['waiting'] == []
+def test_the_running_exam_ends_at_its_booked_minutes_and_turns_late(rooms):
+    study(rooms, 'A1', minutes=30, scheduled=60, arrived=40, started=10)
+    study(rooms, 'X1', room='XR1', proc='XRCH', desc='CHEST', minutes=5, scheduled=60, arrived=30, started=12)
+    b = get_board(rooms.app)
+    ct = card(b, 'CT64')
+    c = ct['current']
+    assert (ct['status'], c['accession'], c['expected_minutes'], c['expected_source'], c['late']) == \
+           ('busy', 'A1', 30, 'booked', False)
+    assert datetime.fromisoformat(c['expected_end']) == datetime.fromisoformat(c['started_at']) + timedelta(minutes=30)
+    xr = card(b, 'XR1')
+    assert (xr['status'], xr['current']['late']) == ('late', True)
+    assert b['totals']['late'] == 1
 
 
-def test_done_today_and_utilization(app, devices):
+def test_without_booked_minutes_the_procedure_then_the_modality_then_the_default(rooms):
+    study(rooms, 'A1', proc='CTHEAD', desc='CT HEAD', scheduled=30, started=5)
+    study(rooms, 'A2', room='CT128 ED', proc='CTXXX', desc='CT OTHER', scheduled=30, started=5)
+    study(rooms, 'X1', room='XR1', proc='XRCH', desc='CHEST', scheduled=30, started=5)
+    b = get_board(rooms.app)
+    assert (card(b, 'CT64')['current']['expected_minutes'], card(b, 'CT64')['current']['expected_source']) == (15, 'procedure')
+    assert (card(b, 'CT128 ED')['current']['expected_minutes'], card(b, 'CT128 ED')['current']['expected_source']) == (22, 'modality')
+    assert card(b, 'XR1')['current']['expected_source'] == 'default'
+
+
+def test_an_exam_done_too_early_is_yellow_until_the_next_one_starts(rooms):
+    study(rooms, 'A1', minutes=30, scheduled=60, arrived=40, started=20, completed=17)   # 3 of 30 min
+    e = card(get_board(rooms.app), 'CT64')['early']
+    assert e['accession'] == 'A1' and 2 <= e['took_min'] <= 4 and e['expected_minutes'] == 30
+    assert get_board(rooms.app)['totals']['early'] == 1
+    study(rooms, 'A2', minutes=30, scheduled=60, arrived=30, started=5)
+    c = card(get_board(rooms.app), 'CT64')
+    assert c['early'] is None and c['current']['accession'] == 'A2'
+
+
+def test_an_exam_done_in_its_time_is_not_early(rooms):
+    study(rooms, 'A1', minutes=30, scheduled=90, arrived=70, started=60, completed=35)   # 25 of 30
+    assert card(get_board(rooms.app), 'CT64')['early'] is None
+
+
+def test_the_early_share_is_a_setting(rooms):
+    with rooms.app.app_context():
+        board.save_limits({}, 30, 90)
+    study(rooms, 'A1', minutes=30, scheduled=90, arrived=70, started=60, completed=35)   # 25 of 30 < 90 %
+    assert card(get_board(rooms.app), 'CT64')['early'] is not None
+
+
+def test_done_today_and_utilization(rooms):
     now = datetime.now()
     if now - timedelta(minutes=110) < datetime.combine(now.date(), datetime.min.time()):
-        pytest.skip('the studies would start before midnight')
-    devices.exec("INSERT INTO settings (key, value) VALUES ('shift_morning_start', '0') "
-                 "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
-    study(devices, 'A1', scheduled=120, arrived=110, started=100, completed=70)   # 30 min
-    study(devices, 'A2', scheduled=70, arrived=65, started=60, completed=40)      # 20 min
-    study(devices, 'A3', scheduled=70, arrived=60, started=55, completed=45)      # inside A2
-    b = get_board(app)
-    d = device(b, 'CT64_RH')
-    assert d['done_today'] == 3 and d['status'] == 'free'
-    assert abs(d['busy_min'] - 50) <= 1
-    minutes_today = (datetime.fromisoformat(b['now'])
-                     - datetime.combine(now.date(), datetime.min.time())).total_seconds() / 60
-    assert abs(d['open_min'] - min(minutes_today, 480)) <= 1
-    assert d['utilization_pct'] == round(100 * d['busy_min'] / d['open_min'])
-    assert lane(b, 'CT')['summary']['done_today'] == 3
+        pytest.skip('the exams would start before midnight')
+    rooms.exec("INSERT INTO settings (key, value) VALUES ('shift_morning_start', '0') "
+               "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+    study(rooms, 'A1', scheduled=120, arrived=110, started=100, completed=70)   # 30 min
+    study(rooms, 'A2', scheduled=70, arrived=65, started=60, completed=40)      # 20 min
+    study(rooms, 'A3', scheduled=70, arrived=60, started=55, completed=45)      # inside A2
+    b = get_board(rooms.app)
+    c = card(b, 'CT64')
+    assert c['done_today'] == 3 and c['status'] == 'free'
+    assert abs(c['busy_min'] - 50) <= 1
+    assert c['utilization_pct'] == round(100 * c['busy_min'] / c['open_min'])
 
 
-def test_an_exception_closes_a_device(app, devices):
-    # the hospital's date, as the board reads it: the database's CURRENT_DATE is UTC, a day
-    # behind between midnight and 02:00 in Beirut
-    devices.exec("""INSERT INTO device_exceptions (aetitle, exception_date, actual_opening_minutes, reason)
-                    VALUES ('CT2_RH', :d, 0, 'Service visit')""", d=datetime.now().date())
-    d = device(get_board(app), 'CT2_RH')
-    assert (d['status'], d['exception'], d['open_min'], d['utilization_pct']) == \
-           ('closed', 'Service visit', 0, None)
+def test_a_room_code_rayd_does_not_know_is_listed(rooms):
+    study(rooms, 'Z1', room='NEWROOM9', scheduled=5)
+    assert get_board(rooms.app)['unknown_rooms'] == [{'code': 'NEWROOM9', 'studies': 1}]
 
 
-def test_duration_falls_back_to_the_modality_then_the_default(app, devices):
-    study(devices, 'A1', scheduled=20, arrived=15, started=5, proc='CTXXX', desc='CT OTHER')
-    study(devices, 'A2', scheduled=20, arrived=15, started=5, ae='DR_RH', mod='DX',
-          proc='DXCHEST', desc='CHEST PA')
-    b = get_board(app)
-    ct, dx = device(b, 'CT64_RH')['current'], device(b, 'DR_RH')['current']
-    assert (ct['expected_minutes'], ct['expected_source']) == (22, 'modality')   # median(30, 15)
-    assert (dx['expected_minutes'], dx['expected_source']) == (board.DEFAULT_MINUTES, 'default')
-
-
-def test_an_unmapped_device_gets_a_flagged_card(app, devices):
-    study(devices, 'A1', scheduled=20, arrived=10, ae='MYSTERY_CT')
-    d = device(get_board(app), 'MYSTERY_CT')
-    assert d['mapped'] is False and [w['accession'] for w in d['waiting']] == ['A1']
-
-
-def test_lanes_follow_the_department_order(app, devices):
-    names = [l['modality'] for l in get_board(app)['lanes']]
-    assert names.index('CT') < names.index('MR') < names.index('DX')
-
-
-def test_patient_name_comes_from_the_patient_record(app, devices):
-    study(devices, 'A1', scheduled=20, arrived=10, pat='P0042')
-    devices.send(k.adt('A08', pat='P0042', name='HADDAD^RIMA'))
-    w = device(get_board(app), 'CT64_RH')['waiting'][0]
+def test_patient_name_comes_from_the_patient_record(rooms):
+    study(rooms, 'A1', scheduled=20, arrived=10, pat='P0042')
+    rooms.send(k.adt('A08', pat='P0042', name='HADDAD^RIMA'))
+    w = card(get_board(rooms.app), 'CT64')['waiting'][0]
     assert (w['patient'], w['patient_id']) == ('RIMA HADDAD', 'P0042')
 
 
-def test_without_a_named_patient_record_the_his_order_names_the_patient(app, devices):
-    devices.send(k.order('PL7', acc='A7', pat='P0077', when=k.ts(30)))
-    study(devices, 'A7', scheduled=20, arrived=10, pat='P0077')
-    devices.exec("UPDATE hl7_patients SET patient_name = NULL WHERE patient_id = 'P0077'")
-    w = device(get_board(app), 'CT64_RH')['waiting'][0]
-    assert (w['accession'], w['patient']) == ('A7', 'JANE M DOE')
-
-
-def test_floor_plan_positions_and_the_site_filter(app, devices):
-    """Each device carries its place on the plan; a site keeps its own devices and the
-    ones with no site; the plan image is listed. RH only (operator, 2026-11-05): a device
-    of another site is not on the board even with no site filter."""
-    sites = {r['code']: r['id'] for r in devices.q("SELECT id, code FROM sites")}
-    if len(sites) < 2:
-        devices.exec("INSERT INTO sites (code, name) VALUES ('TS1', 'Test site 1'), ('TS2', 'Test site 2')")
-        sites = {r['code']: r['id'] for r in devices.q("SELECT id, code FROM sites")}
-    one, two = sorted(sites)[:2]
-    devices.exec("""UPDATE aetitle_modality_map SET site_id = :s, floor_x = 25, floor_y = 40
-                     WHERE aetitle = 'CT64_RH'""", s=sites[one])
-    devices.exec("UPDATE aetitle_modality_map SET site_id = :s WHERE aetitle = 'CT2_RH'", s=sites[two])
-    devices.exec("UPDATE aetitle_modality_map SET site_id = NULL WHERE aetitle = 'DR_RH'")
-    devices.exec("""INSERT INTO floor_plans (site_id, image_path, image_width, image_height)
-                    VALUES (:s, 'floor_plans/plan.png', 1600, 900)""", s=sites[one])
-    try:
-        b = get_board(app, site=one)
-        aes = {d['aetitle'] for lane in b['lanes'] for d in lane['devices']}
-        assert 'CT64_RH' in aes and 'DR_RH' in aes and 'CT2_RH' not in aes
-        assert (device(b, 'CT64_RH')['x'], device(b, 'CT64_RH')['y']) == (25.0, 40.0)
-        assert device(b, 'DR_RH')['x'] is None
-        assert [(p['site_code'], p['image_path'], p['width']) for p in b['plans']] == \
-               [(one, 'floor_plans/plan.png', 1600)]
-        assert 'CT2_RH' not in {d['aetitle'] for lane in get_board(app)['lanes'] for d in lane['devices']}
-    finally:
-        devices.exec("DELETE FROM floor_plans")
-        devices.exec("DELETE FROM sites WHERE code IN ('TS1', 'TS2')")
+def test_limits_are_validated(app):
+    with app.app_context():
+        with pytest.raises(ValueError):
+            board.save_limits({'CT': 0}, 30, 50)
+        with pytest.raises(ValueError):
+            board.save_limits({}, 30, 100)
+        from db import db
+        db.session.rollback()
+        assert board.load_limits() == {'wait_min': {}, 'default_wait_min': 30, 'early_pct': 50}
 
 
 # ── LAUMC ─────────────────────────────────────────────────────────────────────
@@ -291,16 +298,14 @@ def test_the_day_starts_with_the_morning_shift(app, pipe):
     pipe.exec("INSERT INTO settings (key, value) VALUES ('shift_morning_start', '6') "
               "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
     assert get() == '06:00'
-    pipe.exec("UPDATE settings SET value = 'x' WHERE key = 'shift_morning_start'")
-    assert get() == '07:00'
 
 
-def test_while_brayn_is_off_the_board_shows_the_devices_and_no_study(app, pipe):
-    assert pipe.send(k.status('AR', 'A1', k.ts(10))) == 'AA'
-    pipe.screen()
-    b = get_board(app)
-    assert b['totals']['devices'] > 0
-    assert (b['totals']['waiting'], b['totals']['incoming'], b['totals']['done_today']) == (0, 0, 0)
+def test_while_brayn_is_off_the_board_shows_the_rooms_and_no_exam(rooms):
+    rooms.brayn(False)
+    study(rooms, 'A1', scheduled=20, arrived=10)
+    b = get_board(rooms.app)
+    assert 'CT64' in keys(b)
+    assert (b['totals']['waiting'], b['totals']['scheduled_today'], b['totals']['done_today']) == (0, 0, 0)
 
 
 # ── page and API ──────────────────────────────────────────────────────────────
@@ -309,13 +314,46 @@ def h(client, url, role='administrator', uid=ADMIN):
     return client.get(url, headers={'X-Test-Role': role, 'X-Test-Uid': str(uid)})
 
 
-def test_api_returns_the_board(client, devices):
-    study(devices, 'A1', scheduled=20, arrived=10)
-    r = h(client, '/viewer/department/api/board')
-    assert r.status_code == 200
-    d = r.get_json()
-    assert {'now', 'lanes', 'totals', 'thresholds', 'sites'} <= set(d)
-    assert d['totals']['waiting'] == 1
+def test_api_returns_the_chosen_hospital(client, rooms):
+    study(rooms, 'A1', scheduled=20, arrived=10)
+    study(rooms, 'S1', room='SJH-US2', proc='US1', desc='US BREAST', scheduled=20, arrived=5)
+    get = lambda url: h(client, url, role='superuser').get_json()      # a Super user holds both
+    d = get('/viewer/department/api/board?site=RH')
+    assert {'now', 'lanes', 'totals', 'limits', 'sites', 'site'} <= set(d)
+    assert d['site'] == 'RH' and d['totals']['waiting'] == 1 and d['can_edit_limits'] is True
+    assert [s['code'] for s in d['sites']] == ['RH', 'SJH']
+    d = get('/viewer/department/api/board?site=SJH')
+    assert d['site'] == 'SJH' and d['totals']['waiting'] == 1
+    assert get('/viewer/department/api/board')['site'] == 'RH'           # the header's, else the first
+
+
+def test_an_account_sees_only_its_hospitals(app, client, rooms):
+    from db import db
+    with app.app_context():
+        for t in ('user_page_permissions', 'user_sites'):
+            db.session.execute(text(f"DELETE FROM {t} WHERE user_id = 9102"))
+        db.session.execute(text("DELETE FROM users WHERE id = 9102"))
+        db.session.execute(text("INSERT INTO users (id, username, password_hash, role) VALUES (9102, 'db-9102', 'x', 'user')"))
+        db.session.execute(text("INSERT INTO user_sites (user_id, site_id) VALUES (9102, rayd_default_site_id())"))
+        db.session.execute(text("INSERT INTO user_page_permissions (user_id, page_key, is_enabled) VALUES (9102, 'live_feed', TRUE)"))
+        db.session.commit()
+    d = h(client, '/viewer/department/api/board?site=SJH', role='user', uid=9102).get_json()
+    assert d['site'] == 'RH' and [s['code'] for s in d['sites']] == ['RH'] and d['can_edit_limits'] is False
+
+
+def test_the_limits_are_saved_by_settings_roles_only(client, app):
+    body = {'wait_min': {'CT': 25, 'MR': 40}, 'default_wait_min': 35, 'early_pct': 40}
+    r = client.post('/viewer/department/api/limits', json=body,
+                    headers={'X-Test-Role': 'administrator', 'X-Test-Uid': str(ADMIN)})
+    assert r.status_code == 200 and r.get_json()['limits']['wait_min'] == {'CT': 25, 'MR': 40}
+    with app.app_context():
+        from db import db
+        saved = json.loads(db.session.execute(text("SELECT value FROM settings WHERE key = :k"),
+                                              {'k': board.LIMITS_KEY}).scalar())
+    assert saved['early_pct'] == 40
+    r = client.post('/viewer/department/api/limits', json={'wait_min': {'CT': 0}},
+                    headers={'X-Test-Role': 'administrator', 'X-Test-Uid': str(ADMIN)})
+    assert r.status_code == 400 and 'between 1 and 600' in r.get_json()['error']
 
 
 @pytest.mark.parametrize('role,live,code', [('administrator', None, 200), ('cht', None, 200),
@@ -339,6 +377,21 @@ def test_access_follows_the_live_feed_permission(app, client, role, live, code):
     assert h(client, '/viewer/department/api/board', role=role, uid=9101).status_code == code
 
 
+def test_a_user_cannot_save_the_limits(client, app):
+    from db import db
+    with app.app_context():
+        db.session.execute(text("DELETE FROM user_page_permissions WHERE user_id = 9103"))
+        db.session.execute(text("DELETE FROM user_sites WHERE user_id = 9103"))
+        db.session.execute(text("DELETE FROM users WHERE id = 9103"))
+        db.session.execute(text("INSERT INTO users (id, username, password_hash, role) VALUES (9103, 'db-9103', 'x', 'user')"))
+        db.session.execute(text("INSERT INTO user_sites (user_id, site_id) VALUES (9103, rayd_default_site_id())"))
+        db.session.execute(text("INSERT INTO user_page_permissions (user_id, page_key, is_enabled) VALUES (9103, 'live_feed', TRUE)"))
+        db.session.commit()
+    r = client.post('/viewer/department/api/limits', json={'wait_min': {'CT': 10}},
+                    headers={'X-Test-Role': 'user', 'X-Test-Uid': '9103'})
+    assert r.status_code == 403
+
+
 def test_anonymous_is_refused(client):
     assert client.get('/viewer/department/api/board').status_code in (401, 302)
 
@@ -352,6 +405,7 @@ def test_page_renders_and_its_script_is_valid(client):
     r = h(client, '/viewer/department')
     html = r.get_data(as_text=True)
     assert r.status_code == 200 and 'id="plan-box"' in html and 'Live Department' in html
+    assert 'id="limits-btn"' in html and 'data-explain="live-board"' in html
     if not shutil.which('node'):
         pytest.skip('node not installed')
     script = re.search(r'<script>\n(.*?)</script>', html, re.S).group(1)

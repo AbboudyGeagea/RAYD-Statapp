@@ -63,16 +63,28 @@ had a catalogue row, licence entry or grant).
   Super user / CHT / Administrator); (c) the exam running and its expected end (start + the RIS
   procedure duration), orange when late, yellow when marked done in under half its duration
   (percentage editable; yellow until the room's next exam starts); (d) utilization as it is.
-- **Open: where the appointment time sits in the RIS SC message** (BRAYN keeps when the SC arrived,
-  not the appointment): the operator runs the sample query in the 19 Nov reply.
+- **Found 19 Nov (operator's sample of every RIS ORC-5):** the RIS sends the room code in ORC-16
+  (= aetitle_modality_map.room_code of a RIS room: XR1, MRI 1.5T, SJH-MAMO, SJH-US2), the
+  appointment in OBR-36, the booked minutes in OBR-27, the hospital in PV1-10 (1000 / 2000), the
+  modality in OBR-18 and the accession only on CM (OBR-20); ORC-3 = the RIS's 1003... number,
+  BRAYN's key. BRAYN's device (OBR-21) was empty on every study and its "room" (PV1-3.2) is the
+  patient's ward bed (R219-J, RICU7D), so the old board could place nothing.
+- **Built 19 Nov (migration 0173):** three field mappings for sender RIS (editable in BRAYN's
+  mapping studio) onto `brayn_study_state.ris_room / appointment_at / booked_minutes`, stored by
+  the shadow after each message (latest wins), filled for the studies archived since 18 Nov; the
+  board reworked as above, always on the main database. An open room shows only if the RIS booked
+  something on it in the last 30 days (keeps "RH-PACS" upload and "USDemoPhilips" off). After the
+  deploy: open the board on RH and SJH; `sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT ris_room, COUNT(*) AS studies, COUNT(*) FILTER (WHERE appointment_at::date = CURRENT_DATE) AS today FROM brayn_study_state WHERE ris_room IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 20;"`.
+- Noted for the BRAYN enhancements (item 17): the RIS's modality is in OBR-18, which BRAYN does not
+  read (it looks at OBR-24, -19, -17).
 
 **Waiting on the operator (decisions):** item 9 switch (after the manager); item 13 PHILIPSCARM =
 RIS "PHILIPS" (C-Arm 2)? (ask SJH), the 13d BRAYN routing walkthrough, SJH's mail relay details;
 item 17 the BRAYN enhancements list; item 21 a look at Report 40 for October; item 33 reload Report
-27's RIS tab (blue bars no longer 0); item 37 CRN workflow with the department; item 38 the RIS SC
-sample.
+27's RIS tab (blue bars no longer 0); item 37 CRN workflow with the department; item 38 a look at
+the board on each hospital after the deploy.
 
-**Next builds:** item 38 (Live board); item 13d (BRAYN routing by site, after the walkthrough); then
+**Next builds:** item 13d (BRAYN routing by site, after the walkthrough); then
 the SJH move before Tue 24 (runbook in item 13, "Production runbook (Sat 28)"); item 17 BRAYN
 enhancements once listed.
 Item 1, booked room: **built 19 Nov evening (migration 0172), deploy waiting.** The RIS check

@@ -192,6 +192,37 @@ _PENDING_SQL = """
 """
 
 
+_ROOM_BOOKING_SQL = text("""
+    UPDATE brayn_study_state
+       SET ris_room       = COALESCE(:room, ris_room),
+           appointment_at = COALESCE(:appt, appointment_at),
+           booked_minutes = COALESCE(:mins, booked_minutes)
+     WHERE accession_number = :acc
+""")
+
+
+def _store_room_booking(msg):
+    """The RIS room, appointment and booked minutes onto the study (item 38, migration 0173),
+    the latest message's winning: a rebooking moves the room and the time. BRAYN's own table;
+    fail-open like every step here."""
+    room = (msg.ris_room or '').strip() or None
+    mins = msg.booked_minutes
+    try:
+        mins = int(round(float(mins))) if mins is not None else None
+    except (TypeError, ValueError):
+        mins = None
+    if mins is not None and not 0 < mins <= 600:
+        mins = None
+    if not msg.accession_number or not (room or msg.appointment_at or mins):
+        return
+    try:
+        with db.session.begin_nested():
+            db.session.execute(_ROOM_BOOKING_SQL, {'acc': msg.accession_number, 'room': room,
+                                                   'appt': msg.appointment_at, 'mins': mins})
+    except Exception:
+        logger.exception("BRAYN shadow: room/appointment not stored | acc=%s", msg.accession_number)
+
+
 def screen_one(archive_id, live=True):
     """
     Screen one archived message and write BRAYN's own tables, in one transaction.
@@ -229,6 +260,7 @@ def screen_one(archive_id, live=True):
         brayn.persist(verdict, msg, archive_id)
         if verdict.may_project:
             persist_parsed(msg, archive_id)           # events, study state, patients
+            _store_room_booking(msg)                  # RIS room, appointment (0173)
             evaluate_study(msg.accession_number)      # quality notes on the study
             mark_parsed(archive_id, projected=False)  # LAUMC's reports come from Oracle
         else:
