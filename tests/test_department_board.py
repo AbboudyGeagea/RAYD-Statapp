@@ -127,6 +127,28 @@ def test_brayn_stores_the_ris_room_appointment_and_booked_minutes(rooms):
     assert (row['ris_room'], row['booked_minutes']) == ('CT64', 30)
 
 
+def test_brayn_reads_the_ris_modality_from_obr_18(rooms):
+    """Migration 0174: LAUMC's RIS sends the modality in OBR-18, where the parser never looked."""
+    rooms.send(k.status('SC', 'M18', k.ts(5), ae=None, mod=None, room='XR1', obr18='rf'))
+    assert rooms.scalar("SELECT modality FROM brayn_study_state WHERE accession_number = 'M18'") == 'RF'
+    rooms.send(k.status('SC', 'M24', k.ts(5), ae=None, mod='CT', room='CT64', obr18='RF'))   # OBR-24 first
+    assert rooms.scalar("SELECT modality FROM brayn_study_state WHERE accession_number = 'M24'") == 'CT'
+
+
+def test_migration_0174_fills_the_modality_of_studies_already_stored(rooms):
+    rooms.exec("""INSERT INTO brayn_study_state (accession_number, current_rank, event_count, is_closed, first_seen_at, updated_at)
+                  VALUES ('1003000000009', 40, 1, FALSE, now(), now())""")
+    raw = ('MSH|^~\\&|RIS||RAYD||20261119155000||ORM^O01|M9|P|2.3\r'
+           'ORC|SC|0019400009|1003000000009||A|||||||||||XR1\r'
+           'OBR|04587294|0019400009|1003000000009|C11-03^XR: SPINE|R|||||||||||x^Y^Z||RF|||||||||10|||||||||20261119161500\r')
+    rooms.exec("""INSERT INTO hl7_message_archive (message_control_id, sending_app, raw_message, content_hash)
+                  VALUES ('M9', 'RIS', :raw, 'h9')""", raw=raw)
+    sql = open(os.path.join(os.path.dirname(__file__), '..', 'migrations', '0174_brayn_ris_modality.sql'),
+               encoding='utf-8').read()
+    rooms.exec(sql.split('-- The RIS studies already in BRAYN', 1)[1].split('\n', 1)[1])
+    assert rooms.scalar("SELECT modality FROM brayn_study_state WHERE accession_number = '1003000000009'") == 'RF'
+
+
 def test_the_migration_fills_the_studies_already_open_from_the_archive(rooms):
     rooms.exec("""INSERT INTO brayn_study_state (accession_number, current_rank, event_count, is_closed, first_seen_at, updated_at)
                   VALUES ('1003000000001', 40, 1, FALSE, now(), now())""")
