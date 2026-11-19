@@ -7,7 +7,56 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 
 ---
 
-## Where we stopped (2026-11-18, about 01:00) — START HERE in a new session
+## Where we stopped (2026-11-19, evening) — START HERE in a new session
+
+**Production.** Deployed 19 Nov morning (Report AI, `update_offline`): everything up to the Report AI
+commits, so items 1 (first tab), 21 (Report 40), the BRAYN console fix and the gateway-cardiology
+fix are live. **Waiting for the next `cd /opt/rayd && sudo bash update.sh LAUMC`** (check:
+`SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 2;` shows 0170 when done):
+- migration **0170**: BRAYN classifies the live feeds' codes (RIS SC/A = arrived, HIS RQ/* =
+  ordered, CA/* = cancelled, PACS FAP/AAP = final; '*' = any status in `brayn.resolve_status`);
+- Report 27 **HIS vs RIS** tab: billed orders only (ORC-1 NW), hospital from the HIS message
+  (PV1-3.7: 1000 RH, 2000 SJH), runs only on Run Analysis, **Room** breakdown (one room per order,
+  Excel per room);
+- the NLP re-score fix and Report 29 speed-up (item 36, other session).
+After the deploy: **BRAYN console → Re-check** (814 held messages from the first day).
+
+**Morning checklist, 20 Nov (after the 05:00 ETL):**
+1. Item 1, the first full day: RIS MRI exams of 19 Nov (rebuilt from RAYD's RIS copy exactly as the
+   RIS app's list; 18 Nov gave 34 / 17 / 17 / 17) against billed HIS orders. Expect "no HIS message"
+   close to 0, then item 1 is closed:
+   ```bash
+   sudo docker exec rayd_db psql -U etl_user -d etl_db -c "WITH ris AS (SELECT DISTINCT o.order_dbid, o.placer_order_number FROM std_pps p JOIN std_worklist_exam_done w ON w.pps_key = p.pps_key JOIN etl_orders o ON o.order_dbid = w.site_worklist_key WHERE p.start_datetime >= '2026-11-19' AND p.start_datetime < '2026-11-20' AND p.modality_key IN (26571, 26565)), his AS (SELECT placer_order_number, MIN(COALESCE(message_datetime, received_at)) AS first_at, BOOL_OR(substring(raw_message from 'ORC\|([^|]*)') = 'NW') AS billed FROM hl7_orders GROUP BY 1) SELECT COUNT(*) AS ris_mri_exams_19nov, COUNT(*) FILTER (WHERE h.billed) AS with_billed_his_order, COUNT(*) FILTER (WHERE h.billed AND h.first_at::date = '2026-11-19') AS billed_the_same_day, COUNT(*) FILTER (WHERE h.placer_order_number IS NULL) AS no_his_message FROM ris r LEFT JOIN his h ON h.placer_order_number = r.placer_order_number;"
+   ```
+2. Item 17, a day after 0170 and the Re-check: what BRAYN still holds or flags; if nothing
+   unexpected, switch on STALLED_SCHEDULED / ARRIVED / STARTED, SKIPPED_RUNG, ORPHAN_EVENT (BRAYN
+   console → settings, or a migration); ORPHAN_ORDER after a look (BRAYN links HIS orders to RIS
+   events by HIS number: 344 of 489 studies on day 1):
+   ```bash
+   sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT sending_app, brayn_status, COUNT(*) AS messages FROM hl7_message_archive WHERE received_at >= now() - interval '24 hours' GROUP BY 1, 2 ORDER BY 1, 2;" -c "SELECT sending_app, rule_code, COUNT(*) AS findings, COUNT(*) FILTER (WHERE resolved_at IS NULL) AS still_open FROM brayn_findings WHERE created_at >= now() - interval '24 hours' GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 20;" -c "SELECT kind, sending_app, value, n, last_seen FROM brayn_unknown_values ORDER BY last_seen DESC LIMIT 15;" -c "SELECT COUNT(*) AS studies, COUNT(scheduled_at) AS scheduled, COUNT(arrived_at) AS arrived, COUNT(started_at) AS started, COUNT(completed_at) AS completed FROM brayn_study_state WHERE first_seen_at >= now() - interval '24 hours';"
+   ```
+
+**Waiting on the operator (decisions):** item 9 switch ("Show them as Former staff" on Report 39:
+nobody is left by PACS alone, checked 19 Nov); item 4 ARTIS121403 → INTERAET (by name) or TERRA (by
+its bookings), LEO22529 left unlinked?; item 13 PHILIPSCARM = RIS "PHILIPS" (C-Arm 2)?, the 13d
+BRAYN routing walkthrough, the move date (planned Sat 28) and SJH's mail relay details; item 21 a
+look at Report 40 for October; item 33 reload Report 27's RIS tab (blue bars no longer 0); item 35
+(other session): is Mon 23 Nov a holiday, storage capacity 70,000 GB. The operator's RIS worklist
+export `MRI Page 1.xls` (in the project folder, untracked) holds patient names: delete it.
+
+**Next builds:** item 13d (BRAYN routing by site, after the walkthrough); then the SJH move
+(runbook in item 13, "Production runbook (Sat 28)"); item 17 switch-on; low priority: the BRAYN
+revamp (mappings found rigid/wrong: ask which) and the Live Department board (ask for the list).
+Optional for item 1: the RIS's booked room for orders not performed yet (SPS.MODALITY_KEY, an
+Oracle check first).
+
+**Standing rules from this session:** every new report, chart, table and KPI tile gets an (i)
+next to its name (`static/js/chart-explanations.js`, end-user words); server SQL as a ready
+`sudo docker exec rayd_db psql ...` line; patient names never leave the hl7_* tables.
+
+---
+
+## 18–19 Nov work in detail (kept for reference; the current state is the section above)
 
 **Production state.** Deployed 2026-11-17 night: migrations 0157–0162, then a manual ETL
 (23:58–00:23, no failures). Migration **0163** (RIS order site) was being applied when the
@@ -188,19 +237,13 @@ optional now); Tanios Jalkh and Jessica Saad's PACS account (item 9, with the ma
 chief radiologist on item 30 (amendments), item 5 (ORU severity) and the `@sj` logins; Mirth
 forwarding the ORMs (item 1); CRN go-live steps (item 20).
 
-**Pending table as of 18 Nov, 01:00:**
+**Pending table (detailed), 19 Nov evening:**
 
 | # | Item | Where we are | Waits on | When |
 |---|------|--------------|----------|------|
-| 33 | Report 27 RIS-vs-PACS card at 0 | fixed (0163: RIS orders and reports get their site from the issuer); 0163 applied 18 Nov | reload Report 27 | 18 Nov |
-| 34 | update.sh and the app migrating at once | fixed (update.sh takes the app's migration lock) | the next deploy | next deploy |
-| 2 | First open | **done 18 Nov**: spot-check 6 of 6 October ER studies equal to the second (time and login) against `AUDITING.AUDIT_LOG`; the HIS viewer account (`his_vue_motion@ad`), which opens most studies minutes after arrival, is rightly not counted; October 1,429 cases, all with a first open; email wording fix deployed | — | done |
-| 32 | HIS duplicate orders | **done 19 Nov**: live (0162); the stale copies never share the HIS number with a done twin (0 of 2,051 RH, 0 of 1,405 SJH in October, every one has a number): the two copies carry different HIS numbers. Why the HIS makes two can be followed in the HIS feed later | — | done |
 | 9 | Staff who left | deployed (0157, 0158), switch off; **19 Nov: nobody left by PACS alone** (0 rows), only people inactive on the RIS | operator: press "Show them as Former staff" on Report 39 (RH; SJH's after the move); Tanios Jalkh; Jessica Saad's PACS account | 19 Nov |
-| 31 | Cardiology out | **done**: 3,948 purged; the 232 SJH XA left are imports (XVIMPORT 231) and 1 with no AE | — | done 18 Nov |
-| 14A/B | Signature turnaround | **done**: 14A 6 of 6 signatures equal to the second (18 Nov); 14B's first open = item 2's; station clocks all within ±1 minute of each other (19 Nov, 15 busiest logins) | — | done 19 Nov |
 | 4 | RIS room names | done (0161, 6 links live). 19 Nov, 90 days: ARTIS121403 = 18 exams booked on TERRA (GE Innova), 2 on INTERAET (Siemens Artis Q), 11 none; LEO22529 = 25 TERRA, 7 INTERAET, 12 none (likely a Siemens Leonardo workstation serving both rooms) | operator: link ARTIS121403 to INTERAET (by its name) or TERRA (by its bookings); LEO22529 left unlinked? | 19 Nov |
-| 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | **0164, 0165, 0166 deployed and checked 18 Nov** (cath lab: 0 steps, 0 device rows); BRAYN console main-only and TERRA2 behind the gateway out: built, deploy; PHILIPSCARM = C-Arm 2?; 13d (BRAYN routing, operator walkthrough); move Sat 28 | move 28–29 |
+| 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | **0164, 0165, 0166 deployed and checked 18 Nov** (cath lab: 0 steps, 0 device rows); BRAYN console main-only and TERRA2/SVSM behind the gateway out: deployed 19 Nov (0 left); PHILIPSCARM = C-Arm 2?; 13d (BRAYN routing, operator walkthrough); move Sat 28 | move 28–29 |
 | 21 | Patient schedule lead time | **Report 40 deployed 18 Nov** (0167); October: 6,316 exams, every one with a booking time (earliest 13 Aug) | operator: October's median and same-day share look right? | 18–19 Nov |
 | 1 | HIS vs RIS orders | **Report 27 tab deployed 19 Nov**. 18 Nov's HIS orders: 243 RH, 165 SJH on the RIS; the 14 not on the RIS were all cancelled on the HIS. **The HIS names the hospital: PV1-3.7 = 1000 RH, 2000 SJH**; SJH locations end in -J. Built 19 Nov: an order not on the RIS takes that hospital. **Only billed orders count (operator, 19 Nov): an order the HIS sent as new (ORC-1 NW)**; one seen only as changes (RQ) is counted aside, a billed one cancelled later still counts. (No billing segment in the messages; the only "R" is ORC-7.6, the HL7 priority, not used). **Also 19 Nov:** runs only on Run Analysis (tab links fill the dates, d_start/d_end); a **Room** breakdown, the default view: HIS procedure code -> RIS catalogue (procedure_duration_map) -> MODALITY_SCHEDULE (ris_modality_schedule_stage) -> the RIS device's room, the order's hospital only. Production: the lookup knows 703 of 728 codes but 673 are bookable in several rooms, so (operator) **an order performed on the RIS takes the room the RIS used** (rpt.exams.room), only one not performed yet takes the lookup. **MRI check against the RIS app (18 Nov, operator's worklist export, 2 MRI rooms, performed that day, 34 exams):** 17 common; the RIS's 17 more were all ordered 07:07–11:25, before the HIS feed began (11:32); RAYD's 22 more were 19 RQ-only future bookings, 1 requested and 2 cancelled (none billed: the NW filter removes them) and 1 billed evening order still scheduled. The HIS sends NW on the exam/billing day, future bookings come as RQ: billed orders on a day line up with the RIS's exams that day. No bug. RAYD's own RIS copy rebuilds that list exactly (std_pps on the 2 MRI rooms, performed 18 Nov -> exam done -> order): 34 exams, 17 with a billed HIS order the same day, 17 with no HIS message **Rooms one by one (operator, 19 Nov):** one room per order: performed = the room the RIS used; not performed yet = the room the hospital performed that procedure in most over 90 days (std_pps), else its only bookable room, else "Room not decided"; each room row downloads its own Excel. (The RIS's booked room for open orders, SPS.MODALITY_KEY, is not copied yet: an Oracle check first if wanted) | deploy; 20 Nov after 05:00: the same check for 19 Nov, the first full day (command in the 19 Nov reply) | 20 Nov |
 | 17 | R2I and BRAYN switch-on checks | RIS feed live 18 Nov. **First day (19 Nov):** BRAYN held 225 RIS (SC/A unknown: no study ever "arrived") and 589 HIS messages (RQ / CA with SAP codes ^E000x), PACS FAP/AAP unknown; it links HIS orders to RIS events by HIS number (344 of 489 studies). **Built 19 Nov (migration 0170):** RIS SC/A = arrived, HIS RQ/* = ordered, CA/* = cancelled (wildcard status in `brayn.resolve_status`), FAP/AAP = final | deploy; BRAYN console Re-check; then switch on STALLED_*, SKIPPED_RUNG, ORPHAN_EVENT (ORPHAN_ORDER after a look) | 19–20 Nov |
@@ -215,8 +258,9 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 | 35 | Report AI forecasting revamp (operator 18 Nov: a straight line can't follow weekday/weekend, Ramadan, Christmas) | **steps 1–4 done, step 5 on the laptop 18 Nov.** Built: migration 0169 (`ai_calendar` seeded 2019–2028 and corrected from the data, `ai_forecast`, `ai_forecast_run`, `ai_forecast_check`), `utils/forecasting.py` (Prophet + sequential correction, fallback, referrer share test), nightly job 06:30 per site + first training 3 min after start, Report AI reads the stored forecasts (range band, holidays, calendar editor, Retrain), `prophet==1.5.0`, Dockerfile pip retries; 28 new tests, full suite 1,329 passed. Trial on the production export: daily error 10.5 % (days 2–14), 11.5 % (31–90), holidays 25.7 %, straight line 62–75 % on the same replays; LSTM tested too: next day 13.7 % but 18.5 % at 31–90 days, not used. Trial page: claude.ai/artifact/DyMeshmJxSnPouuTeJcAFP. **Deployed 19 Nov** with `scripts/update_offline.sh` (Docker Hub blocked from the server, auth.docker.io timeout; image built on top of the running one, prophet from PyPI): 31 series trained with Prophet, calendar 237 rows. Referrer tab redone the same day at the operator's request (real counts, last 13 weeks vs the same weeks a year earlier, graded from 10 %; acc22072) | deploy with update.sh (fixed 19 Nov, below); operator: is **Mon 23 Nov** a holiday (calendar says yes); storage capacity 70,000 GB right? | 19–20 Nov |
 | 36 | Every report slow (operator 19 Nov ~00:30) | Cause: a "Rebuild clusters" on the ORU page (18 Nov 22:46, job 21) made all 508,352 ORU reports stale; the NLP worker's re-score scanned past every report already done for each next chunk (7 reports/s instead of ~100, rayd_nlp 100 % CPU, Postgres 113 %). Operator stopped rayd_nlp. **Fixed:** the pass walks down the ids from where it stopped, new reports picked up at the top, a pause between chunks, nice 10 (tests/test_nlp_scoring_pass.py). Report 29: no query on page open, totals from SQL instead of one row per day, Chart.js pinned (also Report 30). **update.sh:** the server has no route to Cloudflare (auth.docker.io, 1.1.1.1 time out; registry-1 on AWS answers); `/etc/docker/daemon.json` now lists `"registry-mirrors": ["https://mirror.gcr.io"]` (reloaded, no restart); update.sh pulls the base image first and says what to do if it cannot; `scripts/update_offline.sh` removed | `sudo bash update.sh LAUMC` (rebuilds and restarts rayd_nlp with the fix); IT/ISP: no route to Cloudflare from the server | 19 Nov |
 
-Done: 2, 3, 4, 6, 7, 10, 11, 12, 15, 16, 19 (code), 21, 22–29, 31, 34; 13a, 13b, 13c deployed
-18 Nov; 9 deployed (switch pending).
+Done: 2, 3, 4 (minus 2 AEs), 6, 7, 10, 11, 12, 14A, 14B, 15, 16, 19 (code), 21, 22–29, 31, 32, 34;
+13a, 13b, 13c deployed 18 Nov; the RIS feed fix (0168); item 1 built (first check 18 Nov exact);
+9 deployed (switch pending); 33 fixed (reload pending).
 
 ---
 
