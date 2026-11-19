@@ -404,7 +404,7 @@ def test_the_old_live_page_opens_the_board(client):
 def test_page_renders_and_its_script_is_valid(client):
     r = h(client, '/viewer/department')
     html = r.get_data(as_text=True)
-    assert r.status_code == 200 and 'id="plan-box"' in html and 'Live Department' in html
+    assert r.status_code == 200 and 'id="board"' in html and 'Live Department' in html
     assert 'id="limits-btn"' in html and 'data-explain="live-board"' in html
     assert 'id="full-btn"' in html and 'overflow: hidden' in html          # a wall screen: no scrolling
     if not shutil.which('node'):

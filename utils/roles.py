@@ -17,7 +17,7 @@ Code never compares role names. It asks for a capability:
 
     can(user, 'implementation')   ETL Control Room (report start date, demo mode, triggers),
                                   DB Manager, Mapping edits, BRAYN console, HL7 Forward,
-                                  HL7 field map, floor plan, resource monitor, NLP runs
+                                  HL7 field map, resource monitor, NLP runs
     can(user, 'settings')         hospital settings: Email Server, CRN set-up and actions,
                                   financial config, report targets and thresholds, Report
                                   Composer SQL, schedules and shared reports, ORU vocabulary

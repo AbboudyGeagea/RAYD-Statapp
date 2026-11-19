@@ -127,11 +127,10 @@ def live_status():
             db.session.rollback()
 
         # All known devices (not just ones with active orders — need the full
-        # set to show free/closed tiles too), with floor-plan position if placed.
+        # set to show free/closed tiles too).
         device_rows = db.session.execute(text(f"""
             -- display label: the RIS room name, else the AE title (utils.ae_display)
-            SELECT aetitle, modality, {ae_display_sql('m', 'm.aetitle')} AS label,
-                   floor_x, floor_y
+            SELECT aetitle, modality, {ae_display_sql('m', 'm.aetitle')} AS label
             FROM aetitle_modality_map m
             WHERE COALESCE(m.site_id = rayd_served_site_id(), TRUE)
             ORDER BY modality, aetitle
@@ -769,7 +768,7 @@ def add_procedure():
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _make_tile(dev, status, active_orders, next_order):
-    """dev: a row from aetitle_modality_map (aetitle, modality, label, floor_x, floor_y).
+    """dev: a row from aetitle_modality_map (aetitle, modality, label).
     One tile per DEVICE now (was: one tile per modality, pooling every AE of that
     type together) — "modality" is kept as the type for the existing filter
     dropdown/color-coding; "label"/"aetitle" identify the specific device."""
@@ -777,8 +776,6 @@ def _make_tile(dev, status, active_orders, next_order):
         "aetitle":       dev["aetitle"],
         "label":         dev.get("label") or dev["aetitle"],
         "modality":      dev.get("modality"),
-        "floor_x":       float(dev["floor_x"]) if dev.get("floor_x") is not None else None,
-        "floor_y":       float(dev["floor_y"]) if dev.get("floor_y") is not None else None,
         "status":        status,
         "active_orders": active_orders,
         "next_order":    next_order,

@@ -82,6 +82,11 @@ had a catalogue row, licence entry or grant).
   exam with countdown, booked / to come / arrived / done / util, waiting patients with live waits,
   next appointments, "+n more"), Full-screen button, screen kept awake, initials unless Names.
   Any later change must still fit 1920x1080 with ~25 rooms.
+- **Admin > Floor Plan removed (operator, 19 Nov evening):** page, route, menu entry, licence flag,
+  the board's plan mode and the old live API's positions. The table `floor_plans`, the columns
+  `aetitle_modality_map.floor_x / floor_y` and any uploaded images under `static/floor_plans/` on
+  the server are left in place (nothing reads them): dropping them is a migration, on the
+  operator's word.
 - Noted for the BRAYN enhancements (item 17): the RIS's modality is in OBR-18, which BRAYN does not
   read (it looks at OBR-24, -19, -17).
 

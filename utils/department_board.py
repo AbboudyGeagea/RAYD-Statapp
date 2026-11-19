@@ -225,7 +225,7 @@ _ROOMS_SQL = """
 SELECT m.aetitle, upper(btrim(m.room_code)) AS room_key, btrim(m.room_code) AS room_code,
        upper(btrim(COALESCE(m.modality, ''))) AS modality,
        """ + ae_display_sql('m', 'btrim(m.room_code)') + """ AS room,
-       si.code AS site_code, si.name AS site_name, m.floor_x, m.floor_y,
+       si.code AS site_code, si.name AS site_name,
        COALESCE(ex.actual_opening_minutes, dwa.available_minutes, m.daily_capacity_minutes,
                 ws.std_opening_minutes) AS opening_minutes,
        COALESCE(ex.actual_opening_minutes, dwa.available_minutes, ws.std_opening_minutes, 0) > 0 AS open_today,
@@ -326,14 +326,11 @@ def build_board(site=None, now=None, sites=None):
             'not_lanes': list(_NOT_LANES), 'left_out': _left_out_aes()}).mappings():
         if d['room_key'] in rooms:
             continue                       # one room code, one card (the first row wins)
-        placed = d['floor_x'] is not None and d['floor_y'] is not None
         modality = d['modality'] or 'OT'
         rooms[d['room_key']] = {
             'key': d['room_key'], 'room_code': d['room_code'], 'aetitle': d['aetitle'],
             'room': d['room'], 'modality': modality,
             'site': d['site_name'], 'site_code': d['site_code'],
-            'x': float(d['floor_x']) if placed else None,
-            'y': float(d['floor_y']) if placed else None,
             'opening_minutes': d['opening_minutes'] or 0,
             'open_today': bool(d['open_today']) and d['room_key'] in used,
             'exception': d['exception_reason'] if d['has_exception'] else None,
@@ -406,14 +403,6 @@ def build_board(site=None, now=None, sites=None):
         rs = sorted(lanes[mod], key=lambda c: (c['room'] or '').upper())
         out.append({'modality': mod, 'rooms': rs, 'summary': _summary(rs)})
 
-    plans = db.session.execute(text("""
-        SELECT si.code AS site_code, si.name AS site_name, fp.image_path,
-               fp.image_width AS width, fp.image_height AS height
-          FROM floor_plans fp JOIN sites si ON si.id = fp.site_id
-         WHERE fp.image_path IS NOT NULL AND si.active IS NOT FALSE
-           AND (CAST(:site AS text) IS NULL OR si.code = CAST(:site AS text))
-         ORDER BY si.name
-    """), {'site': site}).mappings().all()
     if sites is None:
         sites = [dict(s) for s in db.session.execute(text(
             "SELECT code, name FROM sites WHERE active IS NOT FALSE ORDER BY is_default DESC, id")).mappings()]
@@ -424,7 +413,6 @@ def build_board(site=None, now=None, sites=None):
         'site': site, 'sites': sites, 'lanes': out,
         'totals': _summary(cards),
         'unknown_rooms': [{'code': k, 'studies': n} for k, n in sorted(unknown.items(), key=lambda x: -x[1])],
-        'plans': [dict(p) for p in plans],
         'limits': {'wait_min': {m: wait_limit(limits, m) for m in modalities},
                    'default_wait_min': limits['default_wait_min'], 'early_pct': limits['early_pct']},
     }
@@ -467,7 +455,7 @@ def _finish_room(room, now, day0, day_start_hour, limits):
     return {
         'key': room['key'], 'room_code': room['room_code'], 'aetitle': room['aetitle'],
         'room': room['room'], 'modality': room['modality'],
-        'site': room['site'], 'site_code': room['site_code'], 'x': room['x'], 'y': room['y'],
+        'site': room['site'], 'site_code': room['site_code'],
         'status': status, 'exception': room['exception'], 'show': bool(room['open_today'] or activity),
         'scheduled_today': room['scheduled_today'], 'to_come': len(room['coming']),
         'coming': room['coming'], 'waiting': room['waiting'],

@@ -101,15 +101,6 @@
         .c-util { height: .3em; min-height: 3px; background: var(--line); flex: none; margin-top: .2em; }
         .c-util i { display: block; height: 100%; background: var(--free); }
 
-        /* the floor plan, when the site has one and it is chosen */
-        .plan-box { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-        .plan { position: relative; flex: none; }
-        .plan img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 6px; pointer-events: none; }
-        body:not(.light) .plan img { filter: brightness(.82) contrast(1.05); }
-        .plan .card { position: absolute; transform: translate(-50%, -50%); width: 15em; height: 9.5em; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.35); }
-        .plan .card .c-list, .plan .card .c-more { display: none; }
-        .plan-note { position: absolute; left: 14px; bottom: 12px; font-size: 12px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; }
-
         /* ── footer: each modality, and the colour key ── */
         .foot { flex: none; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; padding: 4px 10px;
                 background: var(--panel); border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); max-height: 3.4em; overflow: hidden; }
@@ -152,7 +143,6 @@
     <div class="kpis"><span id="kpis" class="kpis"></span><i class="bi bi-info-circle chart-info-icon" data-explain="live-board-kpis" role="button" tabindex="0" aria-label="About these figures" title="About these figures"></i></div>
     <div class="controls">
         <div id="mod-chips" style="display:flex;flex-wrap:wrap;gap:4px"></div>
-        <button class="chip" id="plan-btn" type="button" aria-pressed="false" title="Rooms on the floor plan" hidden><i class="bi bi-map"></i> Plan</button>
         <button class="chip" id="sites-btn" type="button" title="The hospitals side by side, per modality" hidden>
             <i class="bi bi-hospital"></i> Side by side</button>
         {% if can_edit_limits %}
@@ -166,7 +156,7 @@
     </div>
 </header>
 <div class="banner" id="banner" hidden></div>
-<main class="board" id="plan-box" aria-label="Department"><div class="empty">Loading the department…</div></main>
+<main class="board" id="board" aria-label="Department"><div class="empty">Loading the department…</div></main>
 <footer class="foot" id="foot"></footer>
 <aside class="drawer" id="drawer" hidden role="dialog" aria-modal="false" aria-labelledby="dr-title"></aside>
 
@@ -174,7 +164,6 @@
 (function () {
 'use strict';
 const REFRESH = {{ refresh_seconds|int }} * 1000;
-const STATIC = "{{ url_for('static', filename='') }}";
 const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 const BASE_W = 300, BASE_H = 215, BASE_FONT = 14, GAP = 8;   // a card designed at 14 px
 const $ = id => document.getElementById(id);
@@ -184,7 +173,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('deptboard.' + k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
 };
 let B = null, offset = 0, lastOk = null, open = null;
-let mods = store.get('mods', []), names = store.get('names', false), site = store.get('site', null), planMode = store.get('plan', false);
+let mods = store.get('mods', []), names = store.get('names', false), site = store.get('site', null);
 
 // Server time is the hospital clock; the browser's may differ. Every countdown runs on
 // server time = browser time + offset, measured at each fetch.
@@ -264,7 +253,7 @@ function card(r) {
 
 // ── the grid: as many columns as give the biggest cards for this screen ─────────
 function fitGrid() {
-  const box = $('plan-box'), grid = box.querySelector('.grid');
+  const box = $('board'), grid = box.querySelector('.grid');
   if (!grid) return;
   const n = grid.children.length;
   const W = box.clientWidth - 16, H = box.clientHeight - 16;
@@ -302,13 +291,13 @@ function trimLists() {
 // from the data, so the trimmed rows come back where there is room.
 let lastBox = '', fitTimer = null;
 function refit() {
-  const b = $('plan-box'), key = b.clientWidth + 'x' + b.clientHeight;
+  const b = $('board'), key = b.clientWidth + 'x' + b.clientHeight;
   if (key === lastBox) return;
   lastBox = key;
   clearTimeout(fitTimer);
   fitTimer = setTimeout(() => { if (B) render(); }, 120);
 }
-if ('ResizeObserver' in window) new ResizeObserver(refit).observe($('plan-box'));
+if ('ResizeObserver' in window) new ResizeObserver(refit).observe($('board'));
 window.addEventListener('resize', refit);
 
 // ── render ────────────────────────────────────────────────────────────────────
@@ -332,34 +321,16 @@ function render() {
     all.map(m => `<button class="chip" type="button" data-mod="${esc(m)}" aria-pressed="${mods.includes(m)}">${esc(m)}</button>`).join('');
   $('names').setAttribute('aria-pressed', String(names));
 
-  const plan = B.plans.find(p => p.site_code === B.site);
-  $('plan-btn').hidden = !plan;
-  $('plan-btn').setAttribute('aria-pressed', String(!!(plan && planMode)));
   const rooms = shownRooms();
-  if (plan && planMode) {
-    const on = rooms.filter(r => r.x != null);
-    $('plan-box').innerHTML = `<div class="plan-box"><div class="plan" id="plan" data-w="${plan.width || 1600}" data-h="${plan.height || 900}">
-        <img src="${esc(STATIC + plan.image_path)}" alt="">${on.map(r => card(r).replace('class="card ', `style="left:${r.x}%;top:${r.y}%" class="card `)).join('')}</div></div>
-      ${rooms.length > on.length ? `<div class="plan-note">${rooms.length - on.length} rooms are not placed on the plan: press Plan again for every room.</div>` : ''}`;
-    fitPlan();
-  } else if (!rooms.length) {
-    $('plan-box').innerHTML = '<div class="empty">No room of this hospital is open today or has anything booked.</div>';
+  if (!rooms.length) {
+    $('board').innerHTML = '<div class="empty">No room of this hospital is open today or has anything booked.</div>';
   } else {
-    $('plan-box').innerHTML = `<div class="grid">${rooms.map(card).join('')}</div>`;
+    $('board').innerHTML = `<div class="grid">${rooms.map(card).join('')}</div>`;
     fitGrid();
   }
   renderFoot();
   if (open) renderDrawer();
   tick();
-}
-
-function fitPlan() {
-  const box = $('plan-box'), p = $('plan');
-  if (!p) return;
-  const W = +p.dataset.w, H = +p.dataset.h, pad = 20;
-  const s = Math.min((box.clientWidth - pad) / W, (box.clientHeight - pad) / H);
-  p.style.width = Math.max(100, W * s) + 'px';
-  p.style.height = Math.max(60, H * s) + 'px';
 }
 
 function renderFoot() {
@@ -557,7 +528,6 @@ document.addEventListener('keydown', e => {
   if (cd && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open = {room: cd.dataset.room}; renderDrawer(); tick(); }
 });
 $('names').addEventListener('click', () => { names = !names; store.set('names', names); render(); });
-$('plan-btn').addEventListener('click', () => { planMode = !planMode; store.set('plan', planMode); render(); });
 $('sites-btn').addEventListener('click', () => { open = {sites: true}; renderDrawer(); loadSites(); });
 $('full-btn').addEventListener('click', () => { const d = document.documentElement; if (d.requestFullscreen) d.requestFullscreen().catch(() => {}); });
 if ($('limits-btn')) $('limits-btn').addEventListener('click', () => { open = {limits: true}; $('drawer').innerHTML = ''; renderDrawer(); });

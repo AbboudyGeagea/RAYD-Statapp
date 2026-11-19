@@ -77,15 +77,18 @@ def test_the_department_board_leaves_out_other_sites(client, devices):
 
 
 def test_the_department_board_offers_no_other_site(client, devices):
-    sql("""INSERT INTO floor_plans (site_id, image_path, image_width, image_height)
-           VALUES (:s, 'floor_plans/sjh.png', 1600, 900)""", s=site_id('SJH'))
-    try:
-        board = client.get('/viewer/department/api/board',
-                           headers={'X-Test-Role': 'administrator', 'X-Test-Uid': '1'}).get_json()
-        assert [s['code'] for s in board['sites']] == ['RH']
-        assert board['plans'] == []
-    finally:
-        sql("DELETE FROM floor_plans")
+    board = client.get('/viewer/department/api/board',
+                       headers={'X-Test-Role': 'administrator', 'X-Test-Uid': '1'}).get_json()
+    assert [s['code'] for s in board['sites']] == ['RH']
+    assert 'plans' not in board                      # the floor plan is gone (2026-11-19)
+
+
+def test_the_floor_plan_page_is_gone(client):
+    """Operator, 2026-11-19: Admin > Floor Plan removed with everything related."""
+    r = client.get('/admin/floor-plan/', headers={'X-Test-Role': 'superuser'})
+    assert r.status_code == 404
+    page = client.get('/viewer/department', headers={'X-Test-Role': 'superuser'}).get_data(as_text=True)
+    assert 'floor_plan' not in page and 'plan-btn' not in page
 
 
 def test_fact_exam_marks_sjh_as_not_counted(devices):
