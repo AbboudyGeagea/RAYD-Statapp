@@ -49,8 +49,13 @@ export `MRI Page 1.xls` (in the project folder, untracked) holds patient names: 
 **Next builds:** item 13d (BRAYN routing by site, after the walkthrough); then the SJH move
 (runbook in item 13, "Production runbook (Sat 28)"); item 17 switch-on; low priority: the BRAYN
 revamp (mappings found rigid/wrong: ask which) and the Live Department board (ask for the list).
-Optional for item 1: the RIS's booked room for orders not performed yet (SPS.MODALITY_KEY, an
-Oracle check first).
+Item 1, booked room (operator, 19 Nov evening: build it): the RIS's booked room for orders not
+performed yet (SPS.MODALITY_KEY). **Waiting on the operator: run
+`scripts/sql/ris_booked_room_check.sql` in SQL Developer on the RIS Oracle (read-only, 4 steps)
+and send the output.** Then, if the RIS names the room for most open orders: copy SPS's device
+with the nightly orders copy (plus a nightly re-read of the open rows, in case a rebooking does
+not move SITE_WORKLIST.LAST_UPDATE_DATE), and the tab's room for an open order becomes the
+booked one, the 90-day guess only when none is booked.
 
 **Standing rules from this session:** every new report, chart, table and KPI tile gets an (i)
 next to its name (`static/js/chart-explanations.js`, end-user words); server SQL as a ready
