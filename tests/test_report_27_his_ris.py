@@ -148,6 +148,29 @@ def test_the_tab_for_rh(feeds):
     assert [c['his_no'] for c in s['not_on_ris']] == ['0019400004', '0019400013', '0019400015']
 
 
+def test_an_order_not_performed_yet_takes_the_room_the_ris_booked(feeds):
+    """Migration 0172: the booked room before the 90-day guess; the room it was performed in
+    still wins over its booking."""
+    sql("UPDATE etl_orders SET booked_ae_title = 'hr_ct2' WHERE order_dbid = 66002")    # open, booked on CT128 ER
+    sql("UPDATE etl_orders SET booked_ae_title = 'HR_CT1' WHERE order_dbid = 66001")    # done in CT128 ER
+    from utils.rh_scope import rh_scope
+    with rh_scope():
+        cases, s = his_ris.build(date(2026, 11, 18), date(2026, 11, 19), site('RH'))
+    by_no = {c['his_no']: c for c in cases}
+    assert (by_no['0019400002']['room'], by_no['0019400002']['room_from']) == ('CT128 ER', 'booked')
+    assert by_no['0019400002']['room_how'] == 'not performed yet: the room the RIS booked'
+    assert (by_no['0019400001']['room'], by_no['0019400001']['room_from']) == ('CT128 ER', 'ris')
+    assert (s['room_from_ris'], s['room_from_booked'], s['room_from_usual'], s['room_unknown']) == (1, 1, 4, 1)
+
+
+def test_a_booked_device_rayd_does_not_map_shows_its_ae_title(feeds):
+    sql("UPDATE etl_orders SET booked_ae_title = 'NEWCT9' WHERE order_dbid = 66002")
+    from utils.rh_scope import rh_scope
+    with rh_scope():
+        cases, _ = his_ris.build(date(2026, 11, 18), date(2026, 11, 19), site('RH'))
+    assert next(c['room'] for c in cases if c['his_no'] == '0019400002') == 'NEWCT9'
+
+
 def test_the_tab_for_sjh_takes_the_other_orders(feeds):
     cases, s = his_ris.build(date(2026, 11, 18), date(2026, 11, 19), site('SJH'))
     assert {c['his_no']: c['outcome'] for c in cases} == {'0019400005': 'done', '0019400006': 'not_on_ris',

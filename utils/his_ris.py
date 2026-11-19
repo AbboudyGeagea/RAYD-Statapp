@@ -31,13 +31,18 @@ one row per RIS order), each with the HIS order number it was created from
     room            one room per order, each room alone and exportable (operator, 2026-11-19):
                       1. performed: the room the RIS used (rpt.exams.room: its performed step's
                          device, else its PACS study's);
-                      2. not performed yet: the room the order's hospital performed that
-                         procedure in most over the last 90 days (RIS performed steps, std_pps);
-                      3. no such exam: the procedure's one bookable room at that hospital, from
+                      2. not performed yet: the room the RIS booked it on (SPS.MODALITY_KEY,
+                         etl_orders.booked_ae_title, migration 0172; production 19 Nov: every
+                         booked open order has one, and 99.6 % of done exams were performed on
+                         their booked device);
+                      3. not booked (Requested Signed, Cancelled by OP, or booked more than 30
+                         days ago and untouched since): the room the order's hospital performed
+                         that procedure in most over the last 90 days (RIS performed steps, std_pps);
+                      4. no such exam: the procedure's one bookable room at that hospital, from
                          the RIS's own lookup (the procedure catalogue procedure_duration_map, its
                          SPS key -> MODALITY_SCHEDULE, ris_modality_schedule_stage, refilled
                          nightly -> the RIS device's room); several bookable: "Room not decided";
-                      4. a code the RIS lookup does not know: "No room in the RIS lookup".
+                      5. a code the RIS lookup does not know: "No room in the RIS lookup".
                     The lookup alone rarely names one room: 673 of the 703 codes it knows are
                     bookable in several (production, 19 Nov). The breakdown opens on Room.
     RIS only        RIS orders created since the HIS feed began with no HIS message for
@@ -74,6 +79,7 @@ NO_ROOM = 'No room in the RIS lookup'
 UNDECIDED_ROOM = 'Room not decided'
 USUAL_ROOM_DAYS = 90
 ROOM_HOW = {'ris': 'performed there',
+            'booked': 'not performed yet: the room the RIS booked',
             'usual': f'not performed yet: most used for this procedure ({USUAL_ROOM_DAYS} days)',
             'lookup': 'not performed yet: its only bookable room',
             'none': ''}
@@ -128,7 +134,12 @@ _RIS_SQL = """
 SELECT BTRIM(o.placer_order_number) AS his_no, o.order_dbid, o.order_created_at, o.order_status,
        o.accession_number, o.scheduled_datetime, o.study_db_uid, si.id AS site_id,
        (SELECT MIN(w.exam_done_at) FROM public.std_worklist_exam_done w
-         WHERE w.site_worklist_key = o.order_dbid) AS exam_done_at
+         WHERE w.site_worklist_key = o.order_dbid) AS exam_done_at,
+       -- the room the RIS booked it on (migration 0172), named as the usual room is
+       CASE WHEN NULLIF(BTRIM(o.booked_ae_title), '') IS NOT NULL THEN
+           COALESCE((SELECT NULLIF(BTRIM(m.station_name), '') FROM public.aetitle_modality_map m
+                     WHERE UPPER(TRIM(m.aetitle)) = UPPER(TRIM(o.booked_ae_title)) ORDER BY m.id LIMIT 1),
+                    UPPER(BTRIM(o.booked_ae_title))) END AS booked_room
 FROM public.etl_orders o
 LEFT JOIN public.sites si ON si.ris_issuer = o.order_control
 WHERE o.placer_order_number = ANY(:numbers)          -- idx_etl_orders_placer_order_number
@@ -369,8 +380,11 @@ def build(start, end, site_id):
     for c in every:
         # several RIS orders of one HIS order (4 in 3,968) performed apart: the first one's room
         actual = [used[r['order_dbid']] for r in sorted(c['ris'], key=lambda r: r['order_dbid']) if r['order_dbid'] in used]
+        booked = [r['booked_room'] for r in sorted(c['ris'], key=lambda r: r['order_dbid']) if r.get('booked_room')]
         if actual:
             c['room'], c['room_from'] = actual[0], 'ris'
+        elif booked:
+            c['room'], c['room_from'] = booked[0], 'booked'
         elif (key := ((c['procedure_code'] or '').upper(), c['site_id'])) in usual:
             c['room'], c['room_from'] = usual[key], 'usual'
         else:
@@ -396,6 +410,7 @@ def build(start, end, site_id):
         'unknown_site': unknown_site, 'not_billed': not_billed,
         'feed_start': started, 'copied_until': copied_until, 'apps': apps, 'ris_only': ris_only,
         'room_from_ris': sum(1 for c in cases if c['room_from'] == 'ris'),
+        'room_from_booked': sum(1 for c in cases if c['room_from'] == 'booked'),
         'room_from_usual': sum(1 for c in cases if c['room_from'] == 'usual'),
         'room_from_lookup': sum(1 for c in cases if c['room_from'] == 'lookup'),
         'room_unknown': sum(1 for c in cases if c['room_from'] == 'none'),

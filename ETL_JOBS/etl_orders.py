@@ -279,6 +279,69 @@ def fill_order_header(pg_engine, oracle_source, go_live_date):
     return filled
 
 
+# The device the RIS booked each exam on (item 1, migration 0172): SPS.MODALITY_KEY -> MODALITY's
+# AE title, the device key the performed step (PPS) carries too. Production, 19 Nov
+# (scripts/sql/ris_booked_room_check.sql): SPS_ID is SPS's key (one booking per exam); every
+# booked open order names a device with an AE title; a done exam was performed on its booked
+# device 99.6 % of the time. SPS has no change date and a rebooking need not move
+# SITE_WORKLIST.LAST_UPDATE_DATE, so every night re-reads the bookings from BOOKED_ROOM_DAYS ago
+# on (SPS.START_DATETIME is indexed, SPS_IDX13) instead of following the orders watermark.
+BOOKED_ROOM_DAYS = 30
+_SPS_TABLE      = os.getenv("RAYD_RIS_SPS_TABLE", "SPS")
+_MODALITY_TABLE = os.getenv("RAYD_RIS_MODALITY_TABLE", "MODALITY")
+
+_BOOKED_ROOM_UPDATE_SQL = text("""
+    UPDATE etl_orders e SET booked_ae_title = u.ae
+    FROM unnest(CAST(:keys AS bigint[]), CAST(:aes AS text[])) AS u(k, ae)
+    WHERE e.order_dbid = u.k AND e.booked_ae_title IS DISTINCT FROM u.ae
+""")
+
+
+def refresh_booked_rooms(pg_engine, oracle_source, days=BOOKED_ROOM_DAYS):
+    """booked_ae_title on the worklist rows booked from `days` ago on, in this database and in
+    every site database (a site's orders live there once moved, item 13b). Returns the rows
+    changed. Selects nothing about the patient."""
+    ora = OracleConnector.get_connection(oracle_source)
+    cursor = ora.cursor()
+    booked = []
+    try:
+        cursor.execute(f"""
+            SELECT w.SITE_WORKLIST_KEY, m.AE_TITLE
+            FROM {_SPS_TABLE} s
+            JOIN {_WORKLIST_TABLE} w ON w.SPS_ID = s.SPS_ID
+            JOIN {_ORDERS_TABLE} o ON o.ORDER_KEY = w.ORDER_KEY
+            LEFT JOIN {_MODALITY_TABLE} m ON m.MODALITY_KEY = s.MODALITY_KEY
+            WHERE o.ISSUER_OF_PLACER_ORDER_NUMBER IN ('SAP_PROD','SAP_SJH')
+              AND s.START_DATETIME >= TRUNC(SYSDATE) - :days
+        """, {'days': int(days)})
+        while True:
+            rows = cursor.fetchmany(_HEADER_BATCH)
+            if not rows:
+                break
+            booked += [(int(k), _safe_str(ae, 100)) for k, ae in rows if k is not None]
+    finally:
+        cursor.close()
+        ora.close()
+
+    engines = [pg_engine]
+    try:
+        from utils import site_db
+        if site_db.has_site_databases():
+            default = site_db.default_site_id()
+            engines += [site_db.engine_for(s) for s in site_db.each_site_id() if s != default]
+    except ImportError:
+        pass
+    changed = 0
+    for engine in engines:
+        for i in range(0, len(booked), _HEADER_BATCH):
+            part = booked[i:i + _HEADER_BATCH]
+            with engine.begin() as conn:
+                changed += conn.execute(_BOOKED_ROOM_UPDATE_SQL, {
+                    'keys': [k for k, _ in part], 'aes': [ae for _, ae in part]}).rowcount
+    logging.info(f"Booked rooms: {len(booked):,} bookings from {days} days ago on, {changed:,} rows changed")
+    return changed
+
+
 def run_orders_etl(pg_engine, oracle_source, pg_table, chunked_upsert_func, go_live_date):
     job_name   = "ORDERS_ETL"
     start_time = datetime.now()

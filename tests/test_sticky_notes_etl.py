@@ -293,3 +293,26 @@ def test_orders_loaded_before_0160_get_their_his_number_and_booking_time_once(en
                                 "WHERE order_dbid IN (6001, 6002) ORDER BY 1")).all()
         conn.execute(text("DELETE FROM settings WHERE key = 'orders_header_filled'"))
     assert [tuple(r) for r in got] == [(6001, 'HIS-1', NIGHT), (6002, None, NIGHT - timedelta(days=1))]
+
+
+def test_the_booked_room_is_refreshed_every_night_from_the_bookings(engine, monkeypatch):
+    """Item 1, migration 0172: SPS.MODALITY_KEY -> MODALITY.AE_TITLE onto the worklist row, by
+    booking date (SPS has no change date), a rebooking or a cleared device included."""
+    from ETL_JOBS import etl_orders
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO etl_orders (order_dbid, accession_number, booked_ae_title) "
+                          "VALUES (7001, 'B1', NULL), (7002, 'B2', 'GEHCGEHC'), (7003, 'B3', 'MR45W')"))
+    ris = FakeOracle([(7001, 'CTHD'), (7002, None), (7003, 'MR45W '), (9999, 'BAY87CT')])
+    monkeypatch.setattr(etl_orders, 'OracleConnector', SimpleNamespace(get_connection=lambda source: ris))
+    try:
+        assert etl_orders.refresh_booked_rooms(engine, 'ris') == 2      # 7001 booked, 7002 cleared
+        assert 'SPS' in ris.sql and 'START_DATETIME' in ris.sql and 'PATIENT' not in ris.sql.upper()
+        assert "'SAP_PROD','SAP_SJH'" in ris.sql and ris.params == {'days': 30}
+        assert etl_orders.refresh_booked_rooms(engine, 'ris') == 0      # nothing changed since
+        with engine.connect() as conn:
+            got = conn.execute(text("SELECT order_dbid, booked_ae_title FROM etl_orders "
+                                    "WHERE order_dbid BETWEEN 7001 AND 7003 ORDER BY 1")).all()
+        assert [tuple(r) for r in got] == [(7001, 'CTHD'), (7002, None), (7003, 'MR45W')]
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM etl_orders WHERE order_dbid BETWEEN 7001 AND 7003"))

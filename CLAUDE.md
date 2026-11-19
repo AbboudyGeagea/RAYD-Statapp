@@ -192,6 +192,8 @@ etl_orders
   order_status TEXT, modality TEXT, has_study BOOL, order_control TEXT,
   placer_order_number TEXT (HIS order number = ORM ORC-2), order_created_at TIMESTAMP (booked;
   RIS ORDERS.CREATED_ON_DATE) -- migration 0160, one row per RIS worklist row (SPS)
+  booked_ae_title VARCHAR(100) -- the device the RIS booked (SPS.MODALITY_KEY -> MODALITY.AE_TITLE),
+  migration 0172; re-read every night for bookings from 30 days ago on (SPS has no change date)
   RIS steps (std_pps) link to PACS by study UID, else by this order's accession (etl_ris_pps.py)
 
 etl_didb_serieses       — DICOM series detail (series_db_uid, study_db_uid, modality, body_part_examined)

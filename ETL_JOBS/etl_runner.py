@@ -112,7 +112,7 @@ from etl_series            import run_series_etl
 from etl_didb_raw_images   import run_raw_images_etl
 from etl_image_locations   import run_images_etl
 from etl_patients_view     import run_patients_etl
-from etl_orders            import run_orders_etl, fill_order_header
+from etl_orders            import run_orders_etl, fill_order_header, refresh_booked_rooms
 from etl_sticky_notes      import run_sticky_notes_etl, record_access_history
 from etl_pacs_audit        import run_pacs_audit_etl
 from etl_analytics_refresh import refresh_storage_summary
@@ -624,7 +624,9 @@ def _perform_migration(engine):
                 try:
                     run_orders_etl(engine, ris_src, 'etl_orders', database_module.chunked_upsert, go_live)
                     filled = fill_order_header(engine, ris_src, go_live)
-                    logger.info(f"✅ Phase 6 done{f' — HIS order number and booking time filled on {filled:,} older rows' if filled else ''}")
+                    booked = refresh_booked_rooms(engine, ris_src)     # item 1, migration 0172
+                    logger.info(f"✅ Phase 6 done — booked room changed on {booked:,} rows"
+                                f"{f'; HIS order number and booking time filled on {filled:,} older rows' if filled else ''}")
                 except Exception as _e:
                     _phase_failures.append("6 (Orders)")
                     logger.error(f"🛑 Phase 6 (Orders) failed — continuing to next phase: {_e}", exc_info=True)

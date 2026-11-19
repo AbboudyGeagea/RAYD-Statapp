@@ -93,7 +93,7 @@
         </label>
     </div>
     <p class="px-4 pt-3 text-[11px] text-slate-500">Room, one per order: {{ his.room_from_ris }} in the room the RIS performed them in;
-        not performed yet: {{ his.room_from_usual }} in the room most used for that procedure (last 90 days), {{ his.room_from_lookup }} in its only bookable room{% if his.room_unknown %}, {{ his.room_unknown }} with no room decided{% endif %}.
+        not performed yet: {{ his.room_from_booked }} in the room the RIS booked, {{ his.room_from_usual }} not booked, in the room most used for that procedure (last 90 days), {{ his.room_from_lookup }} in its only bookable room{% if his.room_unknown %}, {{ his.room_unknown }} with no room decided{% endif %}.
         Each room's orders download on its row.</p>
     <div class="p-2">
     {% for key, label in his_dimensions %}
