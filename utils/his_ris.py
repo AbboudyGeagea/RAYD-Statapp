@@ -146,20 +146,27 @@ WHERE o.placer_order_number = ANY(:numbers)          -- idx_etl_orders_placer_or
 """
 
 # This site's RIS orders created in the period since the HIS feed began: with no HIS number,
-# or a number the HIS never sent. Through the site's views (no other site, no duplicates).
-_RIS_ONLY_SQL = """
-WITH sent AS (
-    SELECT DISTINCT BTRIM(h.placer_order_number) AS p FROM public.hl7_orders h
-    WHERE NULLIF(BTRIM(h.placer_order_number), '') IS NOT NULL
-      AND UPPER(BTRIM(split_part(h.raw_message, '|', 3))) = ANY(:apps)
-)
-SELECT COUNT(*) FILTER (WHERE NULLIF(BTRIM(o.placer_order_number), '') IS NULL) AS no_his_number,
-       COUNT(*) FILTER (WHERE NULLIF(BTRIM(o.placer_order_number), '') IS NOT NULL AND s.p IS NULL) AS not_sent,
-       COUNT(*) AS created
+# or a number the HIS never sent. The RIS orders through the site's views (no other site, no
+# duplicates), on the database the request reads; the HIS's numbers from the main database.
+_RIS_CREATED_SQL = """
+SELECT NULLIF(BTRIM(o.placer_order_number), '') AS his_no
 FROM etl_orders o
-LEFT JOIN sent s ON s.p = BTRIM(o.placer_order_number)
 WHERE o.order_created_at >= :start AND o.order_created_at < :end
 """
+_SENT_SQL = """
+SELECT DISTINCT h.placer_order_number AS p FROM public.hl7_orders h
+WHERE h.placer_order_number = ANY(:numbers)
+  AND UPPER(BTRIM(split_part(h.raw_message, '|', 3))) = ANY(:apps)
+"""
+
+
+def ris_only_count(start, end, apps):
+    created = [r[0] for r in db.session.execute(text(_RIS_CREATED_SQL), {'start': start, 'end': end})]
+    numbers = sorted({n for n in created if n})
+    sent = {r['p'].strip() for r in on_main(_SENT_SQL, {'numbers': numbers, 'apps': apps}) if r['p']} if numbers else set()
+    return {'no_his_number': sum(1 for n in created if not n),
+            'not_sent': sum(1 for n in created if n and n not in sent),
+            'created': len(created)}
 
 
 # Procedure code -> the rooms the RIS lets it be booked on, with each room's site.
@@ -226,16 +233,44 @@ def performed_rooms(order_ids):
     return {exam_id: room for exam_id, room in rows if room}
 
 
+def on_main(statement, params=None):
+    """Rows of a statement on the main database. The HIS's messages are written there by the
+    listener whatever site a request reads: SJH's own database gets no HL7 until BRAYN routes
+    by site (item 13d), so every reader of hl7_orders reads the main database (2026-11-19)."""
+    with db.engine.connect() as conn:
+        return conn.execute(text(statement), params or {}).mappings().all()
+
+
+# The hospital an HIS message names: PV1-3's 7th component (1000 RH, 2000 SJH = sites.hl7_building).
+HIS_FACILITY_SQL = ("BTRIM(split_part(split_part(substring({t}.raw_message from 'PV1\\|[^\\r]*'), '|', 4), '^', 7))")
+
+
+def his_site_clause(alias, site_code):
+    """(SQL, params) keeping the HIS messages of one hospital: the code PV1-3.7 carries, else
+    (no code) an SJH location or entering unit (ORC-17) ending in -J for SJH, and anything else
+    for RH: the same rule as the tab's _his_site()."""
+    row = on_main("SELECT hl7_building FROM sites WHERE code = :c", {'c': site_code})
+    fac = HIS_FACILITY_SQL.format(t=alias)
+    unit = (f"UPPER(BTRIM(split_part(split_part(substring({alias}.raw_message from 'ORC\\|[^\\r]*'), "
+            f"'|', 18), '^', 1)))")
+    sql = (f"({fac} = :his_site_code OR (COALESCE({fac}, '') = '' AND "
+           f"(UPPER(COALESCE({alias}.patient_location, '')) LIKE :his_suffix "
+           f"OR COALESCE({unit}, '') LIKE :his_suffix) = :his_is_sjh))")
+    return sql, {'his_site_code': (row[0]['hl7_building'] if row else None) or '',
+                 'his_suffix': '%' + SJH_SUFFIX, 'his_is_sjh': site_code == 'SJH'}
+
+
 def his_apps():
-    value = db.session.execute(text("SELECT value FROM settings WHERE key = :k"), {'k': HIS_APPS_KEY}).scalar()
+    rows = on_main("SELECT value FROM settings WHERE key = :k", {'k': HIS_APPS_KEY})
+    value = rows[0]['value'] if rows else None
     apps = [a.strip().upper() for a in (value or '').split(',') if a.strip()]
     return apps or list(DEFAULT_HIS_APPS)
 
 
 def feed_start(apps):
-    return db.session.execute(text(
-        "SELECT MIN(received_at) FROM public.hl7_orders "
-        "WHERE UPPER(BTRIM(split_part(raw_message, '|', 3))) = ANY(:apps)"), {'apps': apps}).scalar()
+    rows = on_main("SELECT MIN(received_at) AS started FROM public.hl7_orders "
+                   "WHERE UPPER(BTRIM(split_part(raw_message, '|', 3))) = ANY(:apps)", {'apps': apps})
+    return rows[0]['started'] if rows else None
 
 
 def last_ris_copy():
@@ -365,7 +400,7 @@ def build(start, end, site_id):
     site_id. Cases of another site are left out; those whose site is unknown are only counted."""
     apps = his_apps()
     params = {'start': start, 'end': end + timedelta(days=1), 'apps': apps}
-    his = [dict(r) for r in db.session.execute(text(_HIS_SQL), params).mappings().all()]
+    his = [dict(r) for r in on_main(_HIS_SQL, params)]               # where the listener writes them
     ris_by_no = {}
     if his:
         for r in db.session.execute(text(_RIS_SQL), {'numbers': [h['his_no'] for h in his]}).mappings().all():
@@ -399,9 +434,7 @@ def build(start, end, site_id):
     started = feed_start(apps)
     ris_only = None
     if started is not None:
-        from_ = max(started, _as_datetime(start))
-        ris_only = dict(db.session.execute(text(_RIS_ONLY_SQL),
-                                           {'start': from_, 'end': params['end'], 'apps': apps}).mappings().one())
+        ris_only = ris_only_count(max(started, _as_datetime(start)), params['end'], apps)
     summary = {
         'kpi': _block(cases),
         'outcomes': [{'key': k, 'label': label, 'orders': sum(c['outcome'] == k for c in cases)} for k, label in OUTCOMES],

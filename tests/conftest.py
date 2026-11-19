@@ -291,6 +291,9 @@ def app(database_url):
     flask_app.register_blueprint(report_40_bp)
     from routes.report_27 import report_27_bp
     flask_app.register_blueprint(report_27_bp)
+    # HL7 Orders: reads the main database, keeps the header's hospital (2026-11-19)
+    from routes.hl7_orders import hl7_orders_bp
+    flask_app.register_blueprint(hl7_orders_bp)
     # the home page's daily briefing and Yesterday tab
     from routes.viewer_controller import viewer_bp
     flask_app.register_blueprint(viewer_bp, url_prefix='/viewer')

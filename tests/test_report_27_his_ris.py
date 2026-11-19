@@ -179,6 +179,32 @@ def test_the_tab_for_sjh_takes_the_other_orders(feeds):
     assert {c['room_from'] for c in cases if c['room'] == 'CTScanner'} == {'lookup'}
 
 
+def test_on_sjhs_own_database_the_his_orders_still_come_from_the_main_one(feeds):
+    """Item 13, before the move: the listener writes every HIS order to the main database; SJH's
+    own database gets none until BRAYN routes by site. The tab reads them from the main one."""
+    from utils import site_db
+    if not site_db.has_site_databases():
+        pytest.skip('no site database configured')
+    with site_db.use_site(site('SJH')):
+        cases, s = his_ris.build(date(2026, 11, 18), date(2026, 11, 19), site('SJH'))
+    got = {c['his_no'] for c in cases}
+    assert {'0019400006', '0019400012'} <= got           # SJH's by PV1-3.7 = 2000 and by its -J unit
+    assert not got & {'0019400001', '0019400004'}         # RH's stay out
+    assert s['feed_start'] is not None
+
+
+def test_the_hl7_orders_page_keeps_the_picked_hospital(client, feeds):
+    """2026-11-19: HL7 Orders read the main database and keep the header's hospital by the code
+    the HIS sends (it showed both hospitals' orders on RH)."""
+    day = '2026-11-18'
+    assert client.get('/hl7-orders', headers=ADMIN, query_string={'date': day}).status_code == 200
+    data = client.get('/hl7-orders/data', headers=ADMIN, query_string={'date': day}).get_json()
+    numbers = {o['placer_order_number'] for o in data['orders']}
+    assert {'0019400004', '0019400013'} <= numbers               # RH: PV1-3.7 = 1000
+    assert not numbers & {'0019400005', '0019400006', '0019400012'}   # SJH: 2000, and its -J unit
+    assert data['total'] == len([o for o in data['orders'] if o.get('order_status') != 'CA']) or data['total'] >= 1
+
+
 def test_the_page_and_the_excel(client, feeds):
     r = client.get('/report/27', headers=ADMIN, query_string={**PERIOD, 'tab': 'his'})
     assert r.status_code == 200, r.get_data(as_text=True)[:400]

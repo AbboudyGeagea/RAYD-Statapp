@@ -125,6 +125,18 @@ station moved to the workload tab ("Workload, technicians & cadence"), which bui
 dataset anyway; Modality & wait no longer needs it. tests/test_report_36_queries.py pins the
 three queries' figures (same results before and after).
 
+**Item 13, before the SJH move (built 19 Nov evening, deploy waiting):** the HIS's orders reach only
+the main database (the listener; SJH's own database gets no HL7 until BRAYN routes by site, 13d),
+so every reader of `hl7_orders` now reads the main database: Report 27's HIS vs RIS tab (its HIS
+side and the "no HIS message" count; the RIS side stays on the database the request reads) and
+the HL7 Orders page (in `MAIN_BLUEPRINTS`, with its field map), which keeps the header's hospital
+by the code the HIS sends (PV1-3.7 = `sites.hl7_building`, else a -J location or entering unit):
+it showed both hospitals' orders on RH. Its date filter missed brackets, so the "not completed"
+and modality filters were skipped for orders received that day: fixed. Still read per database
+after the move, a day late for SJH through the nightly site route: the ORU tab.
+**Item 17, BRAYN enhancement (built, migration 0174):** the RIS's modality from OBR-18 (BRAYN read
+only OBR-24/-19/-17, empty at LAUMC), with the RIS studies already stored filled.
+
 **Waiting on the operator (decisions):** item 9 switch (after the manager); item 13 PHILIPSCARM =
 RIS "PHILIPS" (C-Arm 2)? (ask SJH), the 13d BRAYN routing walkthrough, SJH's mail relay details;
 item 17 the BRAYN enhancements list; item 21 a look at Report 40 for October; item 33 reload Report

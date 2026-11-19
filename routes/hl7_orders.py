@@ -26,25 +26,41 @@ DEFAULT_FIELD_MAP = [
 ]
 
 
+def _hospital():
+    """(SQL, params) keeping the orders of the hospital picked in the header. This page reads the
+    main database (utils/site_db.MAIN_BLUEPRINTS), where the listener writes every HIS order of
+    both hospitals; SJH's own database gets none until BRAYN routes by site (item 13d)."""
+    from flask import session
+    from utils import site_db
+    from utils.his_ris import his_site_clause
+    from utils.roles import granted_site_ids
+    picked = session.get('site_id')
+    if picked not in granted_site_ids(current_user):
+        picked = site_db.default_site_id()
+    return his_site_clause('hl7_orders', site_db.site_code(picked) or 'RH')
+
+
 def _count_orders(date_str):
     """Return (performed, cancelled) for a given date. CA = cancelled, everything else = performed."""
-    row = db.session.execute(text("""
+    site_sql, site_params = _hospital()
+    row = db.session.execute(text(f"""
         SELECT
             COUNT(*) FILTER (WHERE UPPER(COALESCE(order_status, '')) != 'CA') AS performed,
             COUNT(*) FILTER (WHERE UPPER(COALESCE(order_status, '')) = 'CA')  AS cancelled
         FROM hl7_orders
-        WHERE DATE(scheduled_datetime) = :d OR DATE(received_at) = :d
-    """), {"d": date_str}).fetchone()
+        WHERE (DATE(scheduled_datetime) = :d OR DATE(received_at) = :d) AND {site_sql}
+    """), {"d": date_str, **site_params}).fetchone()
     return (int(row[0] or 0), int(row[1] or 0))
 
 
 def _fetch_orders(date_str=None, modality=None, status=None):
     """Fetch hl7_orders with optional filters. Returns list of dicts."""
-    filters = ["1=1", "(order_status IS NULL OR order_status <> 'CM')"]
-    params  = {}
+    site_sql, site_params = _hospital()
+    filters = ["1=1", "(order_status IS NULL OR order_status <> 'CM')", site_sql]
+    params  = dict(site_params)
 
     if date_str:
-        filters.append("DATE(scheduled_datetime) = :date OR DATE(received_at) = :date")
+        filters.append("(DATE(scheduled_datetime) = :date OR DATE(received_at) = :date)")
         params['date'] = date_str
     else:
         today = date.today().isoformat()

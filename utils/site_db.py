@@ -45,9 +45,10 @@ logger = logging.getLogger("SITE_DB")
 # Tables that exist once, in the main database, whatever site a request reads.
 # Screens that read and write the main database whatever site the header picks: the BRAYN
 # console (its tables, its switch and every HL7 message live there until BRAYN routes by site,
-# item 13d) and the Live Department board, which reads BRAYN's tables and picks the hospital
-# itself (item 38). Like @main_only, for a whole blueprint.
-MAIN_BLUEPRINTS = frozenset({'brayn_console', 'department_board'})
+# item 13d), the Live Department board, which reads BRAYN's tables and picks the hospital
+# itself (item 38), and HL7 Orders, whose messages and field map live there too (it keeps the
+# header's hospital by the code the HIS sends, 2026-11-19). Like @main_only, for a whole blueprint.
+MAIN_BLUEPRINTS = frozenset({'brayn_console', 'department_board', 'hl7_orders'})
 
 MAIN_TABLES = frozenset({
     'users', 'user_sites', 'user_page_permissions', 'report_access_control',
