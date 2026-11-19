@@ -1001,6 +1001,9 @@ def create_app():
         func=brayn_sweep_job,
         trigger='interval',
         minutes=15,
+        # First pass 2 minutes after a start, not 15: every deploy restarts the app, and on
+        # 19 Nov three deploys in 40 minutes kept pushing the sweep back (item 17).
+        next_run_time=datetime.now(pytz.timezone("Asia/Beirut")) + timedelta(minutes=2),
         id='brayn_sweep',
         name='BRAYN sweep (every 15 min)',
         replace_existing=True,

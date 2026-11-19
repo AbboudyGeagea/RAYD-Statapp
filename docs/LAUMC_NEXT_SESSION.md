@@ -219,6 +219,11 @@ only OBR-24/-19/-17, empty at LAUMC), with the RIS studies already stored filled
   every write after BRAYN's first lookup in a message's transaction (events, study state, room,
   report link) ran under 150 ms and, fail-open, was lost silently when slower. The previous limit
   is now put back after the statement.
+- **Why the links seemed not to run (19 Nov, 23:25):** no fault. The sweep's first pass came 15
+  minutes after each start and three deploys in 40 minutes (0175 22:31, 0176 23:02, 0177 23:10,
+  hospital time) kept pushing it back; the check ran at 23:24. Sweeps had run at 22:46 (closed
+  the 42 0175 linked) and 23:01. No stuck session, nothing pending. The sweep now first runs 2
+  minutes after a start (app.py).
 
 **Waiting for the next deploy (`cd /opt/rayd && sudo bash update.sh LAUMC`), all pushed, tests
 passing (1369):** the TV layout of the Live board and Floor Plan removal (2b7ba3cb ...), Report 36
