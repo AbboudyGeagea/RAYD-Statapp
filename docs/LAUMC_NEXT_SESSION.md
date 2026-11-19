@@ -241,7 +241,10 @@ only OBR-24/-19/-17, empty at LAUMC), with the RIS studies already stored filled
   in the console. **Next:** the per-modality breakdown (query sent; best after the 05:00 ETL so the
   RIS copy has 19 Nov) decides STALLED_ARRIVED / STARTED, SKIPPED_RUNG (likely: arrival and start
   not expected for the modalities that never send them) and ORPHAN_EVENT; ORPHAN_ORDER suggested
-  off (Report 27 covers it).
+  off (Report 27 covers it). The breakdown (read-only):
+  ```bash
+  sudo docker exec rayd_db psql -U etl_user -d etl_db -c "WITH n AS (SELECT now() AT TIME ZONE 'Asia/Beirut' AS t), s AS (SELECT b.*, CASE WHEN b.ris_room LIKE 'SJH%' THEN 'SJH' ELSE 'RH' END AS hosp FROM brayn_study_state b WHERE b.cancelled_at IS NULL AND b.accession_number LIKE '1003%'), ris AS (SELECT placer_order_number, BOOL_OR(order_status IN ('exam_done', 'dictated', 'prelim', 'signed', 'approved')) AS done FROM etl_orders WHERE placer_order_number IN (SELECT placer_order_number FROM s) GROUP BY 1) SELECT s.hosp, COALESCE(s.modality, '?') AS modality, COUNT(*) FILTER (WHERE s.completed_at IS NOT NULL) AS completed, COUNT(*) FILTER (WHERE s.completed_at IS NOT NULL AND s.arrived_at IS NULL) AS done_no_arrival, COUNT(*) FILTER (WHERE s.completed_at IS NOT NULL AND s.started_at IS NULL) AS done_no_start, COUNT(*) FILTER (WHERE NOT s.is_closed AND s.arrived_at < n.t - interval '4 hours' AND s.started_at IS NULL AND s.completed_at IS NULL) AS arrived_stuck, COUNT(*) FILTER (WHERE NOT s.is_closed AND s.started_at < n.t - interval '3 hours' AND s.completed_at IS NULL) AS started_stuck, COUNT(*) FILTER (WHERE NOT s.is_closed AND COALESCE(s.started_at, s.arrived_at) < n.t - interval '3 hours' AND s.completed_at IS NULL AND r.done) AS stuck_but_done_on_ris_copy, COUNT(*) FILTER (WHERE s.ordered_at IS NULL AND s.scheduled_at IS NULL AND COALESCE(s.arrived_at, s.started_at, s.completed_at) IS NOT NULL) AS no_order_no_booking FROM s CROSS JOIN n LEFT JOIN ris r ON r.placer_order_number = s.placer_order_number GROUP BY 1, 2 ORDER BY 3 DESC;"
+  ```
 
 **Waiting for the next deploy (`cd /opt/rayd && sudo bash update.sh LAUMC`), all pushed, tests
 passing (1369):** the TV layout of the Live board and Floor Plan removal (2b7ba3cb ...), Report 36
@@ -260,8 +263,8 @@ item 33 reload Report 27's RIS tab (blue bars no longer 0); item 35 predicted vs
 limit), a9b028ef (sweep 2 min after a start), 0178 (STALLED_SCHEDULED from the appointment, still
 off), 0179 (floor plan data dropped). Morning of 20 Nov: deploy; remove the floor plan images; the
 item 1 checks (booked room, HIS vs RIS 19 Nov MRI); the BRAYN per-modality breakdown (item 17,
-query in the reply of 20 Nov 00:30, also below in item 17's notes) → which steps each modality
-sends → switch on the stall rules.
+query in item 17's notes above, "The breakdown") → which steps each modality sends → switch on
+the stall rules.
 
 **Next builds:** the SJH move before Tue 24 (runbook in item 13, "Production runbook", with the 13d
 addition above); item 17 BRAYN enhancements once listed; item 14's December rest.
