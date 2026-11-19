@@ -49,6 +49,28 @@ def test_every_note_is_complete():
             assert re.search(rf"\b{part}:\s*'[^']{{{least},}}", block), f'{key} has no {part}'
 
 
+def unescaped_quote_lines(src):
+    """Line numbers of note parts whose single-quoted string holds a bare apostrophe."""
+    part = re.compile(r"^\s*(?:%s):\s*'(.*)',?\s*$" % '|'.join(PARTS))
+    checked, bad = 0, []
+    for no, line in enumerate(src.splitlines(), 1):
+        m = part.match(line)
+        if m:
+            checked += 1
+            if re.search(r"(?<!\\)'", m.group(1)):
+                bad.append(no)
+    return checked, bad
+
+
+def test_every_note_is_one_valid_string():
+    """19 Nov: "procedure's" and "room's" unescaped closed a note's string early, so the script
+    stopped loading and every (i) on every page was empty. Write \\' or ’ inside a note."""
+    checked, bad = unescaped_quote_lines(open(JS, encoding='utf-8').read())
+    assert checked > 100, 'the note lines were not found: update unescaped_quote_lines'
+    assert not bad, f'unescaped apostrophe in static/js/chart-explanations.js, lines {bad}'
+    assert unescaped_quote_lines("    valueMeaning: 'else the procedure's only room',")[1] == [1]
+
+
 def test_every_icon_has_a_note():
     known = set(notes())
     for name, (keys, _text) in template_keys().items():
