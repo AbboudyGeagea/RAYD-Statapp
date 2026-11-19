@@ -145,7 +145,7 @@ picked hospital's database (the hospital filter kept for the main one). ORUs sta
 database: they name no hospital and the NLP worker and CRN read only the main database; the nightly
 route moves SJH's by accession with their NLP analysis (SJH's ORU tab a day late). Real-time ORU
 routing would need the NLP worker and CRN on both databases: a follow-up if wanted.
-**Runbook addition (Sat move):** after `--move`, send nothing special: within a minute the listener
+**Runbook addition (the move, before Tue 24):** after `--move`, send nothing special: within a minute the listener
 routes SJH's HIS orders. Check the next morning:
 `sudo docker exec rayd_db psql -U etl_user -d etl_db_sjh -c "SELECT COUNT(*), MAX(received_at) FROM hl7_orders;"`
 (growing) and on `etl_db` no new order naming 2000 after the move time.
@@ -163,15 +163,21 @@ on Report 32, validation against Oracle on random dates.
 **Item 17, BRAYN enhancement (built, migration 0174):** the RIS's modality from OBR-18 (BRAYN read
 only OBR-24/-19/-17, empty at LAUMC), with the RIS studies already stored filled.
 
-**Waiting on the operator (decisions):** item 9 switch (after the manager); item 13 PHILIPSCARM =
-RIS "PHILIPS" (C-Arm 2)? (ask SJH), the 13d BRAYN routing walkthrough, SJH's mail relay details;
-item 17 the BRAYN enhancements list; item 21 a look at Report 40 for October; item 33 reload Report
-27's RIS tab (blue bars no longer 0); item 37 CRN workflow with the department; item 38 a look at
-the board on each hospital after the deploy.
+**Waiting for the next deploy (`cd /opt/rayd && sudo bash update.sh LAUMC`), all pushed, tests
+passing (1369):** the TV layout of the Live board and Floor Plan removal (2b7ba3cb ...), Report 36
+(reading TAT KPI, comparison tab, five tabs loading alone, speed, signature card from Report 32),
+the HIS readers on the right database and 13d routing (0f11e9f3, 9a132604), migration 0174
+(167b4c11), the Super Report's wet reads per resident (0bbc9689). After it: any (i) opens; Report 36
+for October; the Super Report's new card; HL7 Orders on RH and SJH.
 
-**Next builds:** item 13d (BRAYN routing by site, after the walkthrough); then
-the SJH move before Tue 24 (runbook in item 13, "Production runbook (Sat 28)"); item 17 BRAYN
-enhancements once listed.
+**Waiting on the operator (decisions):** item 9 switch (after the manager); item 13 PHILIPSCARM =
+RIS "PHILIPS" (C-Arm 2)? (ask SJH), SJH's mail relay details, the day of the move (before Tue 24;
+Mon 23 is a holiday); item 17 the BRAYN enhancements list; item 21 a look at Report 40 for October;
+item 33 reload Report 27's RIS tab (blue bars no longer 0); item 35 predicted vs actual after the
+23rd; item 37 CRN workflow with the department; the floor plan data (drop or keep).
+
+**Next builds:** the SJH move before Tue 24 (runbook in item 13, "Production runbook", with the 13d
+addition above); item 17 BRAYN enhancements once listed; item 14's December rest.
 Item 1, booked room: **built 19 Nov evening (migration 0172), deploy waiting.** The RIS check
 (`scripts/sql/ris_booked_room_check.sql`, run by the operator 19 Nov): SPS = 842,468 rows, SPS_ID
 its key (one booking per exam), START_DATETIME indexed, no change date; exams never booked
