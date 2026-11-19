@@ -135,10 +135,10 @@ def test_the_six_proven_links_are_seeded():
         "SELECT UPPER(aetitle), UPPER(ris_aetitle) FROM aetitle_modality_map WHERE ris_aetitle IS NOT NULL")).all())
     db.session.commit()
     # migration 0083 seeded these AE titles (its descriptions already named three of the RIS AEs);
-    # 0164 added SJH's two renamed scanners behind its middleware
+    # 0164 added SJH's two renamed scanners behind its middleware; 0171 the Artis Q by its bookings
     assert got == {'MR750W': 'GEHCGEHC', 'MR450W': 'MR45W', 'AWPETCT': 'BAY87CT',
                    'BAY85CT': 'BAY87CT', 'AWS': 'CTHD', 'SYMBIANET': 'SYMBIA',
-                   'KIZUNA_GOC': 'KIZUNA', 'MEDISON': 'MEDISON-1'}
+                   'KIZUNA_GOC': 'KIZUNA', 'MEDISON': 'MEDISON-1', 'ARTIS121403': 'TERRA'}
 
 
 # ── the nightly RIS load ────────────────────────────────────────────────────────

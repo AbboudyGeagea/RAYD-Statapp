@@ -18,7 +18,9 @@ fix are live. **Waiting for the next `cd /opt/rayd && sudo bash update.sh LAUMC`
 - Report 27 **HIS vs RIS** tab: billed orders only (ORC-1 NW), hospital from the HIS message
   (PV1-3.7: 1000 RH, 2000 SJH), runs only on Run Analysis, **Room** breakdown (one room per order,
   Excel per room);
-- the NLP re-score fix and Report 29 speed-up (item 36, other session).
+- the NLP re-score fix and Report 29 speed-up (item 36, other session);
+- migration **0171** (item 4): ARTIS121403 shows the RIS room TERRA (IR-1); check afterwards shows
+  0171 instead of 0170.
 After the deploy: **BRAYN console → Re-check** (814 held messages from the first day).
 
 **Morning checklist, 20 Nov (after the 05:00 ETL):**
@@ -37,8 +39,8 @@ After the deploy: **BRAYN console → Re-check** (814 held messages from the fir
    ```
 
 **Waiting on the operator (decisions):** item 9 switch ("Show them as Former staff" on Report 39:
-nobody is left by PACS alone, checked 19 Nov); item 4 ARTIS121403 → INTERAET (by name) or TERRA (by
-its bookings), LEO22529 left unlinked?; item 13 PHILIPSCARM = RIS "PHILIPS" (C-Arm 2)?, the 13d
+nobody is left by PACS alone, checked 19 Nov); item 13 PHILIPSCARM = RIS "PHILIPS" (C-Arm 2)?
+(operator, 19 Nov: not known yet, ask SJH), the 13d
 BRAYN routing walkthrough, the move date (planned Sat 28) and SJH's mail relay details; item 21 a
 look at Report 40 for October; item 33 reload Report 27's RIS tab (blue bars no longer 0); item 35
 (other session): is Mon 23 Nov a holiday, storage capacity 70,000 GB. The operator's RIS worklist
@@ -242,7 +244,7 @@ forwarding the ORMs (item 1); CRN go-live steps (item 20).
 | # | Item | Where we are | Waits on | When |
 |---|------|--------------|----------|------|
 | 9 | Staff who left | deployed (0157, 0158), switch off; **19 Nov: nobody left by PACS alone** (0 rows), only people inactive on the RIS | operator: press "Show them as Former staff" on Report 39 (RH; SJH's after the move); Tanios Jalkh; Jessica Saad's PACS account | 19 Nov |
-| 4 | RIS room names | done (0161, 6 links live). 19 Nov, 90 days: ARTIS121403 = 18 exams booked on TERRA (GE Innova), 2 on INTERAET (Siemens Artis Q), 11 none; LEO22529 = 25 TERRA, 7 INTERAET, 12 none (likely a Siemens Leonardo workstation serving both rooms) | operator: link ARTIS121403 to INTERAET (by its name) or TERRA (by its bookings); LEO22529 left unlinked? | 19 Nov |
+| 4 | RIS room names | done (0161, 6 links live). 19 Nov, 90 days: ARTIS121403 = 18 exams booked on TERRA (GE Innova), 2 on INTERAET (Siemens Artis Q), 11 none; LEO22529 = 25 TERRA, 7 INTERAET, 12 none (likely a Siemens Leonardo workstation serving both rooms). **Decided 19 Nov evening (operator): ARTIS121403 → TERRA by its bookings (migration 0171, built, reads "Interventional Radiology - Innova 3131 (GE)", IR-1); LEO22529 stays unlinked** | deploy 0171 | next deploy |
 | 13 | SJH in its own database | RIS steps linked by accession; cardiology out; **built 18 Nov: device rule (0164)**, a gateway study's device is its mapped scanner, 4 scanners mapped; **SJH's database gets RH's rules (0165)**, fixing Report Composer on SJH (saw 0) | **0164, 0165, 0166 deployed and checked 18 Nov** (cath lab: 0 steps, 0 device rows); BRAYN console main-only and TERRA2/SVSM behind the gateway out: deployed 19 Nov (0 left); PHILIPSCARM = C-Arm 2?; 13d (BRAYN routing, operator walkthrough); move Sat 28 | move 28–29 |
 | 21 | Patient schedule lead time | **Report 40 deployed 18 Nov** (0167); October: 6,316 exams, every one with a booking time (earliest 13 Aug) | operator: October's median and same-day share look right? | 18–19 Nov |
 | 1 | HIS vs RIS orders | **Report 27 tab deployed 19 Nov**. 18 Nov's HIS orders: 243 RH, 165 SJH on the RIS; the 14 not on the RIS were all cancelled on the HIS. **The HIS names the hospital: PV1-3.7 = 1000 RH, 2000 SJH**; SJH locations end in -J. Built 19 Nov: an order not on the RIS takes that hospital. **Only billed orders count (operator, 19 Nov): an order the HIS sent as new (ORC-1 NW)**; one seen only as changes (RQ) is counted aside, a billed one cancelled later still counts. (No billing segment in the messages; the only "R" is ORC-7.6, the HL7 priority, not used). **Also 19 Nov:** runs only on Run Analysis (tab links fill the dates, d_start/d_end); a **Room** breakdown, the default view: HIS procedure code -> RIS catalogue (procedure_duration_map) -> MODALITY_SCHEDULE (ris_modality_schedule_stage) -> the RIS device's room, the order's hospital only. Production: the lookup knows 703 of 728 codes but 673 are bookable in several rooms, so (operator) **an order performed on the RIS takes the room the RIS used** (rpt.exams.room), only one not performed yet takes the lookup. **MRI check against the RIS app (18 Nov, operator's worklist export, 2 MRI rooms, performed that day, 34 exams):** 17 common; the RIS's 17 more were all ordered 07:07–11:25, before the HIS feed began (11:32); RAYD's 22 more were 19 RQ-only future bookings, 1 requested and 2 cancelled (none billed: the NW filter removes them) and 1 billed evening order still scheduled. The HIS sends NW on the exam/billing day, future bookings come as RQ: billed orders on a day line up with the RIS's exams that day. No bug. RAYD's own RIS copy rebuilds that list exactly (std_pps on the 2 MRI rooms, performed 18 Nov -> exam done -> order): 34 exams, 17 with a billed HIS order the same day, 17 with no HIS message **Rooms one by one (operator, 19 Nov):** one room per order: performed = the room the RIS used; not performed yet = the room the hospital performed that procedure in most over 90 days (std_pps), else its only bookable room, else "Room not decided"; each room row downloads its own Excel. (The RIS's booked room for open orders, SPS.MODALITY_KEY, is not copied yet: an Oracle check first if wanted) | deploy; 20 Nov after 05:00: the same check for 19 Nov, the first full day (command in the 19 Nov reply) | 20 Nov |
