@@ -506,16 +506,8 @@ def get_radiologist_performance_data(form_data):
         logger.exception("Failed to compute shift patterns")
         db.session.rollback()
 
-    # ── Signature turnaround from the PACS audit trail (items 14A and 14B) ──
-    # Same period and filters (sec_filters on s./m., with the site's devices); the
-    # signature is the radiologist's approval in the audit, see utils/sign_tat.py.
-    sign_tat_block = None
-    try:
-        from utils import sign_tat
-        sign_tat_block = sign_tat.build(start, end, params, sec_filters)
-    except Exception:
-        logger.exception("Failed to compute the signature turnaround")
-        db.session.rollback()
+    # The signature turnaround (utils/sign_tat.py) moved to Report 36, tab TAT comparison
+    # (operator 2026-11-19: Report 36 holds every TAT, Report 32 performance and counts).
 
     result = ({
         "summary": summary,
@@ -524,7 +516,6 @@ def get_radiologist_performance_data(form_data):
         "addendum_data": addendum_data,
         "shift_patterns": shift_patterns,
         "sla": sla_summary,
-        "sign_tat": sign_tat_block,
     }, start, end)
     cache_put(32, form_data, result)
     return result

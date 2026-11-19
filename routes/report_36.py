@@ -569,6 +569,21 @@ def _reading(form_data):
     return _cached('reading', form_data, compute)
 
 
+def _signature(form_data):
+    """The signature turnaround, four clocks per signing radiologist (utils/sign_tat.build),
+    moved here from Report 32 (operator 2026-11-19: Report 36 holds every TAT)."""
+    def compute():
+        from utils import sign_tat
+        params, clause, start, end = _sidebar_filters(form_data)
+        try:
+            return sign_tat.build(start, end, params, clause)
+        except Exception:
+            logger.exception("Failed to compute the signature turnaround")
+            db.session.rollback()
+            return None
+    return _cached('signature', form_data, compute)
+
+
 def _gold(form_data):
     """Report 25's dataset (cached under report 25 by get_gold_standard_data itself)."""
     gold, _start, _end = get_gold_standard_data(form_data)
@@ -583,7 +598,7 @@ def part_context(name, form_data):
     if name == 'residents':
         return {'res_rad_tat': _cached('resrad', form_data, lambda: get_resident_radiologist_tat(form_data))}
     if name == 'compare':
-        return {'reading_tat': _reading(form_data)}
+        return {'reading_tat': _reading(form_data), 'sign_tat': _signature(form_data)}
     if name == 'modality':
         # two queries over the studies in range; the technician TAT, which needs Report 25's
         # whole dataset, is on the workload tab, which builds that dataset anyway (2026-11-19)

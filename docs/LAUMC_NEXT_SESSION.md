@@ -149,6 +149,12 @@ routing would need the NLP worker and CRN on both databases: a follow-up if want
 routes SJH's HIS orders. Check the next morning:
 `sudo docker exec rayd_db psql -U etl_user -d etl_db_sjh -c "SELECT COUNT(*), MAX(received_at) FROM hl7_orders;"`
 (growing) and on `etl_db` no new order naming 2000 after the move time.
+**Item 14, where TAT lives (operator, 19 Nov night):** Report 36 holds every TAT, Report 32
+performance and report counts. Built: Report 32's Signature Turnaround card (four clocks per signing
+radiologist, PACS audit trail) moved to Report 36's TAT comparison tab, below the three-clock
+comparison, its own cached part; its (i) notes renamed r36-sign-*. Still open in item 14 (December):
+Report 25's TAT duplicates, per-resident adjustable bands, counts per radiologist per day per modality
+on Report 32, validation against Oracle on random dates.
 **Item 17, BRAYN enhancement (built, migration 0174):** the RIS's modality from OBR-18 (BRAYN read
 only OBR-24/-19/-17, empty at LAUMC), with the RIS studies already stored filled.
 

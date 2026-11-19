@@ -284,11 +284,17 @@ def test_report_36_shows_its_tabs_before_generate(client, monkeypatch):
     assert 'new FormData(form)' in page                     # a tab sends the panel's current values
 
 
-def test_report_32_shows_the_turnaround(client):
+def test_the_signature_turnaround_moved_from_report_32_to_report_36(client):
+    """Operator, 2026-11-19: Report 36 holds every TAT (its TAT comparison tab), Report 32
+    performance and counts."""
     six_studies()
+    q = {'start_date': DAY, 'end_date': DAY}
 
-    html = client.get('/report/32', headers=ADMIN, query_string={'start_date': DAY, 'end_date': DAY}).get_data(as_text=True)
+    r36 = client.get('/report/36/part/compare', headers=ADMIN, query_string=q).get_data(as_text=True)
+    r32 = client.get('/report/32', headers=ADMIN, query_string=q).get_data(as_text=True)
 
-    assert 'Signature Turnaround (PACS audit trail)' in html
-    assert 'id="chart-sign-exam"' in html and 'id="chart-sign-arrival"' in html and 'id="chart-sign-open"' in html
-    assert '3 signed of 4' in html
+    assert 'id="chart-sign-exam"' in r36 and 'id="chart-sign-arrival"' in r36 and 'id="chart-sign-open"' in r36
+    assert '3 signed of 4' in r36
+    for key in ('r36-sign-exam', 'r36-sign-arrival', 'r36-sign-open'):
+        assert f'data-explain="{key}"' in r36
+    assert 'chart-sign-exam' not in r32 and 'Signature Turnaround' not in r32

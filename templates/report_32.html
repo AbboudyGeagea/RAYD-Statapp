@@ -338,52 +338,8 @@
                 </div>
             </div>
 
-            <!-- ── Signature turnaround from the PACS audit trail (items 14A, 14B) ── -->
-            {% set st = data.sign_tat %}
-            <div class="data-card !h-auto" id="r32-sign-card">
-                <div class="card-header">
-                    <span><i class="bi bi-stopwatch"></i> Signature Turnaround (PACS audit trail)</span>
-                </div>
-                <div class="card-desc">
-                    The signature is the radiologist's approval recorded in the PACS audit trail, to the second
-                    (the PACS makes the report final 15 minutes later). Bars show the median hours per signing
-                    radiologist; hover for the 90th percentile and the number of studies.
-                    {% if st and st.coverage %}Studies that arrived from {{ st.coverage.from }} to {{ st.coverage.until }}:
-                    {{ '{:,}'.format(st.signed) }} signed of {{ '{:,}'.format(st.studies) }}.{% endif %}
-                </div>
-                {% if st and st.signed %}
-                <div class="p-5">
-                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                        {% for m in st.measures %}{% set o = st.overall[m.key] %}
-                        <div class="bg-[#0b0f0e] border border-[#2d3733] rounded-xl p-4 text-center">
-                            <p class="text-[9px] font-black text-slate-500 uppercase mb-1">{{ m.label }}</p>
-                            <p class="text-3xl font-black text-white">{% if o.median_h is not none %}{{ o.median_h }} h{% else %}—{% endif %}</p>
-                            <p class="text-[11px] text-slate-600 italic mt-1">median · p90 {{ o.p90_h if o.p90_h is not none else '—' }} h · {{ '{:,}'.format(o.n) }} studies</p>
-                        </div>
-                        {% endfor %}
-                    </div>
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <div class="bg-[#0b0f0e] border border-[#2d3733] rounded-xl p-3">
-                            <p class="text-[10px] font-black text-slate-400 uppercase mb-2">RIS exam done → signature<i class="bi bi-info-circle chart-info-icon" data-explain="r32-sign-exam" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
-                            <div id="chart-sign-exam"></div>
-                        </div>
-                        <div class="bg-[#0b0f0e] border border-[#2d3733] rounded-xl p-3">
-                            <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Images reach PACS → signature<i class="bi bi-info-circle chart-info-icon" data-explain="r32-sign-arrival" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
-                            <div id="chart-sign-arrival"></div>
-                        </div>
-                    </div>
-                    <div class="bg-[#0b0f0e] border border-[#2d3733] rounded-xl p-3 mt-4">
-                        <p class="text-[10px] font-black text-slate-400 uppercase mb-2">Reporting time: first open → signature<i class="bi bi-info-circle chart-info-icon" data-explain="r32-sign-open" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
-                        <div id="chart-sign-open"></div>
-                    </div>
-                </div>
-                {% else %}
-                <div class="text-center py-10 text-slate-600 italic text-sm">
-                    {% if st and st.coverage %}No radiologist approval found in the PACS audit trail for these studies.
-                    {% else %}The PACS audit trail has not been copied yet; it is read by the nightly ETL.{% endif %}
-                </div>
-                {% endif %}
-            </div>
+            {# The signature turnaround card moved to Report 36, tab TAT comparison (operator
+               2026-11-19: Report 36 holds every TAT, Report 32 performance and counts). #}
 
             <!-- ── Addendum Rate per Radiologist ──────────────────────────────── -->
             <div class="data-card !h-auto">
@@ -925,50 +881,6 @@
 
             r32RadToggle('mod');
             buildProcTable();
-        })();
-
-        // ══════════════════════════════════════════════════════════════════
-        // Signature turnaround (PACS audit trail, items 14A and 14B)
-        // ══════════════════════════════════════════════════════════════════
-        (function () {
-            const ST = {{ (data.sign_tat or {}) | tojson }};
-            if (!ST.by_rad || !ST.by_rad.length) return;
-            const rads = ST.by_rad.slice(0, 30);
-            const names = rads.map(r => `${r.name || r.login} (${r.signed})`);
-            const fmt = h => h == null ? '—' : (h < 1 ? Math.round(h * 60) + ' min' : h.toFixed(1) + ' h');
-            const axisStyle = {
-                axisLabel: { color: '#64748b', fontSize: 11 },
-                splitLine: { lineStyle: { color: '#2d3733' } },
-            };
-            function bars(id, keys, colors, labels) {
-                const el = document.getElementById(id);
-                if (!el) return;
-                el.style.height = Math.max(220, 26 * rads.length + 50) + 'px';
-                initChart32(id, {
-                    tooltip: {
-                        trigger: 'axis', axisPointer: { type: 'shadow' },
-                        formatter: ps => ps[0].name + ps.map(p => {
-                            const s = rads[p.dataIndex][keys[p.seriesIndex]];
-                            return `<br>${p.marker}${p.seriesName}: median <b>${fmt(s.median_h)}</b>, p90 ${fmt(s.p90_h)} (${s.n} studies)`;
-                        }).join(''),
-                    },
-                    legend: keys.length > 1 ? { top: 0, textStyle: { color: '#94a3b8', fontSize: 11 } } : undefined,
-                    grid: { left: 180, right: 60, top: keys.length > 1 ? 30 : 10, bottom: 20 },
-                    xAxis: { type: 'value', name: 'Median hours', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
-                    yAxis: { type: 'category', data: names, inverse: true, ...axisStyle },
-                    series: keys.map((k, i) => ({
-                        name: labels[i], type: 'bar',
-                        data: rads.map(r => r[k].median_h),
-                        itemStyle: { color: colors[i], borderRadius: [0, 4, 4, 0] },
-                        label: { show: keys.length === 1, position: 'right', color: '#64748b', fontSize: 10,
-                                 formatter: p => p.value == null ? '' : fmt(p.value) },
-                    })),
-                });
-            }
-            bars('chart-sign-exam', ['exam_to_sign'], ['#60a5fa'], ['RIS exam done → signature']);
-            bars('chart-sign-arrival', ['arrival_to_sign'], ['#a78bfa'], ['Images reach PACS → signature']);
-            bars('chart-sign-open', ['open_to_sign', 'signer_open_to_sign'], ['#34d399', '#fbbf24'],
-                 ["From the first reader's open", "From the signer's own open"]);
         })();
 
         // ══════════════════════════════════════════════════════════════════

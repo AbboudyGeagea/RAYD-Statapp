@@ -75,3 +75,76 @@
                 drawCompare();
             })();
             </script>
+
+            <!-- ── Signature turnaround, four clocks per radiologist (moved from Report 32, operator
+                 2026-11-19: Report 36 holds every TAT; items 14A, 14B) ── -->
+            {% set st = sign_tat %}
+            <p class="section-desc mt-8">
+                Signature turnaround per signing radiologist, four clocks to the radiologist's approval in the PACS
+                audit trail (the PACS makes the report final 15 minutes later). Bars show the median hours; hover for
+                the 90th percentile and the number of studies.
+                {% if st and st.coverage %}Studies that arrived from {{ st.coverage.from }} to {{ st.coverage.until }}:
+                {{ '{:,}'.format(st.signed) }} signed of {{ '{:,}'.format(st.studies) }}.{% endif %}
+            </p>
+            <div class="glass-card" id="r36-sign-card">
+                {% if st and st.signed %}
+                <div class="grid grid-cols-4 gap-3 mb-4">
+                    {% for m in st.measures %}{% set o = st.overall[m.key] %}
+                    <div class="r36-kpi"><div class="v">{% if o.median_h is not none %}{{ o.median_h }} h{% else %}—{% endif %}</div>
+                        <div class="l">{{ m.label }}</div>
+                        <div class="text-[11px] text-zinc-500 mt-1">p90 {{ o.p90_h if o.p90_h is not none else '—' }} h · {{ '{:,}'.format(o.n) }} studies</div></div>
+                    {% endfor %}
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><p class="chart-card-title mb-2">RIS exam done → signature<i class="bi bi-info-circle chart-info-icon" data-explain="r36-sign-exam" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
+                        <div id="chart-sign-exam"></div></div>
+                    <div><p class="chart-card-title mb-2">Images reach PACS → signature<i class="bi bi-info-circle chart-info-icon" data-explain="r36-sign-arrival" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
+                        <div id="chart-sign-arrival"></div></div>
+                </div>
+                <div class="mt-4"><p class="chart-card-title mb-2">Reporting time: first open → signature<i class="bi bi-info-circle chart-info-icon" data-explain="r36-sign-open" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
+                    <div id="chart-sign-open"></div></div>
+                {% else %}
+                <p class="text-sm text-zinc-500 italic">
+                    {% if st and st.coverage %}No radiologist approval found in the PACS audit trail for these studies.
+                    {% else %}The PACS audit trail has not been copied yet; it is read by the nightly ETL.{% endif %}
+                </p>
+                {% endif %}
+            </div>
+            <script>
+            (function () {
+                const ST = {{ (sign_tat or {}) | tojson }};
+                if (!ST.by_rad || !ST.by_rad.length || !window.echarts) return;
+                const rads = ST.by_rad.slice(0, 30);
+                const names = rads.map(r => `${r.name || r.login} (${r.signed})`);
+                const fmt = h => h == null ? '—' : (h < 1 ? Math.round(h * 60) + ' min' : h.toFixed(1) + ' h');
+                const axisStyle = {axisLabel: {color: '#94a3b8', fontSize: 11}, splitLine: {lineStyle: {color: 'rgba(255,255,255,0.06)'}}};
+                function bars(id, keys, colors, labels) {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    el.style.height = Math.max(220, 26 * rads.length + 50) + 'px';
+                    const chart = echarts.init(el);
+                    chart.setOption({
+                        tooltip: {trigger: 'axis', axisPointer: {type: 'shadow'},
+                            formatter: ps => ps[0].name + ps.map(p => {
+                                const s = rads[p.dataIndex][keys[p.seriesIndex]];
+                                return `<br>${p.marker}${p.seriesName}: median <b>${fmt(s.median_h)}</b>, p90 ${fmt(s.p90_h)} (${s.n} studies)`;
+                            }).join('')},
+                        legend: keys.length > 1 ? {top: 0, textStyle: {color: '#94a3b8', fontSize: 11}} : undefined,
+                        grid: {left: 180, right: 60, top: keys.length > 1 ? 30 : 10, bottom: 20},
+                        xAxis: {type: 'value', name: 'Median hours', nameTextStyle: {color: '#64748b', fontSize: 11}, ...axisStyle},
+                        yAxis: {type: 'category', data: names, inverse: true, ...axisStyle},
+                        series: keys.map((k, i) => ({
+                            name: labels[i], type: 'bar', data: rads.map(r => r[k].median_h),
+                            itemStyle: {color: colors[i], borderRadius: [0, 4, 4, 0]},
+                            label: {show: keys.length === 1, position: 'right', color: '#94a3b8', fontSize: 10,
+                                    formatter: p => p.value == null ? '' : fmt(p.value)},
+                        })),
+                    });
+                    if (typeof registerChart === 'function') registerChart(id, chart);
+                }
+                bars('chart-sign-exam', ['exam_to_sign'], ['#34d399'], ['RIS exam done → signature']);
+                bars('chart-sign-arrival', ['arrival_to_sign'], ['#60a5fa'], ['Images reach PACS → signature']);
+                bars('chart-sign-open', ['open_to_sign', 'signer_open_to_sign'], ['#a78bfa', '#f59e0b'],
+                     ["From the first reader's open", "From the signer's own open"]);
+            })();
+            </script>
