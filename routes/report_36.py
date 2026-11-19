@@ -350,40 +350,51 @@ def get_patient_wait_time(form_data):
 
     rows = []
     try:
+        # The studies in range first, then only their RIS steps (2026-11-19): the scheduled and
+        # arrived steps used to be grouped over every row ever recorded, whatever the dates.
         rows = db.session.execute(text(f"""
-            WITH scheduled AS (
-                SELECT p.study_instance_uid, MIN(sc.scheduled_at) AS scheduled_at
-                FROM std_worklist_scheduled sc
-                JOIN std_pps p ON p.pps_key = sc.pps_key
-                WHERE p.study_instance_uid IS NOT NULL
-                GROUP BY p.study_instance_uid
-            ),
-            arrival AS (
-                SELECT p.study_instance_uid, MIN(wa.arrived_at) AS arrived_at
-                FROM std_worklist_arrivals wa
-                JOIN std_pps p ON p.pps_key = wa.pps_key
-                WHERE p.study_instance_uid IS NOT NULL
-                GROUP BY p.study_instance_uid
-            ),
-            wait AS (
+            WITH studies AS MATERIALIZED (
                 SELECT
-                    s.study_db_uid,
+                    s.study_db_uid, s.study_instance_uid,
                     COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
                     CASE
                         WHEN s.patient_location = 'ER' THEN 'ER'
                         WHEN s.patient_class = 'I' THEN 'Inpatient'
                         WHEN s.patient_class = 'O' THEN 'Outpatient'
                         ELSE 'Other'
-                    END AS patient_class_bucket,
-                    EXTRACT(EPOCH FROM (ar.arrived_at - sc.scheduled_at)) / 60.0 AS wait_minutes
+                    END AS patient_class_bucket
                 FROM etl_didb_studies s
-                JOIN scheduled sc ON sc.study_instance_uid = s.study_instance_uid
-                JOIN arrival ar ON ar.study_instance_uid = s.study_instance_uid
                 LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
-                WHERE ar.arrived_at > sc.scheduled_at
-                  AND s.study_date BETWEEN :start AND :end
+                WHERE s.study_date BETWEEN :start AND :end
+                  AND s.study_instance_uid IS NOT NULL
                   AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS', 'BMD')
                   {filter_clause}
+            ),
+            steps AS MATERIALIZED (
+                SELECT p.study_instance_uid, p.pps_key
+                FROM std_pps p
+                WHERE p.study_instance_uid IN (SELECT study_instance_uid FROM studies)
+            ),
+            scheduled AS (
+                SELECT st.study_instance_uid, MIN(sc.scheduled_at) AS scheduled_at
+                FROM steps st
+                JOIN std_worklist_scheduled sc ON sc.pps_key = st.pps_key
+                GROUP BY st.study_instance_uid
+            ),
+            arrival AS (
+                SELECT st.study_instance_uid, MIN(wa.arrived_at) AS arrived_at
+                FROM steps st
+                JOIN std_worklist_arrivals wa ON wa.pps_key = st.pps_key
+                GROUP BY st.study_instance_uid
+            ),
+            wait AS (
+                SELECT
+                    s.study_db_uid, s.modality, s.patient_class_bucket,
+                    EXTRACT(EPOCH FROM (ar.arrived_at - sc.scheduled_at)) / 60.0 AS wait_minutes
+                FROM studies s
+                JOIN scheduled sc ON sc.study_instance_uid = s.study_instance_uid
+                JOIN arrival ar ON ar.study_instance_uid = s.study_instance_uid
+                WHERE ar.arrived_at > sc.scheduled_at
             )
             SELECT
                 modality, patient_class_bucket,
@@ -574,14 +585,18 @@ def part_context(name, form_data):
     if name == 'compare':
         return {'reading_tat': _reading(form_data)}
     if name == 'modality':
+        # two queries over the studies in range; the technician TAT, which needs Report 25's
+        # whole dataset, is on the workload tab, which builds that dataset anyway (2026-11-19)
         return _cached('modality', form_data, lambda: {
             'modality_tat': get_modality_tat(form_data),
-            'wait_time_data': get_patient_wait_time(form_data),
-            'tech_tat_cards': _gold(form_data).get('tech_tat_cards')})
+            'wait_time_data': get_patient_wait_time(form_data)})
     if name == 'workload':
-        return _cached('workload', form_data, lambda: {
-            'rad_volume_matrix': _gold(form_data).get('rad_volume_matrix'),
-            'shift_patterns': get_reporting_cadence(form_data)})
+        def workload():
+            gold = _gold(form_data)
+            return {'rad_volume_matrix': gold.get('rad_volume_matrix'),
+                    'tech_tat_cards': gold.get('tech_tat_cards'),
+                    'shift_patterns': get_reporting_cadence(form_data)}
+        return _cached('workload', form_data, workload)
     raise KeyError(name)
 
 
@@ -621,6 +636,9 @@ def report_36_part(name):
     _require_access()
     if name not in PARTS:
         abort(404)
+    from utils.audit import log_event
+    log_event('report_run', category='report', resource_type='report_36',
+              detail={'part': name, 'from': request.values.get('start_date'), 'to': request.values.get('end_date')})
     return render_template(f"_report_36_{name}.html", **part_context(name, request.values))
 
 

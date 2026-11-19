@@ -117,6 +117,13 @@ and has five tabs, each fetched alone the first time it is opened (`/report/36/p
 KPI + radiologists' TAT, the default), **Residents**, **TAT comparison**, **Modality & wait**
 (modality TAT, patient wait, technician TAT), **Workload & cadence**. Residents and radiologists
 are apart, as asked. Check after the deploy: Report 36 opens at once; each tab's first open.
+**Follow-up the same evening (operator):** the tabs now show when the page opens (they appeared only
+after Generate); a tab loads when pressed, with the left panel's current values, and reloads when
+they changed. Modality & wait made faster: the patient wait looks up the scheduled / arrived steps
+of the studies in range only (it grouped every row ever recorded), and the technician TAT by AE
+station moved to the workload tab ("Workload, technicians & cadence"), which builds Report 25's
+dataset anyway; Modality & wait no longer needs it. tests/test_report_36_queries.py pins the
+three queries' figures (same results before and after).
 
 **Waiting on the operator (decisions):** item 9 switch (after the manager); item 13 PHILIPSCARM =
 RIS "PHILIPS" (C-Arm 2)? (ask SJH), the 13d BRAYN routing walkthrough, SJH's mail relay details;

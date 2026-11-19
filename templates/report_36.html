@@ -76,10 +76,9 @@
         </header>
 
         <div class="flex-1 overflow-y-auto p-8">
-            {% if run_report %}
-            {# Each tab loads alone the first time it is opened (operator 2026-11-19: "report 36
-               loading is slow"): /report/36/part/<name> with this page's filters, rendered from the
-               partial named in data-part-template, cached five minutes per part. #}
+            {# The tabs show at once and each loads alone when pressed (operator 2026-11-19: "report 36
+               loading is slow"): /report/36/part/<name> with the left panel's current values,
+               rendered from the partial named in data-part-template, cached five minutes per part. #}
             <style>
                 .r36-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:20px; }
                 .r36-tab { padding:8px 16px; border-radius:10px; border:1px solid #28332e; background:#181f1c; color:#94a3b8; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; cursor:pointer; }
@@ -108,7 +107,11 @@
                 <button class="r36-tab" role="tab" data-tab="residents" aria-selected="false">Residents</button>
                 <button class="r36-tab" role="tab" data-tab="compare" aria-selected="false">TAT comparison: RIS · PACS · reading</button>
                 <button class="r36-tab" role="tab" data-tab="modality" aria-selected="false">Modality &amp; wait</button>
-                <button class="r36-tab" role="tab" data-tab="workload" aria-selected="false">Workload &amp; cadence</button>
+                <button class="r36-tab" role="tab" data-tab="workload" aria-selected="false">Workload, technicians &amp; cadence</button>
+            </div>
+            <div id="r36-hint" class="glass-card text-center py-10 text-zinc-500">
+                <i class="bi bi-hand-index-thumb text-3xl block opacity-40 mb-2"></i>
+                Press a tab: it loads on its own, with the dates and filters on the left.
             </div>
             <div class="r36-part" id="r36-part-radiologists" role="tabpanel" data-part-template="_report_36_radiologists.html" hidden></div>
             <div class="r36-part" id="r36-part-residents" role="tabpanel" data-part-template="_report_36_residents.html" hidden></div>
@@ -214,8 +217,16 @@
                     render();
                 }
 
-                // ── the tabs: each loads alone, the first time it is opened ──
-                const QUERY = location.search;
+                // ── the tabs: always shown; each loads alone when pressed, with the dates and
+                // filters the left panel holds at that moment (operator 2026-11-19), and again
+                // when they have changed since ──
+                const GENERATED = {{ 'true' if run_report else 'false' }};
+                function currentQuery() {
+                    const form = document.getElementById('mainForm');
+                    if (!form) return location.search;
+                    const q = new URLSearchParams(new FormData(form)).toString();
+                    return q ? '?' + q : '';
+                }
                 function runScripts(el) {
                     el.querySelectorAll('script').forEach(old => {
                         const s = document.createElement('script');
@@ -223,22 +234,29 @@
                         old.replaceWith(s);
                     });
                 }
-                function load(name) {
+                function load(name, force) {
                     const el = document.getElementById('r36-part-' + name);
-                    if (!el || el.dataset.state === 'loading' || el.dataset.state === 'done') return;
+                    const q = currentQuery();
+                    if (!el || (el.dataset.state === 'loading' && el.dataset.query === q)) return;
+                    if (!force && el.dataset.state === 'done' && el.dataset.query === q) return;   // same filters: as it was
                     el.dataset.state = 'loading';
+                    el.dataset.query = q;
                     el.innerHTML = '<div class="r36-loading"><span class="spin"></span> Loading…</div>';
-                    fetch('/report/36/part/' + name + QUERY, {headers: {'Accept': 'text/html'}, credentials: 'same-origin'})
+                    fetch('/report/36/part/' + name + q, {headers: {'Accept': 'text/html'}, credentials: 'same-origin'})
                         .then(r => { if (r.status === 401) { location.reload(); throw new Error('signed out'); }
                                      if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-                        .then(html => { el.innerHTML = html; el.dataset.state = 'done'; runScripts(el); })
+                        .then(html => {
+                            if (el.dataset.query !== q) return;                  // filters changed meanwhile
+                            el.innerHTML = html; el.dataset.state = 'done'; runScripts(el);
+                        })
                         .catch(e => {
                             el.dataset.state = '';
                             el.innerHTML = `<div class="glass-card text-center py-10 text-zinc-500">This part could not be loaded (${e.message}).
-                                <button class="r36-mini-btn" style="margin-left:8px" onclick="R36.load('${name}')">Try again</button></div>`;
+                                <button class="r36-mini-btn" style="margin-left:8px" onclick="R36.load('${name}', true)">Try again</button></div>`;
                         });
                 }
                 function show(name) {
+                    document.getElementById('r36-hint').hidden = true;
                     document.querySelectorAll('.r36-part').forEach(p => { p.hidden = p.id !== 'r36-part-' + name; });
                     document.querySelectorAll('.r36-tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
                     load(name);
@@ -247,21 +265,21 @@
                         const c = window.echarts && echarts.getInstanceByDom(el);
                         if (c) c.resize();
                     });
-                    try { history.replaceState(null, '', location.pathname + location.search + (name === 'radiologists' ? '' : '#' + name)); } catch (e) {}
+                    try { localStorage.setItem('r36.tab', name); } catch (e) {}
+                    try { history.replaceState(null, '', location.pathname + location.search + '#' + name); } catch (e) {}
                 }
                 document.querySelectorAll('.r36-tab').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
-                const first = location.hash.slice(1);
-                show(document.getElementById('r36-part-' + first) ? first : 'radiologists');
+                // After Generate: the tab in the address, else the last one used, else Radiologists.
+                // Opened without dates: the tabs wait for a press.
+                const known = n => !!(n && document.getElementById('r36-part-' + n));
+                const inAddress = location.hash.slice(1);
+                let remembered = null;
+                try { remembered = localStorage.getItem('r36.tab'); } catch (e) { remembered = null; }
+                if (known(inAddress)) show(inAddress);
+                else if (GENERATED) show(known(remembered) ? remembered : 'radiologists');
                 return {card, cards, load, show, heatmapOption};
             })();
             </script>
-            {% else %}
-            <div class="h-full flex flex-col items-center justify-center opacity-20">
-                <i class="bi bi-cpu text-6xl mb-4"></i>
-                <h2 class="text-2xl font-black uppercase tracking-tighter">Engine Standby</h2>
-                <p class="text-sm mt-2">Select a date range and click Update View</p>
-            </div>
-            {% endif %}
         </div>
     </main>
     </div>

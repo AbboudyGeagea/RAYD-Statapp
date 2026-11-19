@@ -258,7 +258,7 @@ def test_report_36_opens_without_computing_and_each_tab_loads_alone(client, monk
     for part, expected in (('residents', ['get_resident_radiologist_tat']),
                            ('radiologists', ['reading']),                    # TAT shared with residents (cached)
                            ('compare', ['reading']),
-                           ('modality', ['get_modality_tat', 'get_patient_wait_time', 'get_gold_standard_data']),
+                           ('modality', ['get_modality_tat', 'get_patient_wait_time']),   # no Report 25 dataset
                            ('workload', ['get_gold_standard_data', 'get_reporting_cadence'])):
         called.clear()
         r = client.get(f'/report/36/part/{part}', headers=ADMIN, query_string=q)
@@ -267,6 +267,21 @@ def test_report_36_opens_without_computing_and_each_tab_loads_alone(client, monk
     assert client.get('/report/36/part/nothing', headers=ADMIN, query_string=q).status_code == 404
     resident = client.get('/report/36/part/residents', headers=ADMIN, query_string=q).get_data(as_text=True)
     assert 'Residents — Median TAT' in resident and 'Radiologists — Median TAT' not in resident
+    workload = client.get('/report/36/part/workload', headers=ADMIN, query_string=q).get_data(as_text=True)
+    modality = client.get('/report/36/part/modality', headers=ADMIN, query_string=q).get_data(as_text=True)
+    assert 'Technician TAT by AE Station' in workload and 'Technician TAT by AE Station' not in modality
+
+
+def test_report_36_shows_its_tabs_before_generate(client, monkeypatch):
+    """Operator, 2026-11-19: the tabs show when the page opens; each loads its data when
+    pressed, with the left panel's values."""
+    import routes.report_36 as r36
+    monkeypatch.setattr(r36, 'part_context', lambda *a, **k: (_ for _ in ()).throw(AssertionError('a part ran')))
+    page = client.get('/report/36', headers=ADMIN).get_data(as_text=True)
+    for tab in r36.PARTS:
+        assert f'data-tab="{tab}"' in page
+    assert 'id="r36-hint"' in page and 'const GENERATED = false' in page
+    assert 'new FormData(form)' in page                     # a tab sends the panel's current values
 
 
 def test_report_32_shows_the_turnaround(client):
