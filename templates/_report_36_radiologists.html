@@ -1,0 +1,80 @@
+{# Report 36, tab Radiologists (loaded alone, routes/report_36.part_context): the reading
+   TAT KPI card, then the radiologists' median TAT (exam done -> signature). #}
+{% from '_report_36_macros.html' import info, hours, band_bar, heatmap_card %}
+{% set rt = reading_tat %}
+            <!-- ── Radiologist reading TAT, the KPI (operator 2026-11-19) ── -->
+            <p class="section-desc">
+                Radiologist reading TAT, the KPI: from the approving radiologist's first open after the wet
+                read (Signed 1), or their first open when the study had no wet read, to their approval in PACS.
+                From the PACS audit trail{% if rt and rt.coverage %}, studies that reached PACS since {{ rt.coverage.from }}{% endif %}.
+            </p>
+            <div class="glass-card mb-8">
+                <div class="chart-card-header" style="padding:0 0 12px 0;">
+                    <span class="chart-card-title" style="color:#f59e0b;">Radiologist Reading TAT (KPI){{ info('r36-reading-kpi', 'this card') }}</span>
+                </div>
+                {% if not rt or not rt.coverage %}
+                <p class="text-sm text-zinc-500 italic">The PACS audit trail copy holds nothing for these dates yet.</p>
+                {% elif not rt.approved %}
+                <p class="text-sm text-zinc-500 italic">No study in this range was approved in PACS (of {{ rt.studies }} studies).</p>
+                {% else %}
+                {% set k = rt.kpi.all %}
+                <div class="grid grid-cols-4 gap-3 mb-4">
+                    <div class="r36-kpi"><div class="v">{{ hours(k.median_h) }}</div><div class="l">Median{{ info('r36-reading-median') }}</div></div>
+                    <div class="r36-kpi"><div class="v">{{ hours(k.p90_h) }}</div><div class="l">90th percentile{{ info('r36-reading-p90') }}</div></div>
+                    <div class="r36-kpi"><div class="v">{{ '{:,}'.format(k.n) }}</div><div class="l">Measured, of {{ '{:,}'.format(rt.approved) }} approved{{ info('r36-reading-measured') }}</div></div>
+                    <div class="r36-kpi"><div class="v">{{ '{:,}'.format(rt.not_measured) }}</div><div class="l">Not measured{{ info('r36-reading-not-measured') }}</div></div>
+                </div>
+                <table class="r36-tbl mb-6">
+                    <thead><tr><th>Studies{{ info('r36-reading-bands', 'these bands') }}</th><th>Approved</th><th>Measured</th><th>Median</th><th>90th pct</th>
+                        <th style="text-align:left;min-width:240px;">{% for l in rt.bands %}<span class="r36-band b{{ loop.index }}" style="display:inline-block;width:auto;padding:0 6px;border-radius:4px;margin-right:4px;">{{ l }}</span>{% endfor %}</th></tr></thead>
+                    <tbody>
+                    {% for label, row in [('All', rt.kpi.all), ('With a wet read', rt.kpi.wet), ('Without a wet read', rt.kpi.no_wet)] %}
+                    <tr><td class="font-bold">{{ label }}</td><td>{{ '{:,}'.format(row.studies) }}</td><td>{{ '{:,}'.format(row.n) }}</td>
+                        <td>{{ hours(row.median_h) }}</td><td>{{ hours(row.p90_h) }}</td><td style="text-align:left;">{{ band_bar(row.bands) }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                <div class="grid grid-cols-2 gap-6">
+                    {% for title, key, rows, first in [('By approving radiologist', 'r36-reading-by-rad', rt.by_rad, 'name'), ('By modality', 'r36-reading-by-mod', rt.by_modality, 'modality')] %}
+                    <div>
+                        <p class="chart-card-title mb-2">{{ title }}{{ info(key, 'this table') }}</p>
+                        <div style="max-height:320px;overflow-y:auto;">
+                        <table class="r36-tbl">
+                            <thead><tr><th>{{ 'Radiologist' if first == 'name' else 'Modality' }}</th><th>Measured</th><th>Median</th><th>90th pct</th>{% for l in rt.bands %}<th>{{ l }}</th>{% endfor %}</tr></thead>
+                            <tbody>
+                            {% for r in rows %}
+                            <tr><td>{{ r[first] }}</td><td>{{ r.n }} / {{ r.studies }}</td><td>{{ hours(r.median_h) }}</td><td>{{ hours(r.p90_h) }}</td>
+                                {% for b in r.bands %}<td>{% if b.pct is not none %}{{ '%.0f' | format(b.pct) }}%{% else %}–{% endif %}</td>{% endfor %}</tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+
+            <p class="section-desc mt-8">
+                Radiologists' TAT (exam-done to signature) per radiologist, per modality, per patient class.
+                Role comes from real PACS reading-permission group membership, not a stage-based guess: every
+                signed event (prelim and final) is attributed to whoever actually signed it.
+            </p>
+            {{ heatmap_card('r36-rad', 'Radiologists — Median TAT (h)', '#60a5fa', 'r36-radiologists', 'No radiologist TAT data for this anchor/range.', 400) }}
+            <p id="r36-rad-note" class="text-[9px] text-zinc-600 italic mt-2"></p>
+            <script>
+            (function () {
+                const D = {{ (res_rad_tat or {}) | tojson }};
+                const roles = a => [...((D[a] || {}).residents || []), ...((D[a] || {}).radiologists || [])];
+                R36.card('r36-rad', {
+                    mode: 'byPerson', minH: 400, name: 'radiologists',
+                    rows: a => (D[a] || {}).radiologists || [],
+                    scale: roles,                       // one colour scale with the residents' tab
+                    after: a => {
+                        const n = (D[a] || {}).unclassified_count;
+                        document.getElementById('r36-rad-note').textContent = n
+                            ? `${n} signed events excluded: signer not resolved to a recognized PACS radiologists/residents group.` : '';
+                    },
+                });
+            })();
+            </script>

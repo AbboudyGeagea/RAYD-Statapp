@@ -54,14 +54,7 @@ report_36_bp = Blueprint("report_36", __name__)
 
 
 _RES_RAD_TAT_SQL_TEMPLATE = """
-    WITH exam_done_anchor AS (
-        SELECT p.study_instance_uid, MAX(w.exam_done_at) AS exam_done_time
-        FROM std_worklist_exam_done w
-        JOIN std_pps p ON p.pps_key = w.pps_key
-        WHERE p.study_instance_uid IS NOT NULL
-        GROUP BY p.study_instance_uid
-    ),
-    {role_lookup_cte},
+    WITH {role_lookup_cte},
     signed_events AS (
         SELECT s.study_db_uid, s.study_instance_uid, s.storing_ae, s.patient_class,
                s.patient_location, s.insert_time,
@@ -84,6 +77,15 @@ _RES_RAD_TAT_SQL_TEMPLATE = """
           AND s.study_date BETWEEN :start AND :end
           AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS', 'BMD')
           {filter_clause}
+    ),
+    -- exam done for the studies in range only (2026-11-19): grouping every exam-done row ever
+    -- recorded, twice per page, is what made Report 36 slow
+    exam_done_anchor AS (
+        SELECT p.study_instance_uid, MAX(w.exam_done_at) AS exam_done_time
+        FROM std_pps p
+        JOIN std_worklist_exam_done w ON w.pps_key = p.pps_key
+        WHERE p.study_instance_uid IN (SELECT study_instance_uid FROM signed_events)
+        GROUP BY p.study_instance_uid
     ),
     classified AS (
         SELECT
@@ -220,14 +222,7 @@ def get_resident_radiologist_tat(form_data):
 
 
 _MODALITY_TAT_SQL_TEMPLATE = """
-    WITH exam_done_anchor AS (
-        SELECT p.study_instance_uid, MAX(w.exam_done_at) AS exam_done_time
-        FROM std_worklist_exam_done w
-        JOIN std_pps p ON p.pps_key = w.pps_key
-        WHERE p.study_instance_uid IS NOT NULL
-        GROUP BY p.study_instance_uid
-    ),
-    signed_events AS (
+    WITH signed_events AS (
         SELECT s.study_db_uid, s.study_instance_uid, s.patient_class, s.patient_location,
                s.insert_time,
                COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
@@ -249,6 +244,15 @@ _MODALITY_TAT_SQL_TEMPLATE = """
           AND s.study_date BETWEEN :start AND :end
           AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS', 'BMD')
           {filter_clause}
+    ),
+    -- exam done for the studies in range only (2026-11-19): grouping every exam-done row ever
+    -- recorded, twice per page, is what made Report 36 slow
+    exam_done_anchor AS (
+        SELECT p.study_instance_uid, MAX(w.exam_done_at) AS exam_done_time
+        FROM std_pps p
+        JOIN std_worklist_exam_done w ON w.pps_key = p.pps_key
+        WHERE p.study_instance_uid IN (SELECT study_instance_uid FROM signed_events)
+        GROUP BY p.study_instance_uid
     ),
     classified AS (
         SELECT
@@ -520,96 +524,104 @@ def get_reporting_cadence(form_data):
     return shift_patterns
 
 
-def _compute_report_36_data(form_data):
-    """
-    Bundle all of report_36's per-request queries under one 5-min TTL cache entry
-    (report_cache, keyed report_id=36) -- added 2026-07-31 for load-time
-    optimization, mirrors get_gold_standard_data's own bundle-cache pattern
-    (report_id=25) exactly. Before this, every page load/reload re-ran all five
-    queries fresh even with identical filters; a repeat view within 5 minutes is
-    now a single dict lookup instead of five-plus round trips.
+# ── the page and its tabs, each loaded alone (operator 2026-11-19: "report 36 loading is slow") ──
+#
+# /report/36 draws the left panel and the tabs at once, with no query. Each tab fetches its part
+# the first time it is opened (/report/36/part/<name>, the same filters in the address); each
+# part is cached five minutes on its own, and the two parts that share data (the reading TAT;
+# residents' and radiologists' TAT) share one cache entry each.
+PARTS = ('radiologists', 'residents', 'compare', 'modality', 'workload')
 
-    get_gold_standard_data() itself is already cached under its own key (25), so
-    calling it here doesn't double the cost on a cache miss for report_25 --
-    only report_36's own bespoke queries (res_rad_tat, modality_tat, wait_time,
-    shift_patterns) are new work being cached by this wrapper.
-    """
+
+def _cached(key, form_data, compute):
     from routes.report_cache import cache_get, cache_put
-    cached = cache_get(36, form_data)
-    if cached is not None:
-        return cached
+    hit = cache_get(f'36-{key}', form_data)
+    if hit is not None:
+        return hit
+    value = compute()
+    cache_put(f'36-{key}', form_data, value)
+    return value
 
-    gold_data, display_start, display_end = get_gold_standard_data(form_data)
 
-    # The radiologists' reading TAT KPI and the three-clock comparison (operator 2026-11-19),
-    # from the PACS audit trail copy (utils/sign_tat.reading)
-    reading_tat = None
-    try:
+def _reading(form_data):
+    """The radiologists' reading TAT KPI and the three-clock comparison (operator 2026-11-19),
+    from the PACS audit trail copy (utils/sign_tat.reading)."""
+    def compute():
         from utils import sign_tat
         params, clause, start, end = _sidebar_filters(form_data)
-        reading_tat = sign_tat.reading(start, end, params, clause)
-    except Exception:
-        logger.exception("Failed to compute the reading TAT")
-        db.session.rollback()
+        try:
+            return sign_tat.reading(start, end, params, clause)
+        except Exception:
+            logger.exception("Failed to compute the reading TAT")
+            db.session.rollback()
+            return None
+    return _cached('reading', form_data, compute)
 
-    result = {
-        'reading_tat':          reading_tat,
-        'rad_volume_matrix':    (gold_data or {}).get('rad_volume_matrix'),
-        'tech_tat_cards':       (gold_data or {}).get('tech_tat_cards'),
-        'res_rad_tat':          get_resident_radiologist_tat(form_data),
-        'modality_tat':         get_modality_tat(form_data),
-        'wait_time_data':       get_patient_wait_time(form_data),
-        'shift_patterns':       get_reporting_cadence(form_data),
-        'display_start':        display_start,
-        'display_end':          display_end,
-    }
-    cache_put(36, form_data, result)
-    return result
+
+def _gold(form_data):
+    """Report 25's dataset (cached under report 25 by get_gold_standard_data itself)."""
+    gold, _start, _end = get_gold_standard_data(form_data)
+    return gold or {}
+
+
+def part_context(name, form_data):
+    """The template context of one tab."""
+    if name == 'radiologists':
+        return {'reading_tat': _reading(form_data),
+                'res_rad_tat': _cached('resrad', form_data, lambda: get_resident_radiologist_tat(form_data))}
+    if name == 'residents':
+        return {'res_rad_tat': _cached('resrad', form_data, lambda: get_resident_radiologist_tat(form_data))}
+    if name == 'compare':
+        return {'reading_tat': _reading(form_data)}
+    if name == 'modality':
+        return _cached('modality', form_data, lambda: {
+            'modality_tat': get_modality_tat(form_data),
+            'wait_time_data': get_patient_wait_time(form_data),
+            'tech_tat_cards': _gold(form_data).get('tech_tat_cards')})
+    if name == 'workload':
+        return _cached('workload', form_data, lambda: {
+            'rad_volume_matrix': _gold(form_data).get('rad_volume_matrix'),
+            'shift_patterns': get_reporting_cadence(form_data)})
+    raise KeyError(name)
+
+
+def _require_access():
+    from flask import abort
+    from flask_login import current_user
+    from utils.roles import can_open_report
+    if not can_open_report(current_user, 36):
+        abort(403)
 
 
 @report_36_bp.route("/report/36", methods=["GET", "POST"])
 @login_required
 def report_36():
-    classes = locations = modalities = aetitles = []
+    _require_access()
     run_report = 'start_date' in request.values
-
     go_live = get_report_start_date()
-    display_start = go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01"
-    display_end   = date.today().strftime("%Y-%m-%d")
-
-    res_rad_tat = modality_tat = wait_time_data = None
-    rad_volume_matrix = shift_patterns = tech_tat_cards = reading_tat = None
-
+    display_start = request.values.get('start_date') or (go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01")
+    display_end = request.values.get('end_date') or date.today().strftime("%Y-%m-%d")
     if run_report:
         from utils.audit import log_event
         log_event('report_run', category='report', resource_type='report_36',
                   detail={'from': request.values.get('start_date'), 'to': request.values.get('end_date')})
-
-        data = _compute_report_36_data(request.values)
-        rad_volume_matrix    = data['rad_volume_matrix']
-        tech_tat_cards        = data['tech_tat_cards']
-        res_rad_tat           = data['res_rad_tat']
-        modality_tat          = data['modality_tat']
-        wait_time_data        = data['wait_time_data']
-        shift_patterns        = data['shift_patterns']
-        reading_tat           = data.get('reading_tat')
-        display_start         = data['display_start']
-        display_end           = data['display_end']
-
     return render_template(
         "report_36.html",
         filters=panel_filters(request.values),
-        res_rad_tat=res_rad_tat,
-        modality_tat=modality_tat,
-        wait_time_data=wait_time_data,
-        rad_volume_matrix=rad_volume_matrix,
-        tech_tat_cards=tech_tat_cards,
-        shift_patterns=shift_patterns,
-        reading_tat=reading_tat,
         display_start=display_start, display_end=display_end,
-        classes=classes, locations=locations, modalities=modalities, aetitles=aetitles,
         run_report=run_report,
     )
+
+
+@report_36_bp.route("/report/36/part/<name>")
+@login_required
+def report_36_part(name):
+    """One tab of Report 36, as an HTML fragment the page puts in place."""
+    from flask import abort
+    _require_access()
+    if name not in PARTS:
+        abort(404)
+    return render_template(f"_report_36_{name}.html", **part_context(name, request.values))
 
 
 from routes.report_registry import register_report

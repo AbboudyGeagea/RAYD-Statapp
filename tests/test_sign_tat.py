@@ -222,19 +222,51 @@ def test_reading_nothing_without_the_audit_copy():
 
 def test_report_36_shows_the_reading_kpi_and_the_comparison_tab(client):
     reading_studies()
+    q = {'start_date': DAY, 'end_date': DAY}
 
-    r = client.get('/report/36', headers=ADMIN, query_string={'start_date': DAY, 'end_date': DAY})
-    html = r.get_data(as_text=True)
+    page = client.get('/report/36', headers=ADMIN, query_string=q).get_data(as_text=True)
+    rad = client.get('/report/36/part/radiologists', headers=ADMIN, query_string=q)
+    cmp_ = client.get('/report/36/part/compare', headers=ADMIN, query_string=q).get_data(as_text=True)
 
-    assert r.status_code == 200, html[:400]
+    assert 'TAT comparison: RIS · PACS · reading' in page and 'id="r36-part-compare"' in page
+    html = rad.get_data(as_text=True)
+    assert rad.status_code == 200, html[:400]
     assert 'Radiologist Reading TAT (KPI)' in html and 'Measured, of 8 approved' in html
     assert 'With a wet read' in html and 'Without a wet read' in html
-    assert 'id="r36-tab-compare"' in html and 'TAT comparison: RIS · PACS · reading' in html
-    assert 'RIS exam done → approval' in html and 'PACS arrival → approval' in html
-    assert 'First open after the wet read → approval' in html
-    for key in ('r36-reading-kpi', 'r36-reading-bands', 'r36-cmp-exam', 'r36-cmp-arrival', 'r36-cmp-reading',
-                'r36-cmp-modality', 'r36-cmp-class', 'r36-cmp-rad'):
+    assert 'RIS exam done → approval' in cmp_ and 'PACS arrival → approval' in cmp_
+    assert 'First open after the wet read → approval' in cmp_
+    for key in ('r36-reading-kpi', 'r36-reading-bands'):
         assert f'data-explain="{key}"' in html
+    for key in ('r36-cmp-exam', 'r36-cmp-arrival', 'r36-cmp-reading', 'r36-cmp-modality', 'r36-cmp-class', 'r36-cmp-rad'):
+        assert f'data-explain="{key}"' in cmp_
+
+
+def test_report_36_opens_without_computing_and_each_tab_loads_alone(client, monkeypatch):
+    """Operator, 2026-11-19: Report 36 was slow; the page draws at once and each tab
+    fetches its own part, residents and radiologists apart."""
+    import routes.report_36 as r36
+    called = []
+    for fn in ('get_resident_radiologist_tat', 'get_modality_tat', 'get_patient_wait_time',
+               'get_reporting_cadence', 'get_gold_standard_data'):
+        monkeypatch.setattr(r36, fn, lambda *a, _n=fn, **k: called.append(_n) or ({} if _n != 'get_gold_standard_data' else ({}, DAY, DAY)))
+    monkeypatch.setattr(r36, '_reading', lambda form: called.append('reading') or None)
+    q = {'start_date': DAY, 'end_date': '2026-10-06'}
+
+    page = client.get('/report/36', headers=ADMIN, query_string=q).get_data(as_text=True)
+    assert called == [] and 'data-part-template="_report_36_residents.html"' in page
+
+    for part, expected in (('residents', ['get_resident_radiologist_tat']),
+                           ('radiologists', ['reading']),                    # TAT shared with residents (cached)
+                           ('compare', ['reading']),
+                           ('modality', ['get_modality_tat', 'get_patient_wait_time', 'get_gold_standard_data']),
+                           ('workload', ['get_gold_standard_data', 'get_reporting_cadence'])):
+        called.clear()
+        r = client.get(f'/report/36/part/{part}', headers=ADMIN, query_string=q)
+        assert r.status_code == 200, (part, r.get_data(as_text=True)[:300])
+        assert called == expected, (part, called)
+    assert client.get('/report/36/part/nothing', headers=ADMIN, query_string=q).status_code == 404
+    resident = client.get('/report/36/part/residents', headers=ADMIN, query_string=q).get_data(as_text=True)
+    assert 'Residents — Median TAT' in resident and 'Radiologists — Median TAT' not in resident
 
 
 def test_report_32_shows_the_turnaround(client):

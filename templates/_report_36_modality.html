@@ -1,0 +1,252 @@
+{# Report 36, tab Modality & wait (loaded alone): the modality TAT (every signer combined),
+   the patient wait time and the technician TAT by AE station. #}
+{% from '_report_36_macros.html' import heatmap_card %}
+
+            <p class="section-desc">
+                Modality TAT (exam-done to signature) per modality per patient class: every signer combined into
+                one department-wide number per modality.
+            </p>
+            {{ heatmap_card('r36-mod', 'Modality TAT — Median TAT (h)', '#60a5fa', 'r36-modality', 'No modality TAT data for this anchor/range.', 280) }}
+            <script>
+            (function () {
+                const M = {{ (modality_tat or {}) | tojson }};
+                R36.card('r36-mod', {mode: 'byModality', minH: 280, name: 'modality',
+                                     rows: a => M[a] || [], scale: a => M[a] || []});
+            })();
+            </script>
+
+            <!-- ── Patient Wait Time (Scheduled → Arrived) ─────────────── -->
+            <p class="section-desc mt-8">
+                Patient wait time (scheduled to arrived) per modality per patient class. Both ends are real RIS
+                status-transition timestamps (WORKLIST_STATUS_HISTORY) — no PACS equivalent exists for a
+                scheduling status, so there's no anchor toggle for this chart.
+            </p>
+
+            {% if wait_time_data %}
+            <div class="glass-card" id="wait-time-card">
+                <div class="chart-card-header">
+                    <span class="chart-card-title">Patient Wait Time<i class="bi bi-info-circle chart-info-icon" data-explain="r36-wait" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
+                    <button onclick="r25ExportWaitCsv()" title="Export as CSV"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                        onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                        onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                        <i class="bi bi-download"></i> CSV
+                    </button>
+                    <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('wait-time-table-wrap'),'Patient Wait Time','patient_wait_time')">
+                        <i class="bi bi-file-earmark-pdf"></i> PDF
+                    </button>
+                </div>
+                <div id="wait-time-table-wrap" class="overflow-x-auto">
+                    <table class="w-full text-[10px] border-collapse whitespace-nowrap">
+                        <thead>
+                            <tr class="text-zinc-500 uppercase text-[9px]">
+                                <th class="text-left py-1 pr-3 font-black">Modality</th>
+                                <th class="text-left py-1 pr-3 font-black">Class</th>
+                                <th class="text-right py-1 px-2 font-black">N</th>
+                                <th class="text-right py-1 px-2 font-black">Avg (min)</th>
+                                <th class="text-right py-1 px-2 font-black">Median (min)</th>
+                                <th class="text-right py-1 px-2 font-black">0-30m</th>
+                                <th class="text-right py-1 px-2 font-black">30-60m</th>
+                                <th class="text-right py-1 pl-2 font-black">60m+</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in wait_time_data %}
+                            <tr class="border-t border-white/5">
+                                <td class="py-1 pr-3 text-zinc-300">{{ row.modality }}</td>
+                                <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.n }}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.avg_wait_min }}</td>
+                                <td class="py-1 px-2 text-right font-mono text-white font-bold">{{ row.median_wait_min }}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_30 }}</td>
+                                <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_30_60 }}</td>
+                                <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_60_plus }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <script>
+            (function(){
+                const WAIT_TIME_DATA = {{ (wait_time_data or []) | tojson }};
+                function _downloadCsv(csv, filename) {
+                    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                    const url  = URL.createObjectURL(blob);
+                    const a    = document.createElement('a');
+                    a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                }
+                window.r25ExportWaitCsv = function() {
+                    if (!WAIT_TIME_DATA.length) return;
+                    const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+                    const lines = [
+                        ['Modality','Patient Class','N','Avg Wait (min)','Median Wait (min)','0-30m','30-60m','60m+'].map(q).join(','),
+                        ...WAIT_TIME_DATA.map(r => [r.modality, r.patient_class_bucket, r.n, r.avg_wait_min, r.median_wait_min, r.bucket_0_30, r.bucket_30_60, r.bucket_60_plus].map(q).join(','))
+                    ];
+                    _downloadCsv(lines.join('\n'), `patient_wait_time_${new Date().toISOString().slice(0,10)}.csv`);
+                };
+            })();
+            </script>
+            {% else %}
+            <div class="glass-card text-center py-12 text-zinc-600">
+                <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
+                <p class="italic">No patient wait time data for this range.</p>
+            </div>
+            {% endif %}
+
+            <!-- ── Technician TAT by AE Station (avg vs. median TAT scatter) ── -->
+            <p class="section-desc mt-8">
+                Technician TAT by AE station — one bubble per AE title/technician station. X = average TAT
+                (min), bubble size = study count. Y is the median TAT rather than a repeat of study count —
+                median_tat is a real second metric already present in the data, and plotting it against the
+                average surfaces distribution skew directly on the chart (bubbles well below the dashed
+                avg=median line mean a handful of slow outliers are dragging the average up above a otherwise
+                lower typical case), which a count-based Y axis wouldn't show. Color tier follows the same
+                0-30 / 30-60 / 60m+ minute buckets used by the (now-removed, moved to Report 35) Technician
+                Efficiency card — tech_tat_cards carries no per-row expected/target duration to compare
+                against, so this falls back to that same fixed threshold instead.
+            </p>
+            <div class="glass-card" id="tech-tat-scatter-card">
+                <div class="chart-card-header">
+                    <span class="chart-card-title">Technician TAT by AE Station<i class="bi bi-info-circle chart-info-icon" data-explain="r36-tech-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
+                    <button onclick="r36ExportTechTatScatterCsv()" title="Export as CSV"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                        onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                        onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                        <i class="bi bi-download"></i> CSV
+                    </button>
+                    <button onclick="r36ExportTechTatScatterPng()"
+                        style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;">
+                        <i class="bi bi-image"></i> PNG
+                    </button>
+                </div>
+                <div id="chart-tech-tat-scatter" style="min-height:400px;"></div>
+                <div id="tech-tat-scatter-empty" class="hidden text-center py-8 text-zinc-600">
+                    <i class="bi bi-clock-history text-3xl block opacity-30 mb-2"></i>
+                    <p class="text-xs italic">No technician TAT data for this range.</p>
+                </div>
+            </div>
+
+            <script>
+            (function(){
+                const TECH_TAT_CARDS = {{ (tech_tat_cards or []) | tojson }};
+                let techTatScatterChart = null;
+
+                // Fixed severity thresholds (minutes) -- tech_tat_cards (built in
+                // routes/report_25.py's get_gold_standard_data) has no per-row
+                // expected/target duration field (unlike the removed Technician
+                // Efficiency card's avg_expected_min, which came from
+                // procedure_duration_map), so this falls back to the same fixed
+                // 0-30 / 30-60 / 60+ minute buckets that card used
+                // (bucket_0_30/bucket_30_60/bucket_60_plus).
+                const GREEN = '#34d399', AMBER = '#f59e0b', RED = '#f43f5e';
+                function tierColor(avgTat) {
+                    if (avgTat <= 30) return GREEN;
+                    if (avgTat <= 60) return AMBER;
+                    return RED;
+                }
+
+                function _downloadCsv(csv, filename) {
+                    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                    const url  = URL.createObjectURL(blob);
+                    const a    = document.createElement('a');
+                    a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                }
+
+                function render() {
+                    const wrap  = document.getElementById('chart-tech-tat-scatter');
+                    const empty = document.getElementById('tech-tat-scatter-empty');
+                    if (!TECH_TAT_CARDS.length) {
+                        wrap.classList.add('hidden');
+                        empty.classList.remove('hidden');
+                        return;
+                    }
+                    wrap.classList.remove('hidden');
+                    empty.classList.add('hidden');
+
+                    const counts    = TECH_TAT_CARDS.map(c => c.count);
+                    const maxCount  = Math.max(...counts, 1);
+                    const sizeScale = 60 / Math.sqrt(maxCount);
+
+                    const allTat  = TECH_TAT_CARDS.flatMap(c => [c.avg_tat, c.median_tat]).filter(v => v != null);
+                    const lineMin = allTat.length ? Math.min(...allTat) : 0;
+                    const lineMax = allTat.length ? Math.max(...allTat) : 1;
+
+                    const points = TECH_TAT_CARDS.map(c => ({
+                        value: [c.avg_tat, c.median_tat, c.count],
+                        name: c.aetitle,
+                        itemStyle: { color: tierColor(c.avg_tat) }
+                    }));
+
+                    const option = {
+                        backgroundColor: 'transparent',
+                        textStyle: { fontSize: 13 },
+                        tooltip: {
+                            textStyle: { fontSize: 13 },
+                            backgroundColor: '#1c1917', borderColor: '#28332e',
+                            formatter: p => `<b>${p.data.name}</b><br/>` +
+                                `Avg TAT: <b>${p.data.value[0]}</b> min<br/>` +
+                                `Median TAT: <b>${p.data.value[1]}</b> min<br/>` +
+                                `Studies: <b>${p.data.value[2]}</b>`
+                        },
+                        grid: { top: 40, left: 70, right: 40, bottom: 60 },
+                        xAxis: {
+                            type: 'value', name: 'Avg TAT (min)', nameLocation: 'middle', nameGap: 32,
+                            nameTextStyle: { color: '#a1a1aa', fontSize: 13, fontWeight: 'bold' },
+                            axisLabel: { color: '#d4d4d8', fontSize: 12 },
+                            axisLine: { lineStyle: { color: '#3f3f46' } },
+                            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } }
+                        },
+                        yAxis: {
+                            type: 'value', name: 'Median TAT (min)', nameLocation: 'middle', nameGap: 48,
+                            nameTextStyle: { color: '#a1a1aa', fontSize: 13, fontWeight: 'bold' },
+                            axisLabel: { color: '#d4d4d8', fontSize: 12 },
+                            axisLine: { lineStyle: { color: '#3f3f46' } },
+                            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } }
+                        },
+                        series: [{
+                            type: 'scatter',
+                            data: points,
+                            symbolSize: v => Math.max(12, Math.sqrt(v[2]) * sizeScale),
+                            label: { show: false },
+                            emphasis: { itemStyle: { shadowBlur: 12, shadowColor: 'rgba(0,0,0,0.5)' } },
+                            markLine: {
+                                symbol: 'none',
+                                silent: true,
+                                lineStyle: { color: '#52525b', type: 'dashed', width: 1 },
+                                label: { show: true, formatter: 'avg = median', color: '#71717a', fontSize: 11, position: 'insideEndTop' },
+                                data: [[{ coord: [lineMin, lineMin] }, { coord: [lineMax, lineMax] }]]
+                            }
+                        }]
+                    };
+
+                    if (!techTatScatterChart) techTatScatterChart = echarts.init(wrap);
+                    techTatScatterChart.setOption(option, true);
+                }
+
+                window.r36ExportTechTatScatterCsv = function() {
+                    if (!TECH_TAT_CARDS.length) return;
+                    const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+                    const lines = [
+                        ['AE Title','Studies','Avg TAT (min)','Median TAT (min)'].map(q).join(','),
+                        ...TECH_TAT_CARDS.map(c => [c.aetitle, c.count, c.avg_tat, c.median_tat].map(q).join(','))
+                    ];
+                    _downloadCsv(lines.join('\n'), `tech_tat_by_ae_${new Date().toISOString().slice(0,10)}.csv`);
+                };
+
+                window.r36ExportTechTatScatterPng = function() {
+                    if (!techTatScatterChart) return;
+                    const url = techTatScatterChart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#181f1c' });
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `tech_tat_by_ae_scatter_${new Date().toISOString().slice(0,10)}.png`;
+                    a.click();
+                };
+
+                render();
+            })();
+            </script>

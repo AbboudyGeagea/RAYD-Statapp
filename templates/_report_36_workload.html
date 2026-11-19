@@ -1,0 +1,533 @@
+{# Report 36, tab Workload & cadence (loaded alone): reports per reader and the reporting cadence. #}
+            <!-- ── Radiologist Workload Matrix ────────────────────── -->
+            {% if rad_volume_matrix %}
+            <div class="glass-card mt-8" id="r25-rad-matrix-card">
+                <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+                    <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Reports per Reader
+                        <span class="text-zinc-600 normal-case tracking-normal font-bold">— radiologists and residents, see badges</span><i class="bi bi-info-circle chart-info-icon" data-explain="r36-reader-volume" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                        <div style="display:inline-flex;border:1px solid #3f3f46;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
+                            <button id="r25-rad-toggle-mod" onclick="r25RadToggle('mod')"
+                                style="padding:4px 12px;background:rgba(96,165,250,0.15);color:#60a5fa;border:none;cursor:pointer;">By Modality</button>
+                            <button id="r25-rad-toggle-ae" onclick="r25RadToggle('ae')"
+                                style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">By AE Title</button>
+                            <button id="r25-rad-toggle-month" onclick="r25RadToggle('month')"
+                                style="padding:4px 12px;background:transparent;color:#71717a;border:none;cursor:pointer;">By Month</button>
+                        </div>
+                        <button onclick="r25ExportCsv()" title="Export modality/AE table as CSV"
+                            style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                            onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                            onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                            <i class="bi bi-download"></i> CSV
+                        </button>
+                        <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('r25-rad-xtab'),'Reports per Reader','rad_matrix')">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF
+                        </button>
+                    </div>
+                </div>
+                <div id="r25-rad-xtab"></div>
+
+                <!-- Procedure cross-tab -->
+                <div style="margin-top:20px;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+                        <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;">Procedure Breakdown</span>
+                        <input id="r25-proc-search" type="text" placeholder="Search procedure…" oninput="r25ProcFilter()"
+                            style="flex:1;min-width:120px;max-width:220px;background:#18181b;border:1px solid #3f3f46;color:#e4e4e7;border-radius:5px;padding:3px 8px;font-size:11px;outline:none;">
+                        <span style="font-size:9px;color:#71717a;font-weight:700;">Show top</span>
+                        <select id="r25-proc-topn" onchange="r25ProcFilter()"
+                            style="background:#18181b;border:1px solid #3f3f46;color:#e4e4e7;border-radius:5px;padding:3px 6px;font-size:10px;outline:none;">
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                            <option value="9999">All</option>
+                        </select>
+                        <button onclick="r25ExportProcCsv()" title="Export procedure table as CSV"
+                            style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
+                            onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
+                            onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
+                            <i class="bi bi-download"></i> CSV
+                        </button>
+                        <button class="export-pdf-btn" onclick="exportElemPdf(document.getElementById('r25-proc-table')?.closest('div'),'Procedure Breakdown','rad_procedures')">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF
+                        </button>
+                    </div>
+                    <div style="overflow-x:auto;max-height:340px;overflow-y:auto;border:1px solid rgba(255,255,255,0.05);border-radius:8px;">
+                        <table id="r25-proc-table" style="width:100%;border-collapse:collapse;font-size:10px;min-width:400px;">
+                            <thead id="r25-proc-thead" style="position:sticky;top:0;z-index:2;background:#232323;"></thead>
+                            <tbody id="r25-proc-tbody"></tbody>
+                        </table>
+                    </div>
+                    <p id="r25-proc-empty" style="font-size:10px;color:#71717a;padding:8px 0;display:none;">No procedure data available for this period.</p>
+                </div>
+            </div>
+            <script>
+            (function(){
+                const RAD_VOL = {{ rad_volume_matrix | tojson }};
+                let _r25Mode = 'mod';
+                let _r25ProcAllProcs = [], _r25ProcAllRads = [], _r25ProcTotals = {}, _r25ProcLookup = {}, _r25ProcRadMax = {};
+
+                function escH(s) { const d = document.createElement('div'); d.textContent = String(s||''); return d.innerHTML; }
+
+                function _fmtMonth(ym) {
+                    const [y, m] = ym.split('-');
+                    return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m,10)-1] + ' ' + y;
+                }
+
+                function r25DrawCrossTab(rows, isMonth) {
+                    const el = document.getElementById('r25-rad-xtab');
+                    if (!rows.length) {
+                        el.innerHTML = '<p style="font-size:10px;color:#71717a;padding:8px 0;">No data for this period.</p>';
+                        return;
+                    }
+                    const allRads = [...new Set(rows.map(r => r.radiologist))].sort();
+                    const allDims = [...new Set(rows.map(r => r.dim))];
+                    const dimTotals = {}, lookup = {};
+                    rows.forEach(r => {
+                        dimTotals[r.dim] = (dimTotals[r.dim]||0) + r.cnt;
+                        lookup[r.dim+'|'+r.radiologist] = r.cnt;
+                    });
+                    if (isMonth) {
+                        allDims.sort();
+                    } else {
+                        allDims.sort((a,b) => (dimTotals[b]||0) - (dimTotals[a]||0));
+                    }
+                    const radMax = {};
+                    allRads.forEach(rad => { radMax[rad] = Math.max(...allDims.map(d => lookup[d+'|'+rad]||0)); });
+                    // Every column gets a badge, including an explicit grey "?" for a
+                    // signer we couldn't resolve to a PACS reader group. Leaving those
+                    // blank made a resident read as an unmarked radiologist under a
+                    // panel titled "Reports per Radiologist" — the whole reason this
+                    // column is here. Unresolved is now visibly unresolved, and
+                    // fixable from Config → Reader Roles.
+                    const ROLE_BADGE = {
+                        residents:    ['RES', '#34d399', 'Resident (PACS reader group)'],
+                        radiologists: ['RAD', '#60a5fa', 'Radiologist (PACS reader group)'],
+                    };
+                    const UNKNOWN_BADGE = ['?', '#71717a', 'Role unresolved — signer is in no PACS radiologists/residents group. Set it under Config → Reader Roles.'];
+                    const headerCells = allRads.map(r => {
+                        const role = (RAD_VOL.roles || {})[r];
+                        const badge = ROLE_BADGE[role] || UNKNOWN_BADGE;
+                        const badgeHtml = `<span title="${escH(badge[2])}" style="display:inline-block;margin-left:4px;padding:1px 4px;border-radius:3px;font-size:8px;font-weight:900;background:${badge[1]}22;color:${badge[1]};">${badge[0]}</span>`;
+                        return `<th style="padding:6px 8px;text-align:right;white-space:nowrap;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;">${escH(r)}${badgeHtml}</th>`;
+                    }).join('');
+                    const bodyRows = allDims.map(dim => {
+                        const total = dimTotals[dim]||0;
+                        const label = isMonth ? _fmtMonth(dim) : dim;
+                        const cells = allRads.map(rad => {
+                            const cnt = lookup[dim+'|'+rad]||0;
+                            const intensity = radMax[rad]>0 ? cnt/radMax[rad] : 0;
+                            const bg = cnt>0 ? `rgba(96,165,250,${0.08+intensity*0.45})` : 'transparent';
+                            const fg = intensity>0.6 ? '#e4e4e7' : (cnt>0 ? '#93c5fd' : '#52525b');
+                            return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:700;background:${bg};color:${fg};">${cnt||''}</td>`;
+                        }).join('');
+                        return `<tr style="border-top:1px solid rgba(255,255,255,0.04);">
+                            <td style="padding:5px 8px;font-size:10px;color:#a1a1aa;position:sticky;left:0;background:#18181b;font-weight:600;min-width:100px;">${escH(label)}</td>
+                            ${cells}
+                            <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;">${total}</td>
+                        </tr>`;
+                    }).join('');
+                    const footCells = allRads.map(rad => {
+                        const t = allDims.reduce((s,d)=>s+(lookup[d+'|'+rad]||0),0);
+                        return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#f59e0b;border-top:2px solid #3f3f46;">${t}</td>`;
+                    }).join('');
+                    const grandTotal = allDims.reduce((s,d)=>s+(dimTotals[d]||0),0);
+                    el.innerHTML = `<div style="overflow-x:auto;max-height:280px;overflow-y:auto;border:1px solid rgba(255,255,255,0.05);border-radius:8px;">
+                        <table style="width:100%;border-collapse:collapse;font-size:10px;min-width:300px;">
+                            <thead style="position:sticky;top:0;z-index:2;background:#232323;">
+                                <tr>
+                                    <th style="padding:6px 8px;text-align:left;position:sticky;left:0;background:#232323;min-width:100px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;"></th>
+                                    ${headerCells}
+                                    <th style="padding:6px 8px;text-align:right;color:#a1a1aa;font-size:9px;font-weight:900;text-transform:uppercase;">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${bodyRows}
+                                <tr style="background:rgba(96,165,250,0.04);">
+                                    <td style="padding:5px 8px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;position:sticky;left:0;background:rgba(24,24,27,0.95);border-top:2px solid #3f3f46;">TOTAL</td>
+                                    ${footCells}
+                                    <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;border-top:2px solid #3f3f46;">${grandTotal}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>`;
+                }
+
+                window.r25RadToggle = function(mode) {
+                    _r25Mode = mode;
+                    const btnMod   = document.getElementById('r25-rad-toggle-mod');
+                    const btnAe    = document.getElementById('r25-rad-toggle-ae');
+                    const btnMonth = document.getElementById('r25-rad-toggle-month');
+                    const act   = 'background:rgba(96,165,250,0.15);color:#60a5fa;padding:4px 12px;border:none;cursor:pointer;';
+                    const inact = 'background:transparent;color:#71717a;padding:4px 12px;border:none;cursor:pointer;';
+                    btnMod.style.cssText   = (mode==='mod'   ? act : inact);
+                    btnAe.style.cssText    = (mode==='ae'    ? act : inact);
+                    if (btnMonth) btnMonth.style.cssText = (mode==='month' ? act : inact);
+                    const rows = mode==='mod' ? (RAD_VOL.by_modality||[])
+                               : mode==='ae'  ? (RAD_VOL.by_aetitle||[])
+                               :                (RAD_VOL.by_month||[]);
+                    r25DrawCrossTab(rows, mode==='month');
+                };
+
+                function r25BuildProcTable() {
+                    const procRows = RAD_VOL.by_procedure || [];
+                    const empty = document.getElementById('r25-proc-empty');
+                    const tbl   = document.getElementById('r25-proc-table');
+                    if (!procRows.length) { empty.style.display=''; tbl.style.display='none'; return; }
+                    empty.style.display='none'; tbl.style.display='';
+
+                    const allRads  = [...new Set(procRows.map(r=>r.radiologist))].sort();
+                    const allProcs = [...new Set(procRows.map(r=>r.proc))];
+                    const procTotals = {}, lookup = {};
+                    procRows.forEach(r => {
+                        procTotals[r.proc] = (procTotals[r.proc]||0) + r.cnt;
+                        lookup[r.proc+'|'+r.radiologist] = r.cnt;
+                    });
+                    allProcs.sort((a,b)=>(procTotals[b]||0)-(procTotals[a]||0));
+
+                    const radMax = {};
+                    allRads.forEach(rad => { radMax[rad] = Math.max(...allProcs.map(p=>lookup[p+'|'+rad]||0)); });
+
+                    _r25ProcAllProcs=allProcs; _r25ProcAllRads=allRads;
+                    _r25ProcTotals=procTotals; _r25ProcLookup=lookup; _r25ProcRadMax=radMax;
+
+                    document.getElementById('r25-proc-thead').innerHTML =
+                        `<tr style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;">
+                            <th style="padding:6px 8px;text-align:left;position:sticky;left:0;background:#232323;min-width:160px;">Procedure</th>
+                            ${allRads.map(r=>`<th style="padding:6px 8px;text-align:right;white-space:nowrap;">${escH(r)}</th>`).join('')}
+                            <th style="padding:6px 8px;text-align:right;color:#a1a1aa;">Total</th>
+                        </tr>`;
+                    r25ProcFilter();
+                }
+
+                window.r25ProcFilter = function() {
+                    const search = (document.getElementById('r25-proc-search')?.value||'').toLowerCase();
+                    const topN   = parseInt(document.getElementById('r25-proc-topn')?.value||'20');
+                    const filtered = _r25ProcAllProcs.filter(p=>!search||p.toLowerCase().includes(search)).slice(0,topN);
+                    const tbody = document.getElementById('r25-proc-tbody');
+                    if (!tbody) return;
+                    tbody.innerHTML = filtered.map(proc => {
+                        const total = _r25ProcTotals[proc]||0;
+                        const cells = _r25ProcAllRads.map(rad => {
+                            const cnt = _r25ProcLookup[proc+'|'+rad]||0;
+                            const intensity = _r25ProcRadMax[rad]>0 ? cnt/_r25ProcRadMax[rad] : 0;
+                            const bg = cnt>0 ? `rgba(96,165,250,${0.08+intensity*0.45})` : 'transparent';
+                            const fg = intensity>0.6 ? '#e4e4e7' : (cnt>0 ? '#93c5fd' : '#52525b');
+                            return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:700;background:${bg};color:${fg};">${cnt||''}</td>`;
+                        }).join('');
+                        return `<tr style="border-top:1px solid rgba(255,255,255,0.04);">
+                            <td style="padding:5px 8px;font-size:10px;color:#a1a1aa;position:sticky;left:0;background:#18181b;font-weight:600;">${escH(proc)}</td>
+                            ${cells}
+                            <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;">${total}</td>
+                        </tr>`;
+                    }).join('');
+                    // Footer
+                    const footCells = _r25ProcAllRads.map(rad => {
+                        const t = _r25ProcAllProcs.reduce((s,p)=>s+(_r25ProcLookup[p+'|'+rad]||0),0);
+                        return `<td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#f59e0b;border-top:2px solid #3f3f46;">${t}</td>`;
+                    }).join('');
+                    const grand = Object.values(_r25ProcTotals).reduce((s,v)=>s+v,0);
+                    tbody.innerHTML += `<tr style="background:rgba(96,165,250,0.04);">
+                        <td style="padding:5px 8px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;position:sticky;left:0;background:rgba(24,24,27,0.95);border-top:2px solid #3f3f46;">TOTAL</td>
+                        ${footCells}
+                        <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:900;color:#60a5fa;border-top:2px solid #3f3f46;">${grand}</td>
+                    </tr>`;
+                };
+
+                // CSV export helpers
+                function _r25DownloadCsv(csv, filename) {
+                    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+                    const url  = URL.createObjectURL(blob);
+                    const a    = document.createElement('a');
+                    a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                }
+
+                function _r25CsvSection(rows, colHeader, isMonth) {
+                    if (!rows.length) return [];
+                    const q = v => '"' + String(v||'').replace(/"/g,'""') + '"';
+                    const allRads = [...new Set(rows.map(r => r.radiologist))].sort();
+                    const allDims = [...new Set(rows.map(r => r.dim))];
+                    const dimTotals = {}, lookup = {};
+                    rows.forEach(r => {
+                        dimTotals[r.dim] = (dimTotals[r.dim]||0) + r.cnt;
+                        lookup[r.dim+'|'+r.radiologist] = r.cnt;
+                    });
+                    if (isMonth) { allDims.sort(); } else { allDims.sort((a,b) => (dimTotals[b]||0)-(dimTotals[a]||0)); }
+                    return [
+                        [colHeader, ...allRads, 'Total'].map(q).join(','),
+                        ...allDims.map(dim => {
+                            const label = isMonth ? _fmtMonth(dim) : dim;
+                            return [label, ...allRads.map(rad => lookup[dim+'|'+rad]||0), dimTotals[dim]||0].map(q).join(',');
+                        }),
+                        ['TOTAL', ...allRads.map(rad => allDims.reduce((s,d)=>s+(lookup[d+'|'+rad]||0),0)),
+                            allDims.reduce((s,d)=>s+(dimTotals[d]||0),0)].map(q).join(','),
+                    ];
+                }
+
+                window.r25ExportCsv = function() {
+                    const sections = [
+                        ['=== By Modality ===', ..._r25CsvSection(RAD_VOL.by_modality||[], 'Modality', false)],
+                        [],
+                        ['=== By AE Title ===', ..._r25CsvSection(RAD_VOL.by_aetitle||[], 'AE Title', false)],
+                        [],
+                        ['=== By Month ===',    ..._r25CsvSection(RAD_VOL.by_month||[],    'Month',    true)],
+                    ];
+                    const lines = sections.map(s => Array.isArray(s) ? s.join('\n') : s);
+                    _r25DownloadCsv(lines.join('\n'), `rad_matrix_${new Date().toISOString().slice(0,10)}.csv`);
+                };
+
+                window.r25ExportProcCsv = function() {
+                    if (!_r25ProcAllProcs.length) return;
+                    const topN   = parseInt(document.getElementById('r25-proc-topn')?.value||'20');
+                    const search = (document.getElementById('r25-proc-search')?.value||'').toLowerCase();
+                    const procs  = _r25ProcAllProcs.filter(p=>!search||p.toLowerCase().includes(search)).slice(0,topN);
+                    const q = v => '"' + String(v||'').replace(/"/g,'""') + '"';
+                    const lines = [
+                        ['Procedure', ..._r25ProcAllRads, 'Total'].map(q).join(','),
+                        ...procs.map(proc =>
+                            [proc, ..._r25ProcAllRads.map(rad => _r25ProcLookup[proc+'|'+rad]||0), _r25ProcTotals[proc]||0].map(q).join(',')
+                        ),
+                        ['TOTAL', ..._r25ProcAllRads.map(rad => _r25ProcAllProcs.reduce((s,p)=>s+(_r25ProcLookup[p+'|'+rad]||0),0)),
+                            Object.values(_r25ProcTotals).reduce((s,v)=>s+v,0)].map(q).join(','),
+                    ];
+                    _r25DownloadCsv(lines.join('\n'), `rad_by_procedure_${new Date().toISOString().slice(0,10)}.csv`);
+                };
+
+                // Init
+                r25RadToggle('mod');
+                r25BuildProcTable();
+            })();
+            </script>
+            {% endif %}
+
+            <!-- ── Reporting Cadence Analysis ─────────────────────────── -->
+            <div class="mt-8" id="shift-patterns-section">
+                <div class="flex items-center justify-between mb-1">
+                    <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Reporting Cadence Analysis<i class="bi bi-info-circle chart-info-icon" data-explain="r36-cadence" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
+                    <button id="sp-mode-btn" onclick="toggleSpMode()"
+                        title="Enhanced view"
+                        class="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border transition-all"
+                        style="border-color:#28332e;color:#3f3f46;background:transparent;">
+                        &#9673; Enhanced View
+                    </button>
+                </div>
+                <p class="text-[11px] text-zinc-500 mb-5">
+                    Derived from <code class="text-blue-400 bg-blue-500/10 px-1 rounded">rep_final_timestamp</code>.
+                    Shows each physician's signing density by hour and day of week. Inactive intervals ≥ 20 min are noted in the daily log.
+                </p>
+                <div class="space-y-6" id="shift-patterns-container"></div>
+            </div>
+            <script>
+            (function() {
+                const DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+                const HOURS = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+'h');
+                const container = document.getElementById('shift-patterns-container');
+                let evilMode = false;
+
+                // ── Labels: neutral vs enhanced ──────────────────────────
+                const L = {
+                    gap_label:   ['Inactive Intervals / Day', 'Breaks / Day'],
+                    gap_dur:     ['Avg Interval Duration',    'Avg Break Duration'],
+                    arrival:     ['First Signature',          'Arrival'],
+                    departure:   ['Last Signature',           'Departure'],
+                    col_gap:     ['Intervals',                'Breaks'],
+                };
+
+                const cards = [];  // store references for re-render
+
+                // Cards on this panel are per-signer, and residents sign final reports
+                // too — without a badge every card read as a radiologist's. Mirrors the
+                // workload matrix's badge, including the grey "?" for a signer in no
+                // PACS reader group (fixable under Config → Reader Roles).
+                function cadenceRoleBadge(role) {
+                    const B = {
+                        residents:    ['RES', '#34d399', 'Resident (PACS reader group)'],
+                        radiologists: ['RAD', '#60a5fa', 'Radiologist (PACS reader group)'],
+                    }[role] || ['?', '#71717a', 'Role unresolved — signer is in no PACS radiologists/residents group. Set it under Config, Reader Roles.'];
+                    // No escaping needed: every value below is a literal from this map,
+                    // never the signer's name. (escH lives in the workload matrix's own
+                    // IIFE and isn't in scope here.)
+                    return `<span title="${B[2]}" style="display:inline-block;margin-left:6px;padding:1px 5px;border-radius:3px;font-size:8px;font-weight:900;letter-spacing:0.08em;background:${B[1]}22;color:${B[1]};vertical-align:middle;">${B[0]}</span>`;
+                }
+
+                function renderAll(spData) {
+                Object.entries(spData).forEach(([rad, info], idx) => {
+                    const card = document.createElement('div');
+                    card.className = 'glass-card border-t-4 border-blue-600';
+                    card.dataset.idx = idx;
+                    container.appendChild(card);
+
+                    const hm = (() => {
+                        let _chart = null;
+                        function render(evil) {
+                            const breakStatColor = evil
+                                ? (info.avg_breaks_day >= 3 ? '#f43f5e' : info.avg_breaks_day >= 1.5 ? '#f59e0b' : '#34d399')
+                                : '#a1a1aa';
+
+                            card.style.borderTopColor = evil ? '#f43f5e' : '#60a5fa';
+
+                            card.innerHTML = `
+                                <div class="flex items-start justify-between gap-4 mb-4 flex-wrap">
+                                    <div>
+                                        <h3 class="text-sm font-black text-white uppercase tracking-wide">${rad}${cadenceRoleBadge(info.role)}</h3>
+                                        <div class="flex flex-wrap gap-x-5 gap-y-1 text-[11px] mt-1">
+                                            <span><span class="text-zinc-500">${L.arrival[evil?1:0]}</span> <span class="font-black text-emerald-400">${info.avg_arrival}</span></span>
+                                            <span><span class="text-zinc-500">${L.departure[evil?1:0]}</span> <span class="font-black text-blue-400">${info.avg_departure}</span></span>
+                                            <span><span class="text-zinc-500">${L.gap_label[evil?1:0]}</span> <span class="font-black" style="color:${breakStatColor}">${info.avg_breaks_day}</span></span>
+                                            <span><span class="text-zinc-500">${L.gap_dur[evil?1:0]}</span> <span class="font-black text-amber-400">${info.avg_break_dur ? info.avg_break_dur+'m' : '—'}</span></span>
+                                            <span class="text-zinc-600">${info.working_days} days</span>
+                                        </div>
+                                    </div>
+                                    <button onclick="exportCardPng(${idx}, '${rad.replace(/'/g,"\\'")}')"
+                                        class="shrink-0 flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-white/10 text-zinc-500 hover:text-blue-400 hover:border-blue-400/40 transition-all"
+                                        title="Export as PNG">
+                                        <i class="bi bi-image"></i> PNG
+                                    </button>
+                                </div>
+                                <div id="hm-${idx}" style="height:280px;width:100%;"></div>
+                                <div class="mt-4">
+                                    <button onclick="toggleLog(${idx})"
+                                        class="text-[10px] font-black text-zinc-500 hover:text-blue-400 uppercase tracking-widest transition-colors flex items-center gap-1">
+                                        <span id="log-arrow-${idx}">▶</span> Daily Log
+                                    </button>
+                                    <div id="log-${idx}" class="hidden mt-3 overflow-y-auto" style="max-height:260px;">
+                                        <table class="w-full text-[11px]">
+                                            <thead class="sticky top-0 bg-[#232b28]">
+                                                <tr class="border-b border-white/5 text-zinc-500 uppercase text-[9px]">
+                                                    <th class="text-left py-2 pr-4">Date</th>
+                                                    <th class="text-left py-2 pr-4">Day</th>
+                                                    <th class="text-left py-2 pr-4">${L.arrival[evil?1:0]}</th>
+                                                    <th class="text-left py-2 pr-4">${L.departure[evil?1:0]}</th>
+                                                    <th class="text-right py-2 pr-4">Studies</th>
+                                                    <th class="text-right py-2 pr-4">Span</th>
+                                                    <th class="text-left py-2">${L.col_gap[evil?1:0]}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="log-body-${idx}" class="divide-y divide-white/5 text-zinc-300"></tbody>
+                                        </table>
+                                    </div>
+                                </div>`;
+
+                            const hmEl = document.getElementById(`hm-${idx}`);
+                            if (_chart) { try { _chart.dispose(); } catch(e){} }
+                            _chart = echarts.init(hmEl);
+                            _chart.setOption({
+                                animation: false,
+                                grid: { top:10, bottom:30, left:50, right:20 },
+                                xAxis: { type:'category', data: HOURS, axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#28332e'}} },
+                                yAxis: { type:'category', data: DOW,   axisLabel:{fontSize:9, color:'#52525b'}, axisTick:{show:false}, axisLine:{lineStyle:{color:'#28332e'}} },
+                                visualMap: { show:false, min:0, max:info.hm_max, inRange:{ color: evil ? ['#0f172a','#1d4ed8','#f43f5e'] : ['#0f172a','#1d4ed8','#38bdf8'] } },
+                                tooltip: {
+                                    formatter: p => `${DOW[p.data[1]]} ${HOURS[p.data[0]]}: <b>${p.data[2]}</b> signature${p.data[2]!==1?'s':''}`,
+                                    backgroundColor:'#1c1917', borderColor:'#28332e', textStyle:{color:'#e2e8f0',fontSize:11}
+                                },
+                                series:[{ type:'heatmap', data: info.heatmap, itemStyle:{borderRadius:2, borderWidth:1, borderColor:'#181f1c'} }]
+                            });
+
+                            const tbody = document.getElementById(`log-body-${idx}`);
+                            tbody.innerHTML = '';
+                            [...info.daily_log].reverse().forEach(day => {
+                                let breakStr;
+                                if (!day.breaks.length) {
+                                    breakStr = '<span class="text-zinc-600">—</span>';
+                                } else if (evil) {
+                                    breakStr = day.breaks.map(b =>
+                                        `<span title="${b.kind} – ${b.duration}m (${b.start}–${b.end})" style="cursor:default;font-size:1rem">${b.icon}</span>`
+                                    ).join(' ');
+                                } else {
+                                    breakStr = `<span class="text-zinc-400">${day.breaks.length} interval${day.breaks.length!==1?'s':''}</span>`;
+                                }
+                                const arrStyle = evil && parseInt(day.arrival) >= 10
+                                    ? 'color:#f59e0b'
+                                    : 'color:#34d399';
+                                const tr = document.createElement('tr');
+                                tr.className = 'hover:bg-white/[0.02]';
+                                tr.innerHTML = `
+                                    <td class="py-2 pr-4 font-mono text-zinc-400">${day.date}</td>
+                                    <td class="py-2 pr-4 text-zinc-500">${day.dow}</td>
+                                    <td class="py-2 pr-4 font-mono font-bold" style="${arrStyle}">${day.arrival}</td>
+                                    <td class="py-2 pr-4 font-mono text-blue-400">${day.departure}</td>
+                                    <td class="py-2 pr-4 text-right text-zinc-300 font-bold">${day.studies}</td>
+                                    <td class="py-2 pr-4 text-right text-zinc-500">${day.span_h}h</td>
+                                    <td class="py-2">${breakStr}</td>`;
+                                tbody.appendChild(tr);
+                            });
+                        }
+                        return { render };
+                    })();
+
+                    cards.push(hm);
+                    hm.render(false);
+                });
+                }
+
+                window.toggleLog = function(idx) {
+                    const el = document.getElementById(`log-${idx}`);
+                    const arrow = document.getElementById(`log-arrow-${idx}`);
+                    el.classList.toggle('hidden');
+                    arrow.textContent = el.classList.contains('hidden') ? '▶' : '▼';
+                };
+
+                window.exportCardPng = function(idx, radName) {
+                    const card = container.children[idx];
+                    if (!card) return;
+
+                    const log   = document.getElementById(`log-${idx}`);
+                    const arrow = document.getElementById(`log-arrow-${idx}`);
+                    const wasHidden = log && log.classList.contains('hidden');
+                    if (wasHidden) {
+                        log.classList.remove('hidden');
+                        if (arrow) arrow.textContent = '▼';
+                        log.style.maxHeight = 'none';
+                    }
+
+                    const label = document.createElement('p');
+                    label.style.cssText = 'font-size:10px;color:#52525b;margin-bottom:10px;font-family:monospace;';
+                    label.textContent = `RAYD · Reporting Cadence · ${radName} · Exported ${new Date().toLocaleDateString('en-GB')}`;
+                    card.insertBefore(label, card.firstChild);
+
+                    html2canvas(card, {
+                        backgroundColor: '#232b28',
+                        scale: 2,
+                        useCORS: true,
+                        logging: false,
+                    }).then(function(canvas) {
+                        card.removeChild(label);
+                        if (wasHidden) {
+                            log.classList.add('hidden');
+                            log.style.maxHeight = '';
+                            if (arrow) arrow.textContent = '▶';
+                        }
+                        const a = document.createElement('a');
+                        a.download = `rayd_cadence_${radName.replace(/\s+/g,'_')}.png`;
+                        a.href = canvas.toDataURL('image/png');
+                        a.click();
+                    }).catch(function() {
+                        card.removeChild(label);
+                        if (wasHidden) {
+                            log.classList.add('hidden');
+                            log.style.maxHeight = '';
+                            if (arrow) arrow.textContent = '▶';
+                        }
+                    });
+                };
+
+                window.toggleSpMode = function() {
+                    evilMode = !evilMode;
+                    const btn = document.getElementById('sp-mode-btn');
+                    if (evilMode) {
+                        btn.style.borderColor = '#f43f5e';
+                        btn.style.color = '#f43f5e';
+                        btn.style.background = 'rgba(244,63,94,0.08)';
+                    } else {
+                        btn.style.borderColor = '#28332e';
+                        btn.style.color = '#3f3f46';
+                        btn.style.background = 'transparent';
+                    }
+                    cards.forEach(c => c.render(evilMode));
+                };
+
+                // Rendered synchronously — server already computed shift_patterns (no BG fetch, see report_36.py's docstring)
+                renderAll({{ (shift_patterns or {}) | tojson }});
+            })();
+            </script>

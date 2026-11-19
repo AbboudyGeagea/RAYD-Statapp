@@ -78,12 +78,14 @@ def test_every_icon_has_a_note():
 
 
 def _pages_including(partial):
-    """Templates that {% include %} the partial."""
+    """Templates that {% include %} the partial, or load it as a tab of their own
+    (data-part-template="<partial>": Report 36's tabs, each fetched alone, 2026-11-19)."""
     out = []
     for name in os.listdir(TEMPLATES):
         if name.endswith('.html'):
             text = open(os.path.join(TEMPLATES, name), encoding='utf-8').read()
-            if re.search(r"""\{%\s*include\s+['"]""" + re.escape(partial) + r"""['"]""", text):
+            if re.search(r"""\{%\s*include\s+['"]""" + re.escape(partial) + r"""['"]""", text) \
+                    or f'data-part-template="{partial}"' in text:
                 out.append((name, text))
     return out
 

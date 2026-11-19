@@ -1,0 +1,17 @@
+{# Report 36, tab Residents (loaded alone): the residents' median TAT (exam done -> signature). #}
+{% from '_report_36_macros.html' import heatmap_card %}
+
+            <p class="section-desc">
+                Residents' TAT (exam-done to signature) per resident, per modality, per patient class. Role comes
+                from real PACS reading-permission group membership: every signed event (prelim and final) is
+                attributed to whoever actually signed it. Same colour scale as the radiologists' tab.
+            </p>
+            {{ heatmap_card('r36-res', 'Residents — Median TAT (h)', '#34d399', 'r36-residents', 'No resident TAT data for this anchor/range.', 400) }}
+            <script>
+            (function () {
+                const D = {{ (res_rad_tat or {}) | tojson }};
+                const roles = a => [...((D[a] || {}).residents || []), ...((D[a] || {}).radiologists || [])];
+                R36.card('r36-res', {mode: 'byPerson', minH: 400, name: 'residents',
+                                     rows: a => (D[a] || {}).residents || [], scale: roles});
+            })();
+            </script>

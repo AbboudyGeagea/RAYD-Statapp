@@ -1,0 +1,77 @@
+{# Report 36, tab TAT comparison (loaded alone): three clocks to the same PACS approval. #}
+{% from '_report_36_macros.html' import info, hours, band_bar, heatmap_card %}
+{% set rt = reading_tat %}
+            <p class="section-desc">
+                    Three clocks, one end: the radiologist's approval in the PACS audit trail. RIS exam done →
+                    approval, PACS arrival (images stored) → approval, and the radiologist's reading time: the
+                    approving radiologist's first open after the wet read (or their first open with no wet read) →
+                    approval. Each clock counts the studies that have its start before the approval.
+                </p>
+                {% if not rt or not rt.coverage or not rt.approved %}
+                <div class="glass-card"><p class="text-sm text-zinc-500 italic">No approved study from the PACS audit trail in this range.</p></div>
+                {% else %}
+                {% set colors = {'exam_to_sign': '#34d399', 'arrival_to_sign': '#60a5fa', 'reading_to_sign': '#f59e0b'} %}
+                {% set clock_notes = {'exam_to_sign': 'r36-cmp-exam', 'arrival_to_sign': 'r36-cmp-arrival', 'reading_to_sign': 'r36-cmp-reading'} %}
+                <div class="grid grid-cols-3 gap-4 mb-3">
+                    {% for c in rt.clocks %}{% set s = rt.compare[c.key] %}
+                    <div class="glass-card" style="padding:16px;border-left:4px solid {{ colors[c.key] }};">
+                        <p class="chart-card-title" style="color:{{ colors[c.key] }};">{{ c.label }}{{ info(clock_notes[c.key], 'this clock') }}</p>
+                        <div class="flex items-end gap-6 mt-2">
+                            <div><div class="text-3xl font-black text-white">{{ hours(s.median_h) }}</div><div class="text-[10px] font-bold text-zinc-500 uppercase">median</div></div>
+                            <div><div class="text-xl font-black text-zinc-300">{{ hours(s.p90_h) }}</div><div class="text-[10px] font-bold text-zinc-500 uppercase">90th pct</div></div>
+                            <div><div class="text-xl font-black text-zinc-300">{{ '{:,}'.format(s.n) }}</div><div class="text-[10px] font-bold text-zinc-500 uppercase">studies</div></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <p class="text-xs text-zinc-500 mb-6">On the {{ '{:,}'.format(rt.common.n) }} {{ 'study that has' if rt.common.n == 1 else 'studies that have' }} all three clocks, the medians are
+                    {% for c in rt.clocks %}<strong style="color:{{ colors[c.key] }};">{{ hours(rt.common[c.key].median_h) }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
+                    (RIS · PACS · reading).{{ info('r36-cmp-common', 'these medians') }}</p>
+                <div class="grid grid-cols-2 gap-6 mb-6">
+                    <div class="glass-card"><p class="chart-card-title mb-2">Median by modality (h){{ info('r36-cmp-modality', 'this chart') }}</p><div id="chart-r36-cmp-modality" style="height:340px;"></div></div>
+                    <div class="glass-card"><p class="chart-card-title mb-2">Median by patient class (h){{ info('r36-cmp-class', 'this chart') }}</p><div id="chart-r36-cmp-class" style="height:340px;"></div></div>
+                </div>
+                <div class="glass-card">
+                    <p class="chart-card-title mb-2">By approving radiologist{{ info('r36-cmp-rad', 'this table') }}</p>
+                    <div style="max-height:420px;overflow-y:auto;">
+                    <table class="r36-tbl">
+                        <thead><tr><th>Radiologist</th><th>Approved</th>{% for c in rt.clocks %}<th style="color:{{ colors[c.key] }};">{{ c.label }}: median (studies)</th>{% endfor %}</tr></thead>
+                        <tbody>
+                        {% for r in rt.compare_by_rad %}
+                        <tr><td>{{ r.name }}</td><td>{{ r.studies }}</td>{% for c in rt.clocks %}<td>{{ hours(r[c.key].median_h) }} <span class="text-zinc-600">({{ r[c.key].n }})</span></td>{% endfor %}</tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    </div>
+                </div>
+                {% endif %}
+
+            <script>
+            (function () {
+                const RT = {{ (reading_tat or {}) | tojson }};
+                const COLORS = {exam_to_sign: '#34d399', arrival_to_sign: '#60a5fa', reading_to_sign: '#f59e0b'};
+                let drawn = false;
+                function grouped(id, rows, field) {
+                    const el = document.getElementById(id);
+                    if (!el || !window.echarts || !rows || !rows.length) return;
+                    const chart = echarts.init(el, null, {renderer: 'canvas'});
+                    chart.setOption({
+                        tooltip: {trigger: 'axis', valueFormatter: v => v == null ? '–' : v + ' h'},
+                        legend: {top: 0, textStyle: {color: '#94a3b8'}},
+                        grid: {left: 48, right: 16, top: 36, bottom: 48},
+                        xAxis: {type: 'category', data: rows.map(r => r[field]), axisLabel: {color: '#94a3b8', interval: 0, rotate: rows.length > 6 ? 30 : 0}},
+                        yAxis: {type: 'value', name: 'h', axisLabel: {color: '#94a3b8'}, splitLine: {lineStyle: {color: 'rgba(255,255,255,0.06)'}}},
+                        series: RT.clocks.map(c => ({name: c.label, type: 'bar', itemStyle: {color: COLORS[c.key]},
+                            data: rows.map(r => r[c.key] ? r[c.key].median_h : null)})),
+                    });
+                    if (typeof registerChart === 'function') registerChart(id, chart);
+                }
+                function drawCompare() {
+                    if (drawn || !RT.clocks) return;
+                    drawn = true;
+                    grouped('chart-r36-cmp-modality', RT.compare_by_modality, 'modality');
+                    grouped('chart-r36-cmp-class', RT.compare_by_class, 'patient_class');
+                }
+                drawCompare();
+            })();
+            </script>

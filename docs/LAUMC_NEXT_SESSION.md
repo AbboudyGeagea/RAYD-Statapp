@@ -108,6 +108,16 @@ trail copy (`utils/sign_tat.reading`, studies that reached PACS since 1 Oct):
 Check after the deploy: Report 36 for October (the audit copy starts 1 Oct): does the median look
 right against what the radiologists expect?
 
+**Item 41, Report 36 slow (operator, 19 Nov evening), built the same evening, deploy waiting.**
+Two causes: both TAT queries grouped every RIS exam-done row ever recorded (joined to every PPS)
+whatever the dates, twice per page; and the page computed all its sections in one request. Now:
+the exam-done step covers only the studies in range (same results); the page opens with no query
+and has five tabs, each fetched alone the first time it is opened (`/report/36/part/<name>`,
+5-minute cache per part, shared where two tabs use the same data): **Radiologists** (reading TAT
+KPI + radiologists' TAT, the default), **Residents**, **TAT comparison**, **Modality & wait**
+(modality TAT, patient wait, technician TAT), **Workload & cadence**. Residents and radiologists
+are apart, as asked. Check after the deploy: Report 36 opens at once; each tab's first open.
+
 **Waiting on the operator (decisions):** item 9 switch (after the manager); item 13 PHILIPSCARM =
 RIS "PHILIPS" (C-Arm 2)? (ask SJH), the 13d BRAYN routing walkthrough, SJH's mail relay details;
 item 17 the BRAYN enhancements list; item 21 a look at Report 40 for October; item 33 reload Report
