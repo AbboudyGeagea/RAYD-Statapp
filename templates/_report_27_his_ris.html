@@ -30,8 +30,9 @@
 
 <h2 class="text-xl font-black text-white tracking-tight">HIS orders vs RIS{{ info('r27-his-report', 'this tab') }}</h2>
 <p class="section-desc">
-    Every order the HIS sent ({{ his.apps | join(', ') }}) placed in the range, one per HIS order number (its latest
-    message), and the RIS order created from it (the HIS number on the RIS order).
+    Every billed order the HIS sent ({{ his.apps | join(', ') }}; billed = sent as a new order, NW) placed in the
+    range, one per HIS order number (as its latest message shows it), and the RIS order created from it (the HIS
+    number on the RIS order).
     {% if his.feed_start %}The HIS feed began {{ his.feed_start.strftime('%Y-%m-%d %H:%M') }}; earlier orders are not here.{% endif %}
     The RIS side comes with the nightly copy{% if his.copied_until %} (last one began {{ his.copied_until.strftime('%Y-%m-%d %H:%M') }}){% endif %}:
     an order placed after it is "not copied yet", not missing.
@@ -42,7 +43,7 @@
 {% else %}
 
 <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
-    <div class="hr-kpi"><p class="l">HIS orders{{ info('r27-his-kpi-orders') }}</p><p class="v">{{ '{:,}'.format(k.orders) }}</p><p class="s">placed in the range</p></div>
+    <div class="hr-kpi"><p class="l">Billed HIS orders{{ info('r27-his-kpi-orders') }}</p><p class="v">{{ '{:,}'.format(k.orders) }}</p><p class="s">sent as new orders (NW)</p></div>
     <div class="hr-kpi"><p class="l">On the RIS{{ info('r27-his-kpi-on-ris') }}</p><p class="v">{{ num(k.on_ris_pct, '%') }}</p><p class="s">of those copied</p></div>
     <div class="hr-kpi {{ 'warn' if k.not_on_ris }}"><p class="l">Not on the RIS{{ info('r27-his-kpi-not-on-ris') }}</p><p class="v">{{ '{:,}'.format(k.not_on_ris) }}</p><p class="s">{{ num(k.not_on_ris_pct, '%') }} of those copied</p></div>
     <div class="hr-kpi"><p class="l">Cancelled on the HIS{{ info('r27-his-kpi-cancelled') }}</p><p class="v">{{ '{:,}'.format(k.cancelled_his) }}</p><p class="s">by the ward, on the HIS</p></div>
@@ -54,8 +55,9 @@
         <p class="s">{% if his.ris_only %}{{ his.ris_only.no_his_number }} with no HIS number, {{ his.ris_only.not_sent }} the HIS never sent, of {{ '{:,}'.format(his.ris_only.created) }} created{% else %}no HIS feed yet{% endif %}</p></div>
 </div>
 
-{% if his.unknown_site or k.several_ris or his.site_from_location or his.site_from_his %}
+{% if his.unknown_site or k.several_ris or his.site_from_location or his.site_from_his or his.not_billed %}
 <p class="text-[11px] text-slate-500">
+    {% if his.not_billed %}{{ his.not_billed }} HIS order{{ 's' if his.not_billed != 1 }} of this hospital seen only as changes (no new-order message, NW) are not counted: not billed. {% endif %}
     {% if his.unknown_site %}{{ his.unknown_site }} HIS order{{ 's' if his.unknown_site != 1 }} not counted here: not on the RIS, and the HIS message does not say which hospital. {% endif %}
     {% if his.site_from_his %}{{ his.site_from_his }} without a RIS order are counted for this hospital because the HIS message names it. {% endif %}
     {% if his.site_from_location %}{{ his.site_from_location }} without a RIS order are counted for this hospital by their HIS location. {% endif %}

@@ -80,6 +80,7 @@ def feeds():
     his('0019400007', 'NW', d(13, 30), location='NEWWARD', facility='')      # hospital unknown
     his('0019400012', 'NW', d(13, 40), location='', facility='', entering='ENDOS-J')   # SJH by its unit
     his('0019400013', 'NW', d(13, 50), location='WARD9', facility='1000')    # RH: the HIS says 1000
+    his('0019400014', 'RQ', d(14, 10)); his('0019400014', 'RQ', d(14, 20))   # never sent as new: not billed
     his('0019400008', 'NW', d(6, day=19))                                     # after the last RIS copy
     his('0019400009', 'NW', d(14), app='OTHERAPP')                            # not the HIS
     ris(66010, None, d(15))                                                   # created on the RIS
@@ -97,6 +98,8 @@ def test_the_tab_for_rh(feeds):
     k = s['kpi']
     assert k['orders'] == 6 and k['on_ris_pct'] == 40.0 and k['not_on_ris_pct'] == 40.0
     assert s['site_from_his'] == 4                   # 3, 4, 8 and 13: no RIS order, the HIS names RH
+    assert s['not_billed'] == 1                      # 14: only changes (RQ), never a new order (NW)
+    assert got['0019400003'] == 'cancelled_his'      # billed (NW), then cancelled: still counted
     assert k['median_to_ris_min'] == 25.0            # 20 and 30 minutes
     assert k['median_to_done_h'] == 2.0
     assert s['unknown_site'] == 1                    # NEWWARD: not listed, only counted

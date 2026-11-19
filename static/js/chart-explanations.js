@@ -420,13 +420,13 @@ const ChartExplanations = {
     'r27-his-report': {
       title: 'HIS orders vs RIS',
       purpose: 'Follows every exam a doctor ordered on the HIS into radiology: was it registered on the RIS, done, or lost on the way.',
-      valueMeaning: 'One line per HIS order number. The HIS sends each order (and every change or cancellation) to RAYD as it happens; the RIS orders arrive with the nightly copy, each carrying the HIS order number it came from, which is how the two are matched. Orders of the other hospital are never shown here.',
+      valueMeaning: 'One line per billed HIS order: an order the HIS sent as a new order (NW). Orders seen only as changes are not counted (shown under the figures). The HIS sends each order, change and cancellation to RAYD as it happens; the RIS orders arrive with the nightly copy, each carrying the HIS order number it came from, which is how the two are matched. Orders of the other hospital are never shown here.',
       interpretation: 'Start with "Not on the RIS": orders the HIS sent that radiology never registered. Then the times: how long an order waits before radiology registers it, and before the exam is done.'
     },
     'r27-his-kpi-orders': {
-      title: 'HIS orders',
-      purpose: 'How many exam orders doctors placed on the HIS in the date range.',
-      valueMeaning: 'Counted once per HIS order number, whatever the number of messages (new, changed, cancelled). Only since the HIS started sending orders to RAYD (18 Nov 2026).',
+      title: 'Billed HIS orders',
+      purpose: 'How many billed exam orders doctors placed on the HIS in the date range.',
+      valueMeaning: 'Billed = the HIS sent it as a new order (NW). Counted once per HIS order number, whatever the number of messages (new, changed, cancelled); a billed order cancelled later still counts. Orders seen only as changes are left out. Only since the HIS started sending orders to RAYD (18 Nov 2026).',
       interpretation: 'The demand radiology received from the wards in the period.'
     },
     'r27-his-kpi-on-ris': {

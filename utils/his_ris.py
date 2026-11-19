@@ -10,6 +10,10 @@ one row per RIS order), each with the HIS order number it was created from
     one HIS order   every message with its HIS order number: ordered at = its first message
                     (MSH-7), what it is now = its latest message (ORC-1: NW new, RQ changed,
                     CA cancelled); procedure, HIS location and class from the latest
+    billed          only orders the HIS sent a new-order message for (ORC-1 = NW) count
+                    (operator, 2026-11-19: "NW" is the billed order). One seen only as changes
+                    (RQ; e.g. created before the feed began) is left out and counted aside; a
+                    billed order cancelled later still counts, as cancelled on the HIS
     its RIS orders  the RIS orders carrying that number (all but 4 of 3,968 have one)
     outcome         cancelled on the HIS | done (a RIS order completed or its exam done) |
                     cancelled on the RIS (all of them) | open on the RIS | not on the RIS |
@@ -86,10 +90,11 @@ WITH msgs AS (
 ranked AS (
     SELECT m.*, MIN(m.at) OVER (PARTITION BY m.his_no) AS ordered_at,
            COUNT(*) OVER (PARTITION BY m.his_no) AS messages,
+           BOOL_OR(m.control = 'NW') OVER (PARTITION BY m.his_no) AS billed,
            ROW_NUMBER() OVER (PARTITION BY m.his_no ORDER BY m.at DESC, m.received_at DESC) AS rn
     FROM msgs m
 )
-SELECT his_no, ordered_at, messages, control, procedure_code, procedure_text,
+SELECT his_no, ordered_at, messages, billed, control, procedure_code, procedure_text,
        patient_location, patient_class, patient_id, facility, entering
 FROM ranked
 WHERE rn = 1 AND ordered_at >= :start AND ordered_at < :end
@@ -173,6 +178,7 @@ def _outcome(case, copied_until):
 def _shape(row, ris, copied_until):
     case = {
         'his_no': row['his_no'], 'ordered_at': row['ordered_at'], 'messages': int(row['messages']),
+        'billed': bool(row.get('billed', True)),
         'control': row['control'] or UNKNOWN, 'procedure_code': _clean(row['procedure_code']),
         'procedure': _clean(row['procedure_text']) or _clean(row['procedure_code']) or UNKNOWN,
         'location': _clean(row['patient_location']) or UNKNOWN,
@@ -271,8 +277,10 @@ def build(start, end, site_id):
     every = [_shape(h, ris_by_no.get(h['his_no'], []), copied_until) for h in his]
     site_ids = {code: sid for code, sid in db.session.execute(text("SELECT code, id FROM public.sites"))}
     _assign_sites(every, site_ids)
-    cases = [c for c in every if site_id is None or c['site_id'] == site_id]
-    unknown_site = sum(1 for c in every if c['site_id'] is None) if site_id is not None else 0
+    here = [c for c in every if site_id is None or c['site_id'] == site_id]
+    cases = [c for c in here if c['billed']]                  # billed = an NW message
+    not_billed = len(here) - len(cases)
+    unknown_site = sum(1 for c in every if c['site_id'] is None and c['billed']) if site_id is not None else 0
     cases.sort(key=lambda c: c['ordered_at'])
 
     started = feed_start(apps)
@@ -286,7 +294,7 @@ def build(start, end, site_id):
         'outcomes': [{'key': k, 'label': label, 'orders': sum(c['outcome'] == k for c in cases)} for k, label in OUTCOMES],
         'breakdowns': {k: _breakdown(cases, k) for k, _ in DIMENSIONS},
         'not_on_ris': [c for c in cases if c['outcome'] == 'not_on_ris'][:200],
-        'unknown_site': unknown_site,
+        'unknown_site': unknown_site, 'not_billed': not_billed,
         'feed_start': started, 'copied_until': copied_until, 'apps': apps, 'ris_only': ris_only,
         'site_from_his': sum(1 for c in cases if c['site_from'] == 'his'),
         'site_from_location': sum(1 for c in cases if c['site_from'] == 'location'),
@@ -310,7 +318,8 @@ def workbook(start, end, cases, summary, site_label):
     sheet.write(0, 0, f'{TITLE}, {site_label}: HIS orders placed {start} to {end}', bold)
     sheet.write(1, 0, f"{k['orders']:,} HIS orders; on the RIS {k['on_ris_pct']} %; not on the RIS "
                       f"{k['not_on_ris']:,}; cancelled on the HIS {k['cancelled_his']:,}; not copied yet {k['pending']:,}")
-    sheet.write(2, 0, 'One row per HIS order number (its latest message). No patient names.')
+    sheet.write(2, 0, 'One row per billed HIS order (the HIS sent it as a new order, ORC-1 NW), as its latest '
+                      f"message shows it; {summary['not_billed']:,} seen only as changes are not counted. No patient names.")
     sheet.write_row(4, 0, [h for h, _ in COLUMNS], bold)
     for i, c in enumerate(cases, 5):
         sheet.write_row(i, 0, [c[key] for _, key in COLUMNS])
