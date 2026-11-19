@@ -406,6 +406,7 @@ def test_page_renders_and_its_script_is_valid(client):
     html = r.get_data(as_text=True)
     assert r.status_code == 200 and 'id="plan-box"' in html and 'Live Department' in html
     assert 'id="limits-btn"' in html and 'data-explain="live-board"' in html
+    assert 'id="full-btn"' in html and 'overflow: hidden' in html          # a wall screen: no scrolling
     if not shutil.which('node'):
         pytest.skip('node not installed')
     script = re.search(r'<script>\n(.*?)</script>', html, re.S).group(1)

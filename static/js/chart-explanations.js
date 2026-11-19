@@ -488,7 +488,7 @@ const ChartExplanations = {
     },
     'live-board': {
       title: 'Live Department',
-      purpose: 'What each imaging room of the chosen hospital is doing right now, from the RIS messages as they arrive: one card per room, by its RIS room name.',
+      purpose: 'What each imaging room of the chosen hospital is doing right now, from the RIS messages as they arrive: one card per room, by its RIS room name, all on one screen for a wall TV (Full screen hides the browser; patients show as initials unless Names is pressed on that screen).',
       valueMeaning: 'Scheduled = exams booked on the room for today (cancelled ones left out); "to come" = not arrived yet. Arrived = patients who arrived and have not started, with the longest wait; a wait turns red once it passes the limit set for that modality. The running exam shows when it should end: its start plus the minutes the RIS booked for it (else the procedure\'s usual duration). Orange = still running past that time. Yellow = the room\'s last exam was marked done in less than the set share of its expected time (50 % unless changed), until the next exam starts. Utilization = busy time ÷ opening time so far today. A room shows when it has anything booked, waiting, running or done today, or when it is open today and the RIS booked something on it in the last 30 days.',
       interpretation: 'Red waits point to a room that cannot keep up; orange to an exam running long; yellow to an exam closed on the RIS sooner than it could really have been done (a status entered late or early). Unlike the reports, the board is not a day late: it moves with each message.'
     },

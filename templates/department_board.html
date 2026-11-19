@@ -7,118 +7,118 @@
     <title>RAYD | Live Department</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <style>
+        /* A wall / smart-TV display (operator, 2026-11-19): the whole board on one screen, no
+           scrolling, everything on the cards. Card sizes and the text scale are worked out in
+           the script from the number of rooms and the screen; content is sized in em. */
         :root {
             --bg: #0a0f0d; --panel: #111714; --panel-2: #172019; --line: #223029;
             --fg: #e6eee9; --muted: #8fa199; --faint: #5f7069;
             --free: #22c55e; --free-soft: rgba(34,197,94,.14);
             --busy: #3b82f6; --busy-soft: rgba(59,130,246,.16);
-            --over: #ef4444; --over-soft: rgba(239,68,68,.16);
-            --late: #f97316; --late-soft: rgba(249,115,22,.18);
-            --early: #eab308; --early-soft: rgba(234,179,8,.18);
+            --over: #ef4444; --over-soft: rgba(239,68,68,.18);
+            --late: #f97316; --late-soft: rgba(249,115,22,.20);
+            --early: #eab308; --early-soft: rgba(234,179,8,.20);
             --closed: #64748b;
             --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
         }
         body.light {
-            --bg: #eef3f0; --panel: #ffffff; --panel-2: #f5f8f6; --line: #d6e0da;
+            --bg: #eef3f0; --panel: #ffffff; --panel-2: #f2f6f4; --line: #d6e0da;
             --fg: #18221d; --muted: #586a62; --faint: #8a9a93;
             --free: #15803d; --busy: #1d4ed8; --over: #b91c1c; --late: #c2410c; --early: #a16207;
         }
         * { box-sizing: border-box; }
         [hidden] { display: none !important; }
         html, body { height: 100%; }
-        body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.35 'Inter', system-ui, sans-serif;
+        body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.3 'Inter', system-ui, sans-serif;
                display: flex; flex-direction: column; overflow: hidden; }
-        button, select, input { font: inherit; color: inherit; }
+        button, input { font: inherit; color: inherit; }
         .chart-info-icon { cursor: pointer; color: var(--muted); font-size: .8em; margin-left: 4px; }
 
         /* ── top bar ── */
-        .top { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 6px 12px;
+        .top { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 5px 10px;
                background: var(--panel); border-bottom: 1px solid var(--line); flex: none; }
         .top h1 { margin: 0; font-size: 16px; font-weight: 800; display: flex; gap: 7px; align-items: center; white-space: nowrap; }
-        .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--free); box-shadow: 0 0 0 3px var(--free-soft); }
+        .live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--free); box-shadow: 0 0 0 3px var(--free-soft); }
         .live-dot.stale { background: var(--over); box-shadow: 0 0 0 3px var(--over-soft); }
-        .clock { font: 600 18px/1 var(--mono); }
+        .clock { font: 700 20px/1 var(--mono); }
         .date { color: var(--muted); font-size: 11px; }
-        .kpis { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-        .kpi { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 3px 9px; }
-        .kpi b { font-size: 15px; font-variant-numeric: tabular-nums; margin-right: 5px; }
+        .kpis { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+        .kpi { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px; white-space: nowrap; }
+        .kpi b { font-size: 16px; font-variant-numeric: tabular-nums; margin-right: 4px; }
+        .kpi small { color: var(--muted); font-size: 11px; }
         .kpi .lbl { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
-        .kpi.alert b { color: var(--over); } .kpi.late b { color: var(--late); }
+        .kpi.alert b { color: var(--over); } .kpi.late b { color: var(--late); } .kpi.early b { color: var(--early); }
         .controls { margin-left: auto; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
         .chip { border: 1px solid var(--line); background: var(--panel-2); border-radius: 999px; padding: 2px 9px; cursor: pointer; font-size: 11.5px; }
         .chip[aria-pressed="true"] { border-color: var(--busy); color: var(--busy); background: var(--busy-soft); font-weight: 700; }
         .site-switch { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
-        .site-switch button { border: 0; background: var(--panel-2); padding: 3px 12px; cursor: pointer; font-weight: 700; font-size: 12px; }
+        .site-switch button { border: 0; background: var(--panel-2); padding: 3px 13px; cursor: pointer; font-weight: 800; font-size: 13px; }
         .site-switch button[aria-pressed="true"] { background: var(--busy); color: #fff; }
-        .updated { color: var(--muted); font-size: 11px; min-width: 96px; text-align: right; }
-        .banner { margin: 8px 12px 0; padding: 6px 10px; border-radius: 8px; background: var(--over-soft); color: var(--over); flex: none; }
+        .updated { color: var(--muted); font-size: 11px; min-width: 90px; text-align: right; }
+        .banner { margin: 6px 10px 0; padding: 5px 10px; border-radius: 8px; background: var(--over-soft); color: var(--over); flex: none; }
 
-        /* ── stage: the plan, and the rail beside it ── */
-        .stage { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 10px; padding: 10px; }
-        .plan-box { position: relative; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-                    display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        .plan { position: relative; flex: none; container-type: size; }
-        .plan img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 6px; user-select: none; pointer-events: none; }
+        /* ── the rooms: a grid that fills the screen ── */
+        .board { flex: 1; min-height: 0; position: relative; padding: 8px; overflow: hidden; }
+        .grid { display: grid; gap: 8px; width: 100%; height: 100%; }
+        .empty { height: 100%; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 18px; }
+        .card { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; cursor: pointer;
+                background: var(--panel); border: .16em solid var(--closed); border-radius: .7em; text-align: left; }
+        .card:focus-visible { outline: 3px solid var(--fg); }
+        .card.free { border-color: var(--free); } .card.busy { border-color: var(--busy); }
+        .card.late { border-color: var(--late); } .card.closed { opacity: .6; }
+        .c-head { display: flex; align-items: center; gap: .5em; padding: .28em .6em; background: var(--closed); color: #fff; flex: none; }
+        .card.free .c-head { background: var(--free); } .card.busy .c-head { background: var(--busy); }
+        .card.late .c-head { background: var(--late); }
+        .c-head .nm { font-weight: 800; font-size: 1.12em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .c-head .st { margin-left: auto; font-size: .72em; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; flex: none; }
+        .c-sub { font-size: .76em; color: var(--muted); padding: .12em .75em 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
+        .c-now { margin: .3em .45em 0; padding: .28em .45em; border-radius: .45em; background: var(--panel-2); flex: none; }
+        .c-now.run { background: var(--busy-soft); } .c-now.late { background: var(--late-soft); }
+        .c-now.early { background: var(--early-soft); }
+        .c-now .l1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .92em; }
+        .c-now .who { font-weight: 800; } .c-now .what { color: var(--muted); }
+        .c-now.early .who, .c-now.early b { color: var(--early); }
+        .c-now .l2 { display: flex; justify-content: space-between; gap: .5em; font-variant-numeric: tabular-nums; font-size: .9em; margin-top: .1em; }
+        .c-now.late .l2 b { color: var(--late); }
+        .c-now.idle .l1 { color: var(--muted); font-weight: 700; }
+        .bar { height: .3em; min-height: 3px; border-radius: 99px; background: var(--line); overflow: hidden; margin-top: .25em; }
+        .bar > i { display: block; height: 100%; width: 0; background: var(--busy); border-radius: 99px; }
+        .c-now.late .bar > i { background: var(--late); }
+        .c-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .25em; padding: .3em .45em; flex: none; }
+        .c-stats span { display: flex; flex-direction: column; align-items: center; background: var(--panel-2); border-radius: .4em; padding: .1em 0; min-width: 0; }
+        .c-stats b { font-size: 1.3em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+        .c-stats small { font-size: .64em; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        .c-stats .alert { background: var(--over-soft); } .c-stats .alert b, .c-stats .alert small { color: var(--over); }
+        .c-list { list-style: none; margin: 0; padding: 0 .45em; flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: .15em; position: relative; }
+        .c-list li { display: flex; justify-content: space-between; gap: .5em; font-size: .86em; padding: .05em .35em; border-radius: .35em; flex: none; }
+        .c-list li .p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .c-list li b { font: 700 1em/1.2 var(--mono); white-space: nowrap; }
+        .c-list li.w b { color: var(--free); }
+        .c-list li.w.over { background: var(--over-soft); } .c-list li.w.over b, .c-list li.w.over .p { color: var(--over); }
+        .c-list li.next { color: var(--muted); } .c-list li.next b { color: var(--muted); font-weight: 400; }
+        .c-list li.sep { color: var(--faint); font-size: .7em; text-transform: uppercase; letter-spacing: .06em; padding-top: .15em; }
+        .c-more { font-size: .72em; color: var(--muted); text-align: right; padding: 0 .7em; flex: none; }
+        .c-util { height: .3em; min-height: 3px; background: var(--line); flex: none; margin-top: .2em; }
+        .c-util i { display: block; height: 100%; background: var(--free); }
+
+        /* the floor plan, when the site has one and it is chosen */
+        .plan-box { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+        .plan { position: relative; flex: none; }
+        .plan img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 6px; pointer-events: none; }
         body:not(.light) .plan img { filter: brightness(.82) contrast(1.05); }
-        .plan-title { position: absolute; left: 12px; top: 8px; z-index: 2; font-size: 11px; color: var(--muted);
-                      background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
+        .plan .card { position: absolute; transform: translate(-50%, -50%); width: 15em; height: 9.5em; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.35); }
+        .plan .card .c-list, .plan .card .c-more { display: none; }
+        .plan-note { position: absolute; left: 14px; bottom: 12px; font-size: 12px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; }
 
-        /* a room: on the plan, in the rail, or in the tiles */
-        .dev { position: absolute; transform: translate(-50%, -50%); width: 176px; font-size: 13px; text-align: left; cursor: pointer;
-               background: var(--panel); border: 2px solid var(--closed); border-radius: .75em; padding: 0; overflow: hidden;
-               box-shadow: 0 4px 16px rgba(0,0,0,.35); transition: opacity .2s; }
-        .plan .dev { width: clamp(160px, 16cqw, 280px); font-size: clamp(12px, 1.05cqw, 19px); }
-        .dev.static { position: relative; transform: none; width: auto; box-shadow: none; }
-        .dev:focus-visible { outline: 3px solid var(--fg); }
-        .dev.dim { opacity: .18; }
-        .dev .d-top { display: flex; align-items: center; gap: .45em; padding: .3em .6em; background: var(--closed); color: #fff; }
-        .dev .d-name { font-weight: 800; font-size: 1.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-        .dev .d-state { margin-left: auto; font-size: .74em; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; flex: none; }
-        .dev .d-sub { font-size: .78em; color: var(--muted); padding: .15em .75em 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .dev .d-main { font-weight: 700; font-size: .95em; margin: .15em .45em .25em; padding: .1em .3em; border-radius: .35em;
-                       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
-        .dev .d-main.late { background: var(--late-soft); color: var(--late); }
-        .dev .d-main.early { background: var(--early-soft); color: var(--early); }
-        .dev .d-stats { display: flex; gap: .3em; padding: 0 .45em .4em; }
-        .st { flex: 1; display: flex; flex-direction: column; align-items: center; border-radius: .45em; background: var(--panel-2);
-              padding: .15em 0; min-width: 0; }
-        .st b { font-size: 1.18em; line-height: 1.1; font-variant-numeric: tabular-nums; }
-        .st small { font-size: .66em; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
-        .st.alert { background: var(--over-soft); } .st.alert b, .st.alert small { color: var(--over); }
-        .dev .d-util { height: .3em; min-height: 3px; background: var(--line); }
-        .dev .d-util i { display: block; height: 100%; background: var(--free); }
-        .dev.free { border-color: var(--free); } .dev.free .d-top { background: var(--free); }
-        .dev.busy { border-color: var(--busy); } .dev.busy .d-top { background: var(--busy); }
-        .dev.late { border-color: var(--late); } .dev.late .d-top { background: var(--late); }
-        .dev.closed { opacity: .65; }
+        /* ── footer: each modality, and the colour key ── */
+        .foot { flex: none; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; padding: 4px 10px;
+                background: var(--panel); border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); max-height: 3.4em; overflow: hidden; }
+        .foot .mod b { color: var(--fg); margin-right: 3px; }
+        .foot .mod .alert { color: var(--over); font-weight: 700; }
+        .foot .key { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; }
+        .foot i.sw { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
 
-        .tiles { align-self: stretch; width: 100%; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
-        .tiles .hint { color: var(--muted); font-size: 12px; }
-        .tile-row { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: start; }
-        .tile-row .mod { font-size: 20px; font-weight: 900; padding-top: 4px; }
-        .tile-row .devs { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
-
-        /* ── rail ── */
-        .rail { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
-        .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
-        .box h2 { margin: 0 0 6px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
-        .mrow { display: grid; grid-template-columns: 38px repeat(4, minmax(0, 1fr)); gap: 4px; align-items: center; width: 100%;
-                border: 0; background: transparent; padding: 3px 2px; border-radius: 6px; cursor: pointer; text-align: center; }
-        .mrow:hover { background: var(--panel-2); }
-        .mrow[aria-pressed="true"] { background: var(--busy-soft); }
-        .mrow.head { cursor: default; font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-        .mrow.head:hover { background: transparent; }
-        .mrow .m { font-weight: 900; text-align: left; font-size: 14px; }
-        .mrow b { font-variant-numeric: tabular-nums; }
-        .mrow .w.alert b { color: var(--over); }
-        .mrow small { color: var(--muted); font-size: 10px; display: block; }
-        .unplaced { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-        .linkbtn { border: 0; background: none; color: var(--busy); cursor: pointer; padding: 0; font-size: 11.5px; }
-        .legend { font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
-        .legend i.sw { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
-        .unknown { font-size: 11.5px; color: var(--muted); }
-
-        /* ── details drawer ── */
+        /* ── details drawer (optional: a click on a room) ── */
         .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100%); z-index: 30; background: var(--panel);
                   border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0,0,0,.4); display: flex; flex-direction: column; }
         .dr-head { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: flex-start; }
@@ -128,19 +128,6 @@
         .dr-body { padding: 12px 14px; overflow: auto; display: flex; flex-direction: column; gap: 14px; }
         .dr-sec h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
                      display: flex; justify-content: space-between; }
-        .now { border-radius: 8px; padding: 8px 10px; background: var(--busy-soft); }
-        .now.late { background: var(--late-soft); }
-        .now.early { background: var(--early-soft); }
-        .now .who { font-weight: 800; font-size: 15px; }
-        .now .what { color: var(--muted); }
-        .now .times { display: flex; justify-content: space-between; margin-top: 6px; font-variant-numeric: tabular-nums; }
-        .now .left { font-weight: 800; }
-        .now.late .left { color: var(--late); }
-        .now.early .who { color: var(--early); }
-        .bar { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin-top: 5px; }
-        .bar > i { display: block; height: 100%; background: var(--busy); border-radius: 99px; }
-        .now.late .bar > i { background: var(--late); }
-        .ubar > i { background: var(--free); }
         .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
         .list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: baseline;
                    padding: 4px 6px; border-radius: 6px; background: var(--panel-2); }
@@ -155,33 +142,32 @@
         .limits input { width: 90px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; text-align: right; }
         .btn { border: 0; border-radius: 8px; padding: 6px 14px; background: var(--busy); color: #fff; font-weight: 700; cursor: pointer; }
         .msg { font-size: 12px; } .msg.err { color: var(--over); } .msg.ok { color: var(--free); }
-        @media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } body { overflow: auto; } }
     </style>
 </head>
 <body class="{{ 'light' if ui_theme == 'light' }}">
 <header class="top">
     <h1><span class="live-dot" id="dot" title="Live"></span> Live Department<i class="bi bi-info-circle chart-info-icon" data-explain="live-board" role="button" tabindex="0" aria-label="About this board" title="About this board"></i></h1>
     <div><div class="clock" id="clock">--:--</div><div class="date" id="date"></div></div>
+    <div class="site-switch" id="site-switch" role="group" aria-label="Hospital"></div>
     <div class="kpis"><span id="kpis" class="kpis"></span><i class="bi bi-info-circle chart-info-icon" data-explain="live-board-kpis" role="button" tabindex="0" aria-label="About these figures" title="About these figures"></i></div>
     <div class="controls">
-        <div class="site-switch" id="site-switch" role="group" aria-label="Hospital"></div>
-        <div id="mod-chips" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+        <div id="mod-chips" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+        <button class="chip" id="plan-btn" type="button" aria-pressed="false" title="Rooms on the floor plan" hidden><i class="bi bi-map"></i> Plan</button>
         <button class="chip" id="sites-btn" type="button" title="The hospitals side by side, per modality" hidden>
             <i class="bi bi-hospital"></i> Side by side</button>
         {% if can_edit_limits %}
         <button class="chip" id="limits-btn" type="button" title="Wait limit per modality, and when an exam is done too early">
             <i class="bi bi-sliders"></i> Limits</button>
         {% endif %}
-        <button class="chip" id="names" type="button" aria-pressed="false" title="In the details: patient names or initials only">
-            <i class="bi bi-eye-slash"></i> Initials</button>
+        <button class="chip" id="names" type="button" aria-pressed="false" title="Patient names, or initials only (the default on a wall screen)">
+            <i class="bi bi-person"></i> Names</button>
+        <button class="chip" id="full-btn" type="button" title="Full screen (Esc to leave)"><i class="bi bi-arrows-fullscreen"></i> Full screen</button>
         <span class="updated" id="updated"></span>
     </div>
 </header>
 <div class="banner" id="banner" hidden></div>
-<div class="stage">
-    <section class="plan-box" id="plan-box" aria-label="Department"><div class="none">Loading the department…</div></section>
-    <aside class="rail" id="rail" aria-label="Modalities"></aside>
-</div>
+<main class="board" id="plan-box" aria-label="Department"><div class="empty">Loading the department…</div></main>
+<footer class="foot" id="foot"></footer>
 <aside class="drawer" id="drawer" hidden role="dialog" aria-modal="false" aria-labelledby="dr-title"></aside>
 
 <script>
@@ -190,6 +176,7 @@
 const REFRESH = {{ refresh_seconds|int }} * 1000;
 const STATIC = "{{ url_for('static', filename='') }}";
 const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+const BASE_W = 300, BASE_H = 215, BASE_FONT = 14, GAP = 8;   // a card designed at 14 px
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const store = {
@@ -197,7 +184,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('deptboard.' + k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
 };
 let B = null, offset = 0, lastOk = null, open = null;
-let mods = store.get('mods', []), initials = store.get('initials', false), site = store.get('site', null);
+let mods = store.get('mods', []), names = store.get('names', false), site = store.get('site', null), planMode = store.get('plan', false);
 
 // Server time is the hospital clock; the browser's may differ. Every countdown runs on
 // server time = browser time + offset, measured at each fetch.
@@ -210,16 +197,16 @@ function dur(m) {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
 }
 const short = m => { m = Math.max(0, Math.round(m)); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`; };
-function who(it) {
+function who(it) {                     // initials unless "Names" is on: a wall screen is seen by passers-by
   const n = it.patient || '';
-  if (!initials) return n;
-  return n.split(/\s+/).filter(Boolean).map(w => w[0].toUpperCase() + '.').join(' ') || '—';
+  if (names) return n;
+  return n.split(/\s+/).filter(Boolean).map(w => w[0].toUpperCase() + '.').join('') || '—';
 }
 const LABEL = {free: 'Free', busy: 'Busy', late: 'Late', closed: 'Closed'};
 const SOURCE = {booked: 'booked on the RIS', procedure: 'the procedure’s usual duration',
                 modality: 'the modality’s usual duration (none for the procedure)', default: 'a default (no duration known)'};
 const allRooms = () => B.lanes.flatMap(l => l.rooms);
-const shown = r => !mods.length || mods.includes(r.modality);
+const shownRooms = () => allRooms().filter(r => !mods.length || mods.includes(r.modality));
 
 async function load() {
   try {
@@ -240,30 +227,89 @@ async function load() {
   }
 }
 
-// ── one room card ─────────────────────────────────────────────────────────────
-function mainLine(r) {
-  const c = r.current;
-  if (c) return `<div class="d-main${c.late ? ' late' : ''}" data-end="${esc(c.expected_end)}">ends ${hm(parse(c.expected_end))}</div>`;
-  if (r.early) return `<div class="d-main early" title="Marked done sooner than ${B.limits.early_pct} % of its expected time">done in ${short(r.early.took_min)} of ${short(r.early.expected_minutes)}</div>`;
-  if (r.status === 'closed') return '<div class="d-main">Closed today</div>';
-  return `<div class="d-main">${r.last_done_at ? 'free since ' + hm(parse(r.last_done_at)) : 'free'}</div>`;
-}
-function badge(r, where) {
-  const w = r.waiting.length, first = r.waiting[0], u = r.utilization_pct;
-  const pos = where === 'plan' ? ` style="left:${r.x}%;top:${r.y}%"` : '';
-  return `<button type="button" class="dev ${r.status}${where === 'plan' ? '' : ' static'}${shown(r) ? '' : ' dim'}"${pos}
-      data-room="${esc(r.key)}" title="${esc(r.room)} · ${esc(r.room_code)} — click for details">
-    <div class="d-top"><span class="d-name">${esc(r.room)}</span><span class="d-state">${LABEL[r.status]}</span></div>
-    <div class="d-sub">${esc(r.room_code)} · ${esc(r.modality)}</div>
-    ${mainLine(r)}
-    <div class="d-stats">
-      <span class="st" title="Booked on this room today, and how many have not arrived"><b>${r.scheduled_today}</b><small>${r.to_come} to come</small></span>
-      <span class="st ${r.waiting_over ? 'alert' : ''}" title="Arrived, not started; red past ${r.wait_limit_min} min"><b>${w}</b><small>${w ? `wait <span data-since="${esc(first.arrived_at)}" data-fmt="short">${short(first.wait_min)}</span>` : 'arrived'}</small></span>
-      <span class="st" title="Utilization so far today"><b>${u == null ? '—' : u + '%'}</b><small>util</small></span>
+// ── one room card: everything a manager reads without a click ─────────────────
+function card(r) {
+  const c = r.current, e = r.early, u = r.utilization_pct, first = r.waiting[0];
+  let now;
+  if (c) now = `<div class="c-now ${c.late ? 'late' : 'run'}" data-start="${esc(c.started_at)}" data-end="${esc(c.expected_end)}">
+      <div class="l1"><span class="who">${esc(who(c))}</span> <span class="what">${esc(c.procedure)}</span></div>
+      <div class="l2"><span>${hm(parse(c.started_at))} → ${hm(parse(c.expected_end))}</span><b class="left"></b></div>
+      <div class="bar"><i></i></div></div>`;
+  else if (e) now = `<div class="c-now early" title="Marked done in less than ${B.limits.early_pct} % of its expected time">
+      <div class="l1"><span class="who">${esc(who(e))}</span> <span class="what">${esc(e.procedure)}</span></div>
+      <div class="l2"><span>done early ${hm(parse(e.done_at))}</span><b>${short(e.took_min)} of ${short(e.expected_minutes)}</b></div></div>`;
+  else now = `<div class="c-now idle"><div class="l1">${r.status === 'closed' ? 'Closed today' + (r.exception ? ': ' + esc(r.exception) : '')
+      : r.last_done_at ? 'Free since ' + hm(parse(r.last_done_at)) : 'Free'}</div></div>`;
+  const rows = r.waiting.map(w => `<li class="w${w.over ? ' over' : ''}"><span class="p">${esc(who(w))} · ${esc(w.procedure)}</span>
+      <b data-since="${esc(w.arrived_at)}" data-fmt="short" data-limit="${r.wait_limit_min}">${short(w.wait_min)}</b></li>`);
+  if (r.coming.length) {
+    rows.push(`<li class="sep">Next</li>`);
+    r.coming.forEach(x => rows.push(`<li class="next"><span class="p">${esc(who(x))} · ${esc(x.procedure)}</span><b>${hm(parse(x.appointment_at))}</b></li>`));
+  }
+  return `<div class="card ${r.status}" role="button" tabindex="0" data-room="${esc(r.key)}" title="${esc(r.room)} — click for details">
+    <div class="c-head"><span class="nm">${esc(r.room)}</span><span class="st">${LABEL[r.status]}</span></div>
+    <div class="c-sub">${esc(r.modality)} · ${esc(r.room_code)}</div>
+    ${now}
+    <div class="c-stats">
+      <span title="Booked on this room today"><b>${r.scheduled_today}</b><small>booked</small></span>
+      <span title="Booked today, not arrived yet"><b>${r.to_come}</b><small>to come</small></span>
+      <span class="${r.waiting_over ? 'alert' : ''}" title="Arrived, not started; red past ${r.wait_limit_min} min"><b>${r.waiting.length}</b><small>${first ? `arrived · <span data-since="${esc(first.arrived_at)}" data-fmt="short">${short(first.wait_min)}</span>` : 'arrived'}</small></span>
+      <span title="Done today"><b>${r.done_today}</b><small>done</small></span>
+      <span title="Utilization so far today"><b>${u == null ? '—' : u + '%'}</b><small>util</small></span>
     </div>
-    <div class="d-util"><i style="width:${Math.min(100, u || 0)}%"></i></div>
-  </button>`;
+    <ul class="c-list">${rows.join('')}</ul><div class="c-more" hidden></div>
+    <div class="c-util"><i style="width:${Math.min(100, u || 0)}%"></i></div>
+  </div>`;
 }
+
+// ── the grid: as many columns as give the biggest cards for this screen ─────────
+function fitGrid() {
+  const box = $('plan-box'), grid = box.querySelector('.grid');
+  if (!grid) return;
+  const n = grid.children.length;
+  const W = box.clientWidth - 16, H = box.clientHeight - 16;
+  let best = {c: 1, r: n, s: 0};
+  for (let c = 1; c <= n; c++) {
+    const r = Math.ceil(n / c);
+    const s = Math.min((W - (c - 1) * GAP) / c / BASE_W, (H - (r - 1) * GAP) / r / BASE_H);
+    if (s > best.s) best = {c, r, s};
+  }
+  grid.style.gridTemplateColumns = `repeat(${best.c}, minmax(0, 1fr))`;
+  grid.style.gridTemplateRows = `repeat(${best.r}, minmax(0, 1fr))`;
+  grid.style.fontSize = Math.max(9, Math.min(30, BASE_FONT * best.s)) + 'px';
+  trimLists();
+}
+// The waiting and next patients that do not fit their card become "+n more". The line is
+// shown before trimming, so the rows are trimmed to the space left beside it.
+function trimLists() {
+  document.querySelectorAll('.grid .card').forEach(cd => {
+    const ul = cd.querySelector('.c-list'), more = cd.querySelector('.c-more');
+    more.hidden = true;
+    if (ul.scrollHeight <= ul.clientHeight + 1) return;
+    more.hidden = false;
+    more.textContent = '+0 more';
+    let hidden = 0;
+    while (ul.lastElementChild && ul.scrollHeight > ul.clientHeight + 1) {
+      if (!ul.lastElementChild.classList.contains('sep')) hidden++;
+      ul.lastElementChild.remove();
+    }
+    if (ul.lastElementChild && ul.lastElementChild.classList.contains('sep')) ul.lastElementChild.remove();
+    more.textContent = `+${hidden} more`;
+  });
+}
+// The board area changes size when the top bar or the footer wrap differently (the date, the
+// icon font arriving), on full screen, or when the TV changes resolution: lay it out again,
+// from the data, so the trimmed rows come back where there is room.
+let lastBox = '', fitTimer = null;
+function refit() {
+  const b = $('plan-box'), key = b.clientWidth + 'x' + b.clientHeight;
+  if (key === lastBox) return;
+  lastBox = key;
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => { if (B) render(); }, 120);
+}
+if ('ResizeObserver' in window) new ResizeObserver(refit).observe($('plan-box'));
+window.addEventListener('resize', refit);
 
 // ── render ────────────────────────────────────────────────────────────────────
 function render() {
@@ -271,10 +317,11 @@ function render() {
   const t = B.totals;
   const kpi = (v, l, cls) => `<div class="kpi ${cls || ''}"><b>${v}</b><span class="lbl">${esc(l)}</span></div>`;
   $('kpis').innerHTML = kpi(`${t.busy}/${t.rooms}`, 'busy') + kpi(t.late, 'late', t.late ? 'late' : '') +
+    kpi(t.early, 'done early', t.early ? 'early' : '') +
     kpi(t.waiting + (t.waiting_over ? ` <small>(${t.waiting_over} over)</small>` : ''), 'arrived', t.waiting_over ? 'alert' : '') +
     kpi(t.longest_wait_since ? `<span data-since="${esc(t.longest_wait_since)}">${dur(t.longest_wait_min)}</span>` : '—', 'longest wait') +
-    kpi(`${t.scheduled_today} <small>(${t.to_come} to come)</small>`, 'scheduled') + kpi(t.done_today, 'done today') +
-    kpi(t.utilization_pct == null ? '—' : t.utilization_pct + '%', 'utilization');
+    kpi(`${t.scheduled_today} <small>(${t.to_come} to come)</small>`, 'booked') + kpi(t.done_today, 'done') +
+    kpi(t.utilization_pct == null ? '—' : t.utilization_pct + '%', 'util');
 
   $('site-switch').innerHTML = B.sites.map(s =>
     `<button type="button" data-site="${esc(s.code)}" aria-pressed="${s.code === B.site}" title="${esc(s.name)}">${esc(s.code)}</button>`).join('');
@@ -283,31 +330,25 @@ function render() {
   mods = mods.filter(m => all.includes(m));
   $('mod-chips').innerHTML = `<button class="chip" type="button" data-mod="" aria-pressed="${!mods.length}">All</button>` +
     all.map(m => `<button class="chip" type="button" data-mod="${esc(m)}" aria-pressed="${mods.includes(m)}">${esc(m)}</button>`).join('');
-  $('names').setAttribute('aria-pressed', String(initials));
+  $('names').setAttribute('aria-pressed', String(names));
 
   const plan = B.plans.find(p => p.site_code === B.site);
-  const rooms = allRooms();
-  const onPlan = plan ? rooms.filter(r => r.x != null) : [];
-  const offPlan = rooms.filter(r => !onPlan.includes(r));
-
-  if (plan) {
-    $('plan-box').innerHTML = `<div class="plan-title">${esc(plan.site_name)} · floor plan</div>
-      <div class="plan" id="plan" data-w="${plan.width || 1600}" data-h="${plan.height || 900}">
-        <img src="${esc(STATIC + plan.image_path)}" alt="">${onPlan.map(r => badge(r, 'plan')).join('')}</div>`;
-    if (!plan.width || !plan.height) {           // size not stored at upload: read it off the image
-      const img = $('plan').querySelector('img');
-      img.addEventListener('load', () => {
-        $('plan').dataset.w = img.naturalWidth; $('plan').dataset.h = img.naturalHeight; fitPlan();
-      }, {once: true});
-    }
+  $('plan-btn').hidden = !plan;
+  $('plan-btn').setAttribute('aria-pressed', String(!!(plan && planMode)));
+  const rooms = shownRooms();
+  if (plan && planMode) {
+    const on = rooms.filter(r => r.x != null);
+    $('plan-box').innerHTML = `<div class="plan-box"><div class="plan" id="plan" data-w="${plan.width || 1600}" data-h="${plan.height || 900}">
+        <img src="${esc(STATIC + plan.image_path)}" alt="">${on.map(r => card(r).replace('class="card ', `style="left:${r.x}%;top:${r.y}%" class="card `)).join('')}</div></div>
+      ${rooms.length > on.length ? `<div class="plan-note">${rooms.length - on.length} rooms are not placed on the plan: press Plan again for every room.</div>` : ''}`;
     fitPlan();
+  } else if (!rooms.length) {
+    $('plan-box').innerHTML = '<div class="empty">No room of this hospital is open today or has anything booked.</div>';
   } else {
-    $('plan-box').innerHTML = `<div class="tiles">
-      ${rooms.length ? '' : '<div class="hint">No room of this hospital is open today or has anything booked.</div>'}
-      ${B.lanes.map(l => `<div class="tile-row"><div class="mod">${esc(l.modality)}</div>
-        <div class="devs">${l.rooms.map(r => badge(r, 'tile')).join('')}</div></div>`).join('')}</div>`;
+    $('plan-box').innerHTML = `<div class="grid">${rooms.map(card).join('')}</div>`;
+    fitGrid();
   }
-  renderRail(plan ? offPlan : []);
+  renderFoot();
   if (open) renderDrawer();
   tick();
 }
@@ -320,35 +361,20 @@ function fitPlan() {
   p.style.width = Math.max(100, W * s) + 'px';
   p.style.height = Math.max(60, H * s) + 'px';
 }
-window.addEventListener('resize', fitPlan);
 
-function renderRail(offPlan) {
-  const rows = B.lanes.map(l => {
+function renderFoot() {
+  const lanes = B.lanes.map(l => {
     const s = l.summary;
-    return `<button type="button" class="mrow" data-mod="${esc(l.modality)}" aria-pressed="${mods.includes(l.modality)}" title="Show only ${esc(l.modality)}">
-      <span class="m">${esc(l.modality)}</span>
-      <span><b>${s.busy}/${s.rooms}</b><small>busy</small></span>
-      <span class="w ${s.waiting_over ? 'alert' : ''}"><b>${s.waiting}</b><small>${s.longest_wait_since ? `<span data-since="${esc(s.longest_wait_since)}" data-fmt="short">${short(s.longest_wait_min)}</span>` : 'arrived'}</small></span>
-      <span><b>${s.scheduled_today}</b><small>sched.</small></span>
-      <span><b>${s.utilization_pct == null ? '—' : s.utilization_pct + '%'}</b><small>util</small></span>
-    </button>`;
+    return `<span class="mod"><b>${esc(l.modality)}</b>${s.busy}/${s.rooms} busy · <span class="${s.waiting_over ? 'alert' : ''}">${s.waiting} arrived</span> · ${s.scheduled_today} booked · ${s.utilization_pct == null ? '—' : s.utilization_pct + '%'}</span>`;
   }).join('');
-  const off = offPlan.filter(shown);
-  const un = B.unknown_rooms;
-  $('rail').innerHTML = `
-    <div class="box"><h2>By modality</h2>
-      <div class="mrow head"><span></span><span>busy</span><span>arrived</span><span>sched.</span><span>util</span></div>${rows || '<div class="none">No room today.</div>'}</div>
-    ${off.length ? `<div class="box"><h2>Not on the plan (${off.length})</h2><div class="unplaced">${off.map(r => badge(r, 'rail')).join('')}</div></div>` : ''}
-    ${un.length ? `<div class="box"><h2>Rooms not in RAYD's room list</h2><div class="unknown">The RIS named these rooms, which no RIS room in RAYD has (the room list is copied every night): ${un.map(u => `<b>${esc(u.code)}</b> (${u.studies})`).join(', ')}.</div></div>` : ''}
-    <div class="box legend">
-      <span><i class="sw" style="background:var(--free)"></i>Free · <i class="sw" style="background:var(--busy)"></i>Busy · <i class="sw" style="background:var(--late)"></i>Late: running past its expected end · <i class="sw" style="background:var(--closed)"></i>Closed today</span>
-      <span><i class="sw" style="background:var(--early)"></i>Done too early: the last exam took less than ${B.limits.early_pct} % of its expected time, until the next one starts.</span>
-      <span><i class="sw" style="background:var(--over)"></i>Arrived patients: red past the wait limit (${Object.entries(B.limits.wait_min).map(([m, v]) => `${esc(m)} ${v}`).join(', ') || 'none set'}; otherwise ${B.limits.default_wait_min} min).</span>
-      <span>Expected end = start + the minutes booked on the RIS. Utilization: busy time ÷ opening time so far today. Click a room for its patients.</span>
-    </div>`;
+  const un = B.unknown_rooms.length ? `<span class="mod alert">Rooms not in RAYD: ${B.unknown_rooms.map(u => esc(u.code) + ' (' + u.studies + ')').join(', ')}</span>` : '';
+  $('foot').innerHTML = lanes + un + `<span class="key">
+      <span><i class="sw" style="background:var(--free)"></i>Free</span><span><i class="sw" style="background:var(--busy)"></i>Busy</span>
+      <span><i class="sw" style="background:var(--late)"></i>Late</span><span><i class="sw" style="background:var(--early)"></i>Done under ${B.limits.early_pct} % of its time</span>
+      <span><i class="sw" style="background:var(--over)"></i>Wait over the limit (${Object.entries(B.limits.wait_min).map(([m, v]) => esc(m) + ' ' + v).join(', ') || 'none set'}; else ${B.limits.default_wait_min} min)</span></span>`;
 }
 
-// ── details ───────────────────────────────────────────────────────────────────
+// ── details (optional) ────────────────────────────────────────────────────────
 function waitList(items, limit) {
   if (!items.length) return '<div class="none">Nobody waiting.</div>';
   return `<ul class="list">${items.map(x => `<li><span class="p"><b>${esc(who(x))}</b><small>${esc(x.procedure)}${x.appointment_at ? ' · booked ' + hm(parse(x.appointment_at)) : ''} · arrived ${hm(parse(x.arrived_at))}</small></span>
@@ -394,9 +420,8 @@ function sitesHtml() {
 
 function limitsHtml() {
   const L = B.limits;
-  const mods_ = Object.keys(L.wait_min);
   return `<div class="dr-sec"><h4><span>Wait limit per modality (minutes)</span></h4>
-      <div class="limits">${mods_.map(m => `<label for="lim-${esc(m)}">${esc(m)}</label><input id="lim-${esc(m)}" type="number" min="1" max="600" data-mod="${esc(m)}" value="${L.wait_min[m]}">`).join('')}
+      <div class="limits">${Object.keys(L.wait_min).map(m => `<label for="lim-${esc(m)}">${esc(m)}</label><input id="lim-${esc(m)}" type="number" min="1" max="600" data-mod="${esc(m)}" value="${L.wait_min[m]}">`).join('')}
         <label for="lim-default">Any other modality</label><input id="lim-default" type="number" min="1" max="600" value="${L.default_wait_min}"></div></div>
     <div class="dr-sec"><h4><span>Done too early</span></h4>
       <div class="limits"><label for="lim-early">Under this share of the expected time (%)</label><input id="lim-early" type="number" min="1" max="99" value="${L.early_pct}"></div></div>
@@ -435,16 +460,16 @@ function renderDrawer() {
     const r = allRooms().find(x => x.key === open.room);
     if (!r) { closeDrawer(); return; }
     const c = r.current, e = r.early, u = r.utilization_pct;
-    const now = c ? `<div class="now ${c.late ? 'late' : ''}" data-start="${esc(c.started_at)}" data-end="${esc(c.expected_end)}">
-        <div class="who">${esc(who(c))}</div><div class="what">${esc(c.procedure)}${c.accession ? ' · ' + esc(c.accession) : ''}</div>
-        <div class="bar"><i style="width:0%"></i></div>
-        <div class="times"><span>Started ${hm(parse(c.started_at))} · expected end ${hm(parse(c.expected_end))}</span><span class="left"></span></div>
+    const now = c ? `<div class="c-now ${c.late ? 'late' : 'run'}" data-start="${esc(c.started_at)}" data-end="${esc(c.expected_end)}" style="font-size:14px;margin:0">
+        <div class="l1"><span class="who">${esc(who(c))}</span> <span class="what">${esc(c.procedure)}${c.accession ? ' · ' + esc(c.accession) : ''}</span></div>
+        <div class="l2"><span>Started ${hm(parse(c.started_at))} · expected end ${hm(parse(c.expected_end))}</span><b class="left"></b></div>
+        <div class="bar"><i></i></div>
         <div class="none" style="margin-top:4px">${c.expected_minutes} min: ${SOURCE[c.expected_source]}</div>
         ${r.also_in_progress ? `<div class="none">${r.also_in_progress} older exam still open: no completion received.</div>` : ''}</div>`
       : `<div class="none">${r.status === 'closed' ? 'Closed today' + (r.exception ? ': ' + esc(r.exception) : '') : r.last_done_at ? 'Free since ' + hm(parse(r.last_done_at)) : 'No exam running.'}</div>`;
-    const early = e ? `<div class="dr-sec"><h4><span>Last exam done too early</span></h4><div class="now early">
-        <div class="who">${esc(who(e))}</div><div class="what">${esc(e.procedure)}</div>
-        <div class="times"><span>${hm(parse(e.started_at))} → ${hm(parse(e.done_at))}</span><span class="left">${dur(e.took_min)} of ${dur(e.expected_minutes)}</span></div></div></div>` : '';
+    const early = e ? `<div class="dr-sec"><h4><span>Last exam done too early</span></h4><div class="c-now early" style="font-size:14px;margin:0">
+        <div class="l1"><span class="who">${esc(who(e))}</span> <span class="what">${esc(e.procedure)}</span></div>
+        <div class="l2"><span>${hm(parse(e.started_at))} → ${hm(parse(e.done_at))}</span><b>${dur(e.took_min)} of ${dur(e.expected_minutes)}</b></div></div></div>` : '';
     html = `<div class="dr-head"><div><h3 id="dr-title">${esc(r.room)}</h3>
         <div class="sub">${esc([r.room_code, r.modality, r.site].filter(Boolean).join(' · '))}</div></div>
         <span class="chip" style="cursor:default">${LABEL[r.status]}</span>
@@ -455,8 +480,7 @@ function renderDrawer() {
         <div class="dr-sec"><h4><span>Arrived, waiting ${r.waiting.length}</span><span>red past ${r.wait_limit_min} min</span></h4>${waitList(r.waiting, r.wait_limit_min)}</div>
         <div class="dr-sec"><h4><span>Still to come today ${r.to_come}</span><span>${r.scheduled_today} booked today</span></h4>${comingList(r.coming)}</div>
         <div class="dr-sec"><h4><span>Utilization so far today</span><span>${u == null ? '—' : u + '%'}</span></h4>
-          <div class="bar ubar"><i style="width:${Math.min(100, u || 0)}%"></i></div>
-          <div class="kv" style="margin-top:8px">
+          <div class="kv">
             <span>Busy</span><b>${dur(r.busy_min)}</b>
             <span>Open so far</span><b>${dur(r.open_min)} of ${dur(r.opening_minutes)} today, from ${hm(parse(r.window_start))}</b>
             <span>Done today</span><b>${r.done_today}</b>
@@ -464,7 +488,6 @@ function renderDrawer() {
       </div>`;
   }
   $('drawer').innerHTML = html;
-  // Below the top bar, so the clock, filters and the initials toggle stay usable.
   $('drawer').style.top = document.querySelector('.top').offsetHeight + 'px';
   $('drawer').hidden = false;
 }
@@ -478,28 +501,38 @@ function tick() {
   document.querySelectorAll('[data-since]').forEach(el => {
     const m = mins(n, parse(el.dataset.since));
     el.textContent = el.dataset.fmt === 'short' ? short(m) : dur(m);
-    if (el.dataset.fmt === 'wait') el.className = 'wait' + (m >= +el.dataset.limit ? ' alert' : '');
-  });
-  document.querySelectorAll('.dev [data-end]').forEach(el => {
-    const left = mins(parse(el.dataset.end), n);
-    el.textContent = left >= 0 ? `ends ${hm(parse(el.dataset.end))} · ${short(left)}` : `+${short(-left)} late`;
-    const dev = el.closest('.dev');
-    if (left < 0 && dev.classList.contains('busy')) {
-      dev.classList.replace('busy', 'late'); el.classList.add('late');
-      dev.querySelector('.d-state').textContent = LABEL.late;
+    if (el.dataset.limit) {
+      const over = m >= +el.dataset.limit;
+      if (el.dataset.fmt === 'wait') el.className = 'wait' + (over ? ' alert' : '');
+      else if (el.closest('li')) el.closest('li').classList.toggle('over', over);
     }
   });
-  document.querySelectorAll('.now[data-start]').forEach(el => {
+  document.querySelectorAll('.c-now[data-start]').forEach(el => {
     const s = parse(el.dataset.start), e = parse(el.dataset.end);
     const left = mins(e, n), pct = Math.min(100, Math.max(0, 100 * mins(n, s) / Math.max(1, mins(e, s))));
     el.querySelector('.bar > i').style.width = pct + '%';
-    el.querySelector('.left').textContent = left >= 0 ? dur(left) + ' left' : '+' + dur(-left) + ' late';
-    el.classList.toggle('late', left < 0);
+    el.querySelector('.left').textContent = left >= 0 ? short(left) + ' left' : '+' + short(-left) + ' late';
+    if (left < 0 && !el.classList.contains('late')) {
+      el.classList.replace('run', 'late');
+      const cd = el.closest('.card');
+      if (cd && cd.classList.contains('busy')) { cd.classList.replace('busy', 'late'); cd.querySelector('.st').textContent = LABEL.late; }
+    }
   });
   const age = lastOk ? Math.round((Date.now() - lastOk) / 1000) : null;
   $('updated').textContent = age == null ? '' : `Updated ${age < 5 ? 'just now' : age + ' s ago'}`;
   $('dot').classList.toggle('stale', age == null || age > 3 * REFRESH / 1000);
 }
+
+// ── a wall screen: full screen on a click, kept awake where the browser allows ──
+let wake = null;
+async function keepAwake() {
+  try { if ('wakeLock' in navigator && !wake && document.visibilityState === 'visible') {
+    wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => { wake = null; });
+  } } catch (e) { wake = null; }
+}
+document.addEventListener('visibilitychange', keepAwake);
+function syncFull() { $('full-btn').hidden = !!document.fullscreenElement || !document.documentElement.requestFullscreen; }
+document.addEventListener('fullscreenchange', () => { syncFull(); refit(); });
 
 // ── events ────────────────────────────────────────────────────────────────────
 function toggleMod(m) {
@@ -513,18 +546,24 @@ $('site-switch').addEventListener('click', e => {
   site = b.dataset.site; store.set('site', site); closeDrawer(); load();
 });
 document.addEventListener('click', e => {
-  const dev = e.target.closest('.dev[data-room]');
-  if (dev) { open = {room: dev.dataset.room}; renderDrawer(); tick(); return; }
-  const row = e.target.closest('.mrow[data-mod]');
-  if (row) { toggleMod(row.dataset.mod); return; }
+  const cd = e.target.closest('.card[data-room]');
+  if (cd) { open = {room: cd.dataset.room}; renderDrawer(); tick(); return; }
   if (e.target.closest('[data-save-limits]')) { saveLimits(); return; }
   if (e.target.closest('[data-close]')) closeDrawer();
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && open) closeDrawer(); });
-$('names').addEventListener('click', () => { initials = !initials; store.set('initials', initials); render(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && open) closeDrawer();
+  const cd = e.target.closest && e.target.closest('.card[data-room]');
+  if (cd && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open = {room: cd.dataset.room}; renderDrawer(); tick(); }
+});
+$('names').addEventListener('click', () => { names = !names; store.set('names', names); render(); });
+$('plan-btn').addEventListener('click', () => { planMode = !planMode; store.set('plan', planMode); render(); });
 $('sites-btn').addEventListener('click', () => { open = {sites: true}; renderDrawer(); loadSites(); });
+$('full-btn').addEventListener('click', () => { const d = document.documentElement; if (d.requestFullscreen) d.requestFullscreen().catch(() => {}); });
 if ($('limits-btn')) $('limits-btn').addEventListener('click', () => { open = {limits: true}; $('drawer').innerHTML = ''; renderDrawer(); });
 
+syncFull();
+keepAwake();
 load();
 setInterval(load, REFRESH);
 setInterval(tick, 1000);
