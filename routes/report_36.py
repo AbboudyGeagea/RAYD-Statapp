@@ -6,7 +6,8 @@ Report 36 — Radiology Reporting Analytics.
 Split out of Report 25's "Radiologists" tab (CHN). Same panels, same numbers:
 statistical insights, TAT heatmap (radiologist x modality), peer ranking,
 reports per radiologist (by modality / AE / month / procedure), and reporting
-cadence (signing density + daily log).
+cadence (signing density + daily log). Plus the current unread backlog grouped
+by the PACS "assign to radiologist" value (DIDB_STUDIES.ASSIGN_TO_DOCTOR).
 
 Every count here follows one rule (utils/radiologist_sql.py): a report is
 counted on the day it was FINALIZED, not the study day. Unlike Report 25, this
@@ -35,6 +36,11 @@ from utils.radiologist_sql import MOD_JOIN, ALIAS_JOIN, RAD_NAME, RAD_OK, FINAL_
 logger = logging.getLogger("report_36")
 
 report_36_bp = Blueprint("report_36", __name__)
+
+# The studies ETL re-reads only the last 10 days of study dates
+# (ETL_JOBS/etl_didb_studies.py, lookback_date). Older studies keep whatever status
+# and assignee they had then, so the unread backlog is limited to this window.
+_BACKLOG_DAYS = 10
 
 
 def _filters(form_data):
@@ -256,6 +262,74 @@ def _shift_patterns(params, sec):
     return shift_patterns, ts_rows
 
 
+def _unread_by_assignee(params, sec):
+    """Current unread backlog grouped by the PACS "assign to radiologist" value.
+
+    A snapshot as of the last studies sync, not tied to the period filter (unread
+    studies have no final date). Unread = PACS study status unread, same as the home
+    page and Report 25. Assignee logins (DBUSTROS@DN) become display names through
+    physician_alias_map, else the name on reports that login signed, else the login.
+    """
+    rows = db.session.execute(text(f"""
+        WITH login_names AS (
+            SELECT UPPER(TRIM(s.rep_final_signed_by)) AS login,
+                   MODE() WITHIN GROUP (ORDER BY {RAD_NAME}) AS rad_name
+            FROM etl_didb_studies s {ALIAS_JOIN}
+            WHERE s.rep_final_signed_by IS NOT NULL
+              AND s.rep_final_timestamp >= CURRENT_DATE - 365
+              {RAD_OK}
+            GROUP BY 1
+        ),
+        unread AS (
+            SELECT s.assign_to_doctor AS raw_assignee,
+                   NULLIF(UPPER(TRIM(SPLIT_PART(s.assign_to_doctor, '@', 1))), '') AS login,
+                   COALESCE(UPPER(m.modality), UPPER(s.study_modality), 'Unknown') AS modality,
+                   s.study_date
+            FROM etl_didb_studies s {MOD_JOIN}
+            WHERE s.study_status ILIKE '%unread%'
+              AND s.study_date >= CURRENT_DATE - :backlog_days
+              AND {NOT_SR}
+              {sec}
+        )
+        SELECT COALESCE(pa.canonical_name, ln.rad_name, u.login) AS assignee,
+               u.modality,
+               COUNT(*)          AS cnt,
+               MIN(u.study_date) AS oldest
+        FROM unread u
+        LEFT JOIN physician_alias_map pa ON pa.dismissed = false AND pa.alias = u.raw_assignee
+        LEFT JOIN login_names ln ON ln.login = u.login
+        GROUP BY 1, 2
+    """), {**params, "backlog_days": _BACKLOG_DAYS}).mappings().all()
+
+    groups = {}
+    for r in rows:
+        g = groups.setdefault(r['assignee'], {"assignee": r['assignee'], "total": 0, "mods": {}, "oldest": None})
+        g["total"] += int(r['cnt'])
+        g["mods"][r['modality']] = int(r['cnt'])
+        if g["oldest"] is None or r['oldest'] < g["oldest"]:
+            g["oldest"] = r['oldest']
+    today = date.today()
+    for g in groups.values():
+        g["mods"] = sorted(g["mods"].items(), key=lambda kv: -kv[1])
+        g["waiting_days"] = (today - g["oldest"]).days if g["oldest"] else None
+        g["oldest"] = str(g["oldest"]) if g["oldest"] else None
+
+    not_assigned = groups.pop(None, None)
+    assigned = sorted(groups.values(), key=lambda g: (-g["total"], g["assignee"]))
+
+    as_of = db.session.execute(text(
+        "SELECT MAX(end_time) FROM etl_job_log WHERE job_name = 'STUDIES_ETL' AND status = 'SUCCESS'"
+    )).scalar()
+    return {
+        "window_days":  _BACKLOG_DAYS,
+        "assigned":     assigned,
+        "not_assigned": not_assigned,
+        "total":        sum(g["total"] for g in assigned) + (not_assigned["total"] if not_assigned else 0),
+        "assigned_total": sum(g["total"] for g in assigned),
+        "as_of":        as_of.strftime("%Y-%m-%d %H:%M") if as_of else None,
+    }
+
+
 def get_radiology_data(form_data):
     """All Report 36 data. Returns (data | None, start, end); None when no finalized reports."""
     cached = cache_get(36, form_data)
@@ -293,7 +367,14 @@ def get_radiology_data(form_data):
     except Exception:
         logger.exception("Failed to run radiologist insight signals")
 
-    if not rad_cards and not any(rad_volume_matrix.values()):
+    unread_assign = None
+    try:
+        unread_assign = _unread_by_assignee(params, sec)
+    except Exception:
+        logger.exception("Failed to build unread backlog by assigned radiologist")
+        db.session.rollback()
+
+    if not rad_cards and not any(rad_volume_matrix.values()) and not (unread_assign and unread_assign["total"]):
         result = (None, start, end)
     else:
         result = ({
@@ -305,6 +386,7 @@ def get_radiology_data(form_data):
             "rad_volume_matrix": rad_volume_matrix,
             "shift_patterns":    shift_patterns,
             "rad_insights":      rad_insights,
+            "unread_assign":     unread_assign,
         }, start, end)
     cache_put(36, form_data, result)
     return result

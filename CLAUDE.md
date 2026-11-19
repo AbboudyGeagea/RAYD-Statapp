@@ -63,7 +63,8 @@ etl_didb_studies
   reading_physician_id BIGINT, reading_physician_first_name TEXT, reading_physician_last_name TEXT,
   referring_physician_first_name TEXT, referring_physician_last_name TEXT,
   rep_prelim_timestamp TIMESTAMP, patient_class TEXT, patient_location VARCHAR(3),
-  study_description TEXT, study_body_part TEXT, age_at_exam NUMERIC(5,2)
+  study_description TEXT, study_body_part TEXT, age_at_exam NUMERIC(5,2),
+  assign_to_doctor TEXT (PACS "assign to radiologist" login, e.g. DBUSTROS@DN; NULL = not assigned)
 
 etl_patient_view
   patient_db_uid BIGINT PK, patient_id TEXT, patient_name TEXT, dob DATE, sex TEXT,
