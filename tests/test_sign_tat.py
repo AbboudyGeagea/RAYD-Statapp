@@ -139,6 +139,104 @@ def test_nothing_without_the_audit_copy():
     assert out['coverage'] is None and out['signed'] == 0 and out['by_rad'] == []
 
 
+# ── Report 36: the radiologists' reading TAT and the three-clock comparison ────
+
+def reading_studies():
+    """six_studies (1: wet read at 32, the approver's lock at 120, approval at 150 -> 30 min;
+    2 and 6: approved, never opened by the approver) and five more."""
+    six_studies()
+    study(7, m(0))                                     # no wet read: the approver's first open
+    event(7, m(40), 'open', 'rad.two@ad')
+    event(7, m(110), 'approve', 'rad.two@ad')          # 70 min
+    study(8, m(0))                                     # opened before the wet read, again after
+    event(8, m(20), 'open', 'rad.two@ad')
+    event(8, m(50), 'wetread', 'res.one@ad')
+    event(8, m(200), 'open', 'rad.two@ad')
+    event(8, m(500), 'approve', 'rad.two@ad')          # 300 min, from the open after the wet read
+    study(9, m(0))
+    event(9, m(10), 'wetread', 'res.one@ad')
+    event(9, m(30), 'lock', 'rad.two@ad')
+    event(9, m(430), 'approve', 'rad.two@ad')          # 400 min
+    study(10, m(0))                                    # opened only before the wet read
+    event(10, m(20), 'open', 'rad.two@ad')
+    event(10, m(60), 'wetread', 'res.one@ad')
+    event(10, m(90), 'approve', 'rad.two@ad')          # not measured
+    study(11, m(0))                                    # a wet read after the approval: none
+    event(11, m(40), 'open', 'rad.two@ad')
+    event(11, m(50), 'approve', 'rad.two@ad')          # 10 min
+    event(11, m(60), 'wetread', 'res.one@ad')
+
+
+def reading():
+    from utils import sign_tat
+    return sign_tat.reading(DAY, DAY)
+
+
+def test_reading_tat_runs_from_the_approvers_first_open_after_the_wet_read():
+    reading_studies()
+
+    out = reading()
+
+    assert (out['approved'], out['not_measured']) == (8, 3)          # 2, 6 and 10 not measured
+    k = out['kpi']['all']
+    assert (k['n'], k['studies'], k['median_h'], k['p90_h']) == (5, 8, round(70 / 60, 2), round(400 / 60, 2))
+    assert [(b['label'], b['n'], b['pct']) for b in k['bands']] == \
+           [('≤ 1 h', 2, 40.0), ('1–3 h', 1, 20.0), ('3–5 h', 1, 20.0), ('> 5 h', 1, 20.0)]   # 300 min is 3–5 h
+    wet, dry = out['kpi']['wet'], out['kpi']['no_wet']
+    assert (wet['studies'], wet['n'], wet['median_h']) == (4, 3, 5.0)       # 30, 300, 400 min
+    assert (dry['studies'], dry['n'], dry['median_h']) == (4, 2, round(40 / 60, 2))   # 70 and 10 min
+
+
+def test_reading_tat_per_radiologist_and_modality():
+    reading_studies()
+
+    out = reading()
+
+    assert [(r['name'], r['studies'], r['n']) for r in out['by_rad']] == [('Rad Two', 8, 5)]
+    assert [(r['modality'], r['studies']) for r in out['by_modality']] == [('CT', 8)]
+
+
+def test_the_three_clocks_end_at_the_same_approval():
+    reading_studies()
+
+    out = reading()
+
+    assert [c['key'] for c in out['clocks']] == ['exam_to_sign', 'arrival_to_sign', 'reading_to_sign']
+    c = out['compare']
+    assert c['exam_to_sign']['n'] == 1 and c['exam_to_sign']['median_h'] == round(160 / 60, 2)
+    assert c['arrival_to_sign']['n'] == 8 and c['reading_to_sign']['n'] == 5
+    common = out['common']                                          # only study 1 has all three
+    assert common['n'] == 1 and common['reading_to_sign']['median_h'] == 0.5
+    assert [r['patient_class'] for r in out['compare_by_class']] == ['Inpatient']
+    assert out['compare_by_rad'][0]['arrival_to_sign']['n'] == 8
+
+
+def test_reading_nothing_without_the_audit_copy():
+    reading_studies()
+    sql("DELETE FROM settings WHERE key LIKE 'pacs_audit_%'")
+
+    out = reading()
+
+    assert out['coverage'] is None and out['approved'] == 0 and out['kpi'] == {}
+
+
+def test_report_36_shows_the_reading_kpi_and_the_comparison_tab(client):
+    reading_studies()
+
+    r = client.get('/report/36', headers=ADMIN, query_string={'start_date': DAY, 'end_date': DAY})
+    html = r.get_data(as_text=True)
+
+    assert r.status_code == 200, html[:400]
+    assert 'Radiologist Reading TAT (KPI)' in html and 'Measured, of 8 approved' in html
+    assert 'With a wet read' in html and 'Without a wet read' in html
+    assert 'id="r36-tab-compare"' in html and 'TAT comparison: RIS · PACS · reading' in html
+    assert 'RIS exam done → approval' in html and 'PACS arrival → approval' in html
+    assert 'First open after the wet read → approval' in html
+    for key in ('r36-reading-kpi', 'r36-reading-bands', 'r36-cmp-exam', 'r36-cmp-arrival', 'r36-cmp-reading',
+                'r36-cmp-modality', 'r36-cmp-class', 'r36-cmp-rad'):
+        assert f'data-explain="{key}"' in html
+
+
 def test_report_32_shows_the_turnaround(client):
     six_studies()
 

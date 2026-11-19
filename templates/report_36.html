@@ -77,6 +77,87 @@
 
         <div class="flex-1 overflow-y-auto p-8">
             {% if run_report %}
+            {% set rt = reading_tat %}
+            {% macro info(key, what='this figure') %}<i class="bi bi-info-circle chart-info-icon ml-1" data-explain="{{ key }}" role="button" tabindex="0" aria-label="About {{ what }}" title="About {{ what }}"></i>{% endmacro %}
+            {% macro hours(v) %}{% if v is none %}–{% else %}{{ '%.2f' | format(v) }} h{% endif %}{% endmacro %}
+            {% macro band_bar(bands) %}<div class="r36-bands">{% for b in bands %}{% if b.pct %}<span class="r36-band b{{ loop.index }}" style="width:{{ b.pct }}%" title="{{ b.label }}: {{ b.n }} ({{ b.pct }} %)">{% if b.pct >= 8 %}{{ '%.0f' | format(b.pct) }}%{% endif %}</span>{% endif %}{% endfor %}</div>{% endmacro %}
+            <style>
+                .r36-tabs { display:flex; gap:6px; margin-bottom:20px; }
+                .r36-tab { padding:8px 16px; border-radius:10px; border:1px solid #28332e; background:#181f1c; color:#94a3b8; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; cursor:pointer; }
+                .r36-tab[aria-selected="true"] { background:rgba(96,165,250,.15); border-color:#60a5fa; color:#60a5fa; }
+                .r36-kpi { background:#181f1c; border:1px solid #28332e; border-radius:14px; padding:12px 14px; }
+                .r36-kpi .v { font-size:24px; font-weight:900; color:#fff; font-variant-numeric:tabular-nums; }
+                .r36-kpi .l { font-size:10px; font-weight:800; color:#64748b; text-transform:uppercase; letter-spacing:.06em; }
+                .r36-bands { display:flex; height:18px; border-radius:6px; overflow:hidden; background:#28332e; min-width:160px; }
+                .r36-band { display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800; color:#0b1220; }
+                .r36-band.b1 { background:#34d399; } .r36-band.b2 { background:#a3e635; } .r36-band.b3 { background:#f59e0b; } .r36-band.b4 { background:#ef4444; color:#fff; }
+                .r36-tbl { width:100%; font-size:12px; border-collapse:collapse; }
+                .r36-tbl th { text-align:right; font-size:10px; color:#64748b; text-transform:uppercase; letter-spacing:.05em; padding:4px 6px; border-bottom:1px solid #28332e; }
+                .r36-tbl th:first-child, .r36-tbl td:first-child { text-align:left; }
+                .r36-tbl td { text-align:right; padding:4px 6px; border-bottom:1px solid rgba(255,255,255,.04); font-variant-numeric:tabular-nums; }
+                body.light .r36-kpi { background:#f8fafc; border-color:#e2e8f0; } body.light .r36-kpi .v { color:#1a202c; }
+                body.light .r36-tab { background:#fff; border-color:#e2e8f0; }
+            </style>
+
+            <div class="r36-tabs" role="tablist" aria-label="Report 36 views">
+                <button class="r36-tab" role="tab" id="r36-tabbtn-main" aria-selected="true" onclick="r36Tab('main')">Reporting analytics</button>
+                <button class="r36-tab" role="tab" id="r36-tabbtn-compare" aria-selected="false" onclick="r36Tab('compare')">TAT comparison: RIS · PACS · reading</button>
+            </div>
+
+            <div id="r36-tab-main" role="tabpanel">
+
+            <!-- ── Radiologist reading TAT, the KPI (operator 2026-11-19) ── -->
+            <p class="section-desc">
+                Radiologist reading TAT, the KPI: from the approving radiologist's first open after the wet
+                read (Signed 1), or their first open when the study had no wet read, to their approval in PACS.
+                From the PACS audit trail{% if rt and rt.coverage %}, studies that reached PACS since {{ rt.coverage.from }}{% endif %}.
+            </p>
+            <div class="glass-card mb-8">
+                <div class="chart-card-header" style="padding:0 0 12px 0;">
+                    <span class="chart-card-title" style="color:#f59e0b;">Radiologist Reading TAT (KPI){{ info('r36-reading-kpi', 'this card') }}</span>
+                </div>
+                {% if not rt or not rt.coverage %}
+                <p class="text-sm text-zinc-500 italic">The PACS audit trail copy holds nothing for these dates yet.</p>
+                {% elif not rt.approved %}
+                <p class="text-sm text-zinc-500 italic">No study in this range was approved in PACS (of {{ rt.studies }} studies).</p>
+                {% else %}
+                {% set k = rt.kpi.all %}
+                <div class="grid grid-cols-4 gap-3 mb-4">
+                    <div class="r36-kpi"><div class="v">{{ hours(k.median_h) }}</div><div class="l">Median{{ info('r36-reading-median') }}</div></div>
+                    <div class="r36-kpi"><div class="v">{{ hours(k.p90_h) }}</div><div class="l">90th percentile{{ info('r36-reading-p90') }}</div></div>
+                    <div class="r36-kpi"><div class="v">{{ '{:,}'.format(k.n) }}</div><div class="l">Measured, of {{ '{:,}'.format(rt.approved) }} approved{{ info('r36-reading-measured') }}</div></div>
+                    <div class="r36-kpi"><div class="v">{{ '{:,}'.format(rt.not_measured) }}</div><div class="l">Not measured{{ info('r36-reading-not-measured') }}</div></div>
+                </div>
+                <table class="r36-tbl mb-6">
+                    <thead><tr><th>Studies{{ info('r36-reading-bands', 'these bands') }}</th><th>Approved</th><th>Measured</th><th>Median</th><th>90th pct</th>
+                        <th style="text-align:left;min-width:240px;">{% for l in rt.bands %}<span class="r36-band b{{ loop.index }}" style="display:inline-block;width:auto;padding:0 6px;border-radius:4px;margin-right:4px;">{{ l }}</span>{% endfor %}</th></tr></thead>
+                    <tbody>
+                    {% for label, row in [('All', rt.kpi.all), ('With a wet read', rt.kpi.wet), ('Without a wet read', rt.kpi.no_wet)] %}
+                    <tr><td class="font-bold">{{ label }}</td><td>{{ '{:,}'.format(row.studies) }}</td><td>{{ '{:,}'.format(row.n) }}</td>
+                        <td>{{ hours(row.median_h) }}</td><td>{{ hours(row.p90_h) }}</td><td style="text-align:left;">{{ band_bar(row.bands) }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                <div class="grid grid-cols-2 gap-6">
+                    {% for title, key, rows, first in [('By approving radiologist', 'r36-reading-by-rad', rt.by_rad, 'name'), ('By modality', 'r36-reading-by-mod', rt.by_modality, 'modality')] %}
+                    <div>
+                        <p class="chart-card-title mb-2">{{ title }}{{ info(key, 'this table') }}</p>
+                        <div style="max-height:320px;overflow-y:auto;">
+                        <table class="r36-tbl">
+                            <thead><tr><th>{{ 'Radiologist' if first == 'name' else 'Modality' }}</th><th>Measured</th><th>Median</th><th>90th pct</th>{% for l in rt.bands %}<th>{{ l }}</th>{% endfor %}</tr></thead>
+                            <tbody>
+                            {% for r in rows %}
+                            <tr><td>{{ r[first] }}</td><td>{{ r.n }} / {{ r.studies }}</td><td>{{ hours(r.median_h) }}</td><td>{{ hours(r.p90_h) }}</td>
+                                {% for b in r.bands %}<td>{% if b.pct is not none %}{{ '%.0f' | format(b.pct) }}%{% else %}–{% endif %}</td>{% endfor %}</tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
 
             <!-- ── Resident vs Radiologist TAT ─────────────────────────── -->
             <p class="section-desc mt-8">
@@ -1129,6 +1210,99 @@
 
                 // Rendered synchronously — server already computed shift_patterns (no BG fetch, see report_36.py's docstring)
                 renderAll({{ (shift_patterns or {}) | tojson }});
+            })();
+            </script>
+
+            </div><!-- /r36-tab-main -->
+
+            <!-- ── Tab 2: three clocks to the same approval (operator 2026-11-19) ── -->
+            <div id="r36-tab-compare" role="tabpanel" hidden>
+                <p class="section-desc">
+                    Three clocks, one end: the radiologist's approval in the PACS audit trail. RIS exam done →
+                    approval, PACS arrival (images stored) → approval, and the radiologist's reading time: the
+                    approving radiologist's first open after the wet read (or their first open with no wet read) →
+                    approval. Each clock counts the studies that have its start before the approval.
+                </p>
+                {% if not rt or not rt.coverage or not rt.approved %}
+                <div class="glass-card"><p class="text-sm text-zinc-500 italic">No approved study from the PACS audit trail in this range.</p></div>
+                {% else %}
+                {% set colors = {'exam_to_sign': '#34d399', 'arrival_to_sign': '#60a5fa', 'reading_to_sign': '#f59e0b'} %}
+                {% set clock_notes = {'exam_to_sign': 'r36-cmp-exam', 'arrival_to_sign': 'r36-cmp-arrival', 'reading_to_sign': 'r36-cmp-reading'} %}
+                <div class="grid grid-cols-3 gap-4 mb-3">
+                    {% for c in rt.clocks %}{% set s = rt.compare[c.key] %}
+                    <div class="glass-card" style="padding:16px;border-left:4px solid {{ colors[c.key] }};">
+                        <p class="chart-card-title" style="color:{{ colors[c.key] }};">{{ c.label }}{{ info(clock_notes[c.key], 'this clock') }}</p>
+                        <div class="flex items-end gap-6 mt-2">
+                            <div><div class="text-3xl font-black text-white">{{ hours(s.median_h) }}</div><div class="text-[10px] font-bold text-zinc-500 uppercase">median</div></div>
+                            <div><div class="text-xl font-black text-zinc-300">{{ hours(s.p90_h) }}</div><div class="text-[10px] font-bold text-zinc-500 uppercase">90th pct</div></div>
+                            <div><div class="text-xl font-black text-zinc-300">{{ '{:,}'.format(s.n) }}</div><div class="text-[10px] font-bold text-zinc-500 uppercase">studies</div></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <p class="text-xs text-zinc-500 mb-6">On the {{ '{:,}'.format(rt.common.n) }} {{ 'study that has' if rt.common.n == 1 else 'studies that have' }} all three clocks, the medians are
+                    {% for c in rt.clocks %}<strong style="color:{{ colors[c.key] }};">{{ hours(rt.common[c.key].median_h) }}</strong>{% if not loop.last %} · {% endif %}{% endfor %}
+                    (RIS · PACS · reading).{{ info('r36-cmp-common', 'these medians') }}</p>
+                <div class="grid grid-cols-2 gap-6 mb-6">
+                    <div class="glass-card"><p class="chart-card-title mb-2">Median by modality (h){{ info('r36-cmp-modality', 'this chart') }}</p><div id="chart-r36-cmp-modality" style="height:340px;"></div></div>
+                    <div class="glass-card"><p class="chart-card-title mb-2">Median by patient class (h){{ info('r36-cmp-class', 'this chart') }}</p><div id="chart-r36-cmp-class" style="height:340px;"></div></div>
+                </div>
+                <div class="glass-card">
+                    <p class="chart-card-title mb-2">By approving radiologist{{ info('r36-cmp-rad', 'this table') }}</p>
+                    <div style="max-height:420px;overflow-y:auto;">
+                    <table class="r36-tbl">
+                        <thead><tr><th>Radiologist</th><th>Approved</th>{% for c in rt.clocks %}<th style="color:{{ colors[c.key] }};">{{ c.label }}: median (studies)</th>{% endfor %}</tr></thead>
+                        <tbody>
+                        {% for r in rt.compare_by_rad %}
+                        <tr><td>{{ r.name }}</td><td>{{ r.studies }}</td>{% for c in rt.clocks %}<td>{{ hours(r[c.key].median_h) }} <span class="text-zinc-600">({{ r[c.key].n }})</span></td>{% endfor %}</tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <script>
+            (function () {
+                const RT = {{ (reading_tat or {}) | tojson }};
+                const COLORS = {exam_to_sign: '#34d399', arrival_to_sign: '#60a5fa', reading_to_sign: '#f59e0b'};
+                let drawn = false;
+                function grouped(id, rows, field) {
+                    const el = document.getElementById(id);
+                    if (!el || !window.echarts || !rows || !rows.length) return;
+                    const chart = echarts.init(el, null, {renderer: 'canvas'});
+                    chart.setOption({
+                        tooltip: {trigger: 'axis', valueFormatter: v => v == null ? '–' : v + ' h'},
+                        legend: {top: 0, textStyle: {color: '#94a3b8'}},
+                        grid: {left: 48, right: 16, top: 36, bottom: 48},
+                        xAxis: {type: 'category', data: rows.map(r => r[field]), axisLabel: {color: '#94a3b8', interval: 0, rotate: rows.length > 6 ? 30 : 0}},
+                        yAxis: {type: 'value', name: 'h', axisLabel: {color: '#94a3b8'}, splitLine: {lineStyle: {color: 'rgba(255,255,255,0.06)'}}},
+                        series: RT.clocks.map(c => ({name: c.label, type: 'bar', itemStyle: {color: COLORS[c.key]},
+                            data: rows.map(r => r[c.key] ? r[c.key].median_h : null)})),
+                    });
+                    if (typeof registerChart === 'function') registerChart(id, chart);
+                }
+                function drawCompare() {
+                    if (drawn || !RT.clocks) return;
+                    drawn = true;
+                    grouped('chart-r36-cmp-modality', RT.compare_by_modality, 'modality');
+                    grouped('chart-r36-cmp-class', RT.compare_by_class, 'patient_class');
+                }
+                window.r36Tab = function (name) {
+                    document.getElementById('r36-tab-main').hidden = name !== 'main';
+                    document.getElementById('r36-tab-compare').hidden = name !== 'compare';
+                    document.getElementById('r36-tabbtn-main').setAttribute('aria-selected', String(name === 'main'));
+                    document.getElementById('r36-tabbtn-compare').setAttribute('aria-selected', String(name === 'compare'));
+                    if (name === 'compare') drawCompare();
+                    // charts drawn while their tab was hidden take their size now
+                    document.querySelectorAll('[_echarts_instance_]').forEach(el => {
+                        const c = window.echarts && echarts.getInstanceByDom(el);
+                        if (c && el.offsetParent !== null) c.resize();
+                    });
+                    try { history.replaceState(null, '', name === 'compare' ? '#compare' : location.pathname + location.search); } catch (e) {}
+                };
+                if (location.hash === '#compare') window.addEventListener('load', () => r36Tab('compare'));
             })();
             </script>
 

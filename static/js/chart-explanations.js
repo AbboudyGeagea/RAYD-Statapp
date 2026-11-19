@@ -690,6 +690,98 @@ const ChartExplanations = {
       interpretation: 'It sees signatures only, so reading, procedures and meetings look like breaks. Use it for workload patterns, not as an attendance record.'
     },
 
+    // Report 36: the radiologists' reading TAT (the KPI) and the three-clock comparison
+    'r36-reading-kpi': {
+      title: 'Radiologist Reading TAT (KPI)',
+      purpose: 'How long a radiologist takes to approve a study once they start on it, the department\'s KPI for radiologists.',
+      valueMeaning: 'From the approving radiologist\'s first open of the study after the resident\'s wet read (Signed 1), or their first open when there was no wet read, to their approval in PACS. Every time comes from the PACS audit trail, to the second, for studies that reached PACS since the audit copy began.',
+      interpretation: 'It leaves out the time a study waits before the radiologist opens it, so it measures reading and approving, not the queue. Use the comparison tab for the full turnaround.'
+    },
+    'r36-reading-median': {
+      title: 'Median reading TAT',
+      purpose: 'The typical time from the radiologist\'s first open after the wet read to the approval.',
+      valueMeaning: 'Half of the measured studies were approved faster than this, half slower, in hours.',
+      interpretation: 'The everyday pace; not pulled up by a few studies left open for hours, which the 90th percentile shows.'
+    },
+    'r36-reading-p90': {
+      title: '90th percentile reading TAT',
+      purpose: 'The slow end: 9 studies out of 10 were approved within this time.',
+      valueMeaning: 'Hours from the radiologist\'s first open after the wet read to the approval, for the measured studies.',
+      interpretation: 'Far above the median means some studies stay open a long time before approval: look for them in the radiologist table.'
+    },
+    'r36-reading-measured': {
+      title: 'Measured studies',
+      purpose: 'How many approved studies the reading TAT could be measured on.',
+      valueMeaning: 'Studies approved in PACS in the date range whose approving radiologist opened them after the wet read (or at all, with no wet read), out of every approved study.',
+      interpretation: 'The closer to the approved total, the more complete the figure.'
+    },
+    'r36-reading-not-measured': {
+      title: 'Not measured',
+      purpose: 'Approved studies with no start for the reading clock.',
+      valueMeaning: 'The approving radiologist has no open of the study in the audit trail after the wet read: they opened it only before the resident\'s wet read, or approved without an open being recorded.',
+      interpretation: 'A high count can mean studies approved from a list without being reopened; these are left out rather than given a made-up start.'
+    },
+    'r36-reading-bands': {
+      title: 'Reading TAT bands',
+      purpose: 'How the measured studies spread over time windows, for all studies and for those with and without a wet read.',
+      valueMeaning: 'Share of measured studies approved within 1 hour, 1 to 3 hours, 3 to 5 hours and over 5 hours of the radiologist\'s first open after the wet read. Approved = every approved study of the group; Measured = those with a start.',
+      interpretation: 'A growing red band (over 5 hours) means studies are left open long before approval. With and without a wet read show whether studies read by a resident first are approved faster.'
+    },
+    'r36-reading-by-rad': {
+      title: 'Reading TAT by approving radiologist',
+      purpose: 'Each radiologist\'s own reading time, from their first open after the wet read to their approval.',
+      valueMeaning: 'Measured / approved studies, median and 90th percentile in hours, and the share in each band, per radiologist who approved.',
+      interpretation: 'Compare radiologists on the same kind of work: a radiologist approving mostly complex studies can be slower for good reason.'
+    },
+    'r36-reading-by-mod': {
+      title: 'Reading TAT by modality',
+      purpose: 'Reading time from the first open after the wet read to the approval, per modality.',
+      valueMeaning: 'Measured / approved studies, median and 90th percentile in hours, and the share in each band, per modality.',
+      interpretation: 'MRI and CT take longer to read than X-ray by nature; compare a modality with itself over time.'
+    },
+    'r36-cmp-exam': {
+      title: 'RIS exam done → approval',
+      purpose: 'The full turnaround seen from the RIS: from the technologist marking the exam done to the radiologist\'s approval.',
+      valueMeaning: 'Median, 90th percentile (hours) and number of studies whose RIS exam done comes before the approval in the PACS audit trail.',
+      interpretation: 'Includes the wait for the images, the wait in the reading queue and the reading itself. A late "exam done" on the RIS makes it look shorter.'
+    },
+    'r36-cmp-arrival': {
+      title: 'PACS arrival → approval',
+      purpose: 'The turnaround seen from PACS: from the images being stored to the radiologist\'s approval.',
+      valueMeaning: 'Median, 90th percentile (hours) and number of studies, from the time PACS stored the study to the approval in the audit trail.',
+      interpretation: 'Starts when the images can actually be read, so it does not depend on when the RIS status was entered.'
+    },
+    'r36-cmp-reading': {
+      title: 'First open after the wet read → approval',
+      purpose: 'The radiologist\'s own part: from the approving radiologist\'s first open after the wet read to their approval.',
+      valueMeaning: 'Median, 90th percentile (hours) and number of studies, the same figure as the Reading TAT KPI card.',
+      interpretation: 'The gap between this and the other two clocks is the time a study waits before the radiologist starts on it.'
+    },
+    'r36-cmp-common': {
+      title: 'The three clocks on the same studies',
+      purpose: 'A like-for-like comparison: the medians of the three clocks on the studies that have all three.',
+      valueMeaning: 'Studies with a RIS exam done, a PACS arrival and a radiologist open after the wet read, all before the approval; the median of each clock on them.',
+      interpretation: 'Each tile above counts its own studies; these medians compare the very same studies, so the differences are the waiting steps.'
+    },
+    'r36-cmp-modality': {
+      title: 'The three clocks by modality',
+      purpose: 'Where the time goes for each modality: full turnaround from the RIS and from PACS beside the radiologist\'s reading time.',
+      valueMeaning: 'Median hours of each clock per modality, each on the studies that have that clock.',
+      interpretation: 'A tall green or blue bar over a short orange one means studies wait long before the radiologist opens them.'
+    },
+    'r36-cmp-class': {
+      title: 'The three clocks by patient class',
+      purpose: 'The same comparison for ER, inpatients and outpatients.',
+      valueMeaning: 'Median hours of each clock per patient class (ER from the patient location, then the PACS patient class), each on the studies that have that clock.',
+      interpretation: 'ER studies should show short waits before the radiologist opens them; a long one is worth looking into.'
+    },
+    'r36-cmp-rad': {
+      title: 'The three clocks by approving radiologist',
+      purpose: 'Each radiologist\'s turnaround from the RIS and from PACS beside their own reading time.',
+      valueMeaning: 'Approved studies and, for each clock, the median in hours with the number of studies it counts.',
+      interpretation: 'A radiologist with a short reading time but a long turnaround receives studies late or picks them up late; the reverse means slow reading.'
+    },
+
     // ── Super Report ────────────────────────────────────────────────────────────
     // Rows: Rizk Hospital studies in the dates and filters chosen, compared with the
     // previous period of the same length (or the comparison dates chosen).

@@ -541,7 +541,19 @@ def _compute_report_36_data(form_data):
 
     gold_data, display_start, display_end = get_gold_standard_data(form_data)
 
+    # The radiologists' reading TAT KPI and the three-clock comparison (operator 2026-11-19),
+    # from the PACS audit trail copy (utils/sign_tat.reading)
+    reading_tat = None
+    try:
+        from utils import sign_tat
+        params, clause, start, end = _sidebar_filters(form_data)
+        reading_tat = sign_tat.reading(start, end, params, clause)
+    except Exception:
+        logger.exception("Failed to compute the reading TAT")
+        db.session.rollback()
+
     result = {
+        'reading_tat':          reading_tat,
         'rad_volume_matrix':    (gold_data or {}).get('rad_volume_matrix'),
         'tech_tat_cards':       (gold_data or {}).get('tech_tat_cards'),
         'res_rad_tat':          get_resident_radiologist_tat(form_data),
@@ -566,7 +578,7 @@ def report_36():
     display_end   = date.today().strftime("%Y-%m-%d")
 
     res_rad_tat = modality_tat = wait_time_data = None
-    rad_volume_matrix = shift_patterns = tech_tat_cards = None
+    rad_volume_matrix = shift_patterns = tech_tat_cards = reading_tat = None
 
     if run_report:
         from utils.audit import log_event
@@ -580,6 +592,7 @@ def report_36():
         modality_tat          = data['modality_tat']
         wait_time_data        = data['wait_time_data']
         shift_patterns        = data['shift_patterns']
+        reading_tat           = data.get('reading_tat')
         display_start         = data['display_start']
         display_end           = data['display_end']
 
@@ -592,6 +605,7 @@ def report_36():
         rad_volume_matrix=rad_volume_matrix,
         tech_tat_cards=tech_tat_cards,
         shift_patterns=shift_patterns,
+        reading_tat=reading_tat,
         display_start=display_start, display_end=display_end,
         classes=classes, locations=locations, modalities=modalities, aetitles=aetitles,
         run_report=run_report,

@@ -90,6 +90,24 @@ had a catalogue row, licence entry or grant).
 - Noted for the BRAYN enhancements (item 17): the RIS's modality is in OBR-18, which BRAYN does not
   read (it looks at OBR-24, -19, -17).
 
+**Closed by the operator, 19 Nov evening:** the deploy, the floor plan (data kept), item 38 (Live
+board).
+
+**Item 40, radiologists' TAT (operator, 19 Nov evening), built the same evening, deploy waiting.**
+Report 36 already had both start clocks (RIS exam done and PACS insert time, its "Exam Done
+Anchor" switch), ending at the PACS study's latest signature fields. Added, from the PACS audit
+trail copy (`utils/sign_tat.reading`, studies that reached PACS since 1 Oct):
+- **Radiologist Reading TAT (KPI)** card at the top of Report 36: from the approving radiologist's
+  first open after the wet read (Signed 1), or their first open with no wet read, to their approval
+  (operator's choices: the approver's own open; studies without a wet read counted, shown apart;
+  no target yet, bands 0-1 h / 1-3 h / 3-5 h / >5 h with median and 90th percentile); per
+  radiologist and per modality; approved studies with no such open counted as "not measured";
+- a second tab, **TAT comparison: RIS · PACS · reading**: RIS exam done → approval, PACS arrival
+  → approval, first open after the wet read → approval, all ending at the same audit approval;
+  overall, on the studies that have all three, by modality, patient class and radiologist.
+Check after the deploy: Report 36 for October (the audit copy starts 1 Oct): does the median look
+right against what the radiologists expect?
+
 **Waiting on the operator (decisions):** item 9 switch (after the manager); item 13 PHILIPSCARM =
 RIS "PHILIPS" (C-Arm 2)? (ask SJH), the 13d BRAYN routing walkthrough, SJH's mail relay details;
 item 17 the BRAYN enhancements list; item 21 a look at Report 40 for October; item 33 reload Report
