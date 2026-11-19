@@ -83,10 +83,10 @@ had a catalogue row, licence entry or grant).
   next appointments, "+n more"), Full-screen button, screen kept awake, initials unless Names.
   Any later change must still fit 1920x1080 with ~25 rooms.
 - **Admin > Floor Plan removed (operator, 19 Nov evening):** page, route, menu entry, licence flag,
-  the board's plan mode and the old live API's positions. The table `floor_plans`, the columns
-  `aetitle_modality_map.floor_x / floor_y` and any uploaded images under `static/floor_plans/` on
-  the server are left in place (nothing reads them): dropping them is a migration, on the
-  operator's word.
+  the board's plan mode and the old live API's positions. **Data removed (operator, 20 Nov: "we
+  replace them with hardcoded live dashboard"), migration 0179:** the table `floor_plans` and the
+  four `aetitle_modality_map.floor_*` columns. The uploaded images are files on the server, removed
+  by hand: `ls -la /opt/rayd/static/floor_plans` then `sudo rm -rf /opt/rayd/static/floor_plans`.
 - Noted for the BRAYN enhancements (item 17): the RIS's modality is in OBR-18, which BRAYN does not
   read (it looks at OBR-24, -19, -17).
 
@@ -254,7 +254,14 @@ for October; the Super Report's new card; HL7 Orders on RH and SJH.
 RIS "PHILIPS" (C-Arm 2)? (ask SJH), SJH's mail relay details, the day of the move (before Tue 24;
 Mon 23 is a holiday); item 17 the BRAYN enhancements list; item 21 a look at Report 40 for October;
 item 33 reload Report 27's RIS tab (blue bars no longer 0); item 35 predicted vs actual after the
-23rd; item 37 CRN workflow with the department; the floor plan data (drop or keep).
+23rd; item 37 CRN workflow with the department. (Floor plan data: dropped, migration 0179.)
+
+**End of 19 Nov (session closed ~00:30 on the 20th), next deploy brings:** 4aaacb38 (BRAYN lookup
+limit), a9b028ef (sweep 2 min after a start), 0178 (STALLED_SCHEDULED from the appointment, still
+off), 0179 (floor plan data dropped). Morning of 20 Nov: deploy; remove the floor plan images; the
+item 1 checks (booked room, HIS vs RIS 19 Nov MRI); the BRAYN per-modality breakdown (item 17,
+query in the reply of 20 Nov 00:30, also below in item 17's notes) → which steps each modality
+sends → switch on the stall rules.
 
 **Next builds:** the SJH move before Tue 24 (runbook in item 13, "Production runbook", with the 13d
 addition above); item 17 BRAYN enhancements once listed; item 14's December rest.

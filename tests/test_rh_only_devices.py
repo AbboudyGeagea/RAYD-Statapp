@@ -91,6 +91,18 @@ def test_the_floor_plan_page_is_gone(client):
     assert 'floor_plan' not in page and 'plan-btn' not in page
 
 
+def test_the_floor_plan_data_is_gone(app):
+    """Operator, 2026-11-20: "remove the floor plan data" (migration 0179)."""
+    from db import db
+    from sqlalchemy import text
+    with app.app_context():
+        assert db.session.execute(text("SELECT to_regclass('public.floor_plans')")).scalar() is None
+        assert db.session.execute(text("""
+            SELECT COUNT(*) FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'aetitle_modality_map'
+               AND column_name LIKE 'floor%'""")).scalar() == 0
+
+
 def test_fact_exam_marks_sjh_as_not_counted(devices):
     from db import db
     from ETL_JOBS.etl_fact_exam import _DERIVE_SQL
