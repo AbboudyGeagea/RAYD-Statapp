@@ -366,9 +366,10 @@ def resolve_status(sending_app, order_control, order_status):
     app  = sending_app or ''
     ctl  = order_control or ''
     if not order_status:
-        # '*' is any status, none included (2026-11-20): an HIS RQ with ORC-5 empty is still the
-        # order changing. Only a wildcard row matches an empty ORC-5.
-        for key in ((app, ctl, '*'), ('', ctl, '*')):
+        # An empty ORC-5 (2026-11-20): a row for exactly that (order_status '', the RIS's SC
+        # with ORC-5 empty = the booking changed, migration 0176), then '*', which is any
+        # status, none included (an HIS RQ with ORC-5 empty is still the order changing).
+        for key in ((app, ctl, ''), (app, ctl, '*'), ('', ctl, '*')):
             if key in smap:
                 return smap[key]
         return (None, None)

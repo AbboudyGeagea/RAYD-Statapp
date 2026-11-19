@@ -179,6 +179,19 @@ only OBR-24/-19/-17, empty at LAUMC), with the RIS studies already stored filled
 - **Order after the deploy: deploy (0175) first, then Re-check** (Re-check parses the held HIS
   messages again, with the new times), then the 24-hour check; the STALLED / ORPHAN rules only
   once that is clean.
+- **After 0175 was deployed (20 Nov, operator):** FUTURE_EVENT 0 open (187 closed);
+  TIME_CONTRADICTION 9 open = exactly the small RIS pairs above (21 closed); RIS studies completed
+  396, all 396 with the PACS accession, 112 with a report; UNREPORTED 151 open, none closed;
+  UNKNOWN_STATUS_CODE 863 (Re-check not pressed yet). The 3 RIS SC with ORC-5 empty: one RIS
+  number, SC/SC > SC/ > SC/ > SC/, each with another room (SJH-MRI, SJH-MAMO) and appointment =
+  the booking re-sent when it changes → **migration 0176**: RIS SC + empty ORC-5 = still
+  scheduled (a status-map row with order_status '', matched to an empty ORC-5), so the board gets
+  the new room and time.
+- **Open questions (queries sent 20 Nov):** are the 151 really unreported (PACS copy signed or
+  not, ORU stored or not, per hospital and modality)? And one RIS number on two rooms (MRI and
+  mammography): how often does one RIS number (ORC-3, BRAYN's key) hold several exams? If often,
+  BRAYN merges them into one study and needs an exam-level key (OBR-1 looks like the RIS worklist
+  row: the query checks it against etl_orders.order_dbid).
 
 **Waiting for the next deploy (`cd /opt/rayd && sudo bash update.sh LAUMC`), all pushed, tests
 passing (1369):** the TV layout of the Live board and Floor Plan removal (2b7ba3cb ...), Report 36

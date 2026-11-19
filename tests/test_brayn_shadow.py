@@ -272,16 +272,22 @@ def test_the_ris_arrival_and_the_his_sap_codes_are_classified(pipe):
     assert s == {'arrived': True, 'started': True, 'signed': True}
 
 
-def test_an_his_rq_with_orc5_empty_is_the_order_changing(pipe):
-    """The wildcard is any status, none included; a RIS SC with ORC-5 empty has no wildcard and
-    stays "not identified"."""
+def test_an_empty_orc5_the_his_order_changing_and_the_ris_rebooking(pipe):
+    """The wildcard is any status, none included (HIS RQ). The RIS re-sends a booking that changed
+    as SC with ORC-5 empty (migration 0176): still scheduled, the new room and time stored. Any
+    other code with ORC-5 empty stays "not identified"."""
     pipe.brayn()
     pipe.send(k.order('PL-71', when=k.ts(30), app='SAP_P'))
     pipe.send(k.status(None, None, k.ts(20), placer='PL-71', app='SAP_P', control='RQ'))
-    pipe.send(k.status(None, 'ACC72', k.ts(10)))
+    later = k.hl7(k.now() + timedelta(days=6))
+    pipe.send(k.status('SC', 'ACC72', k.ts(15), room='SJH-MAMO', appt=k.hl7(k.now() + timedelta(days=7))))
+    pipe.send(k.status(None, 'ACC72', k.ts(10), room='SJH-MRI', appt=later))
+    pipe.send(k.status(None, 'ACC73', k.ts(5), control='XO'))
     pipe.screen()
-    held = pipe.q("SELECT sending_app FROM hl7_message_archive WHERE brayn_status = 'quarantined'")
-    assert [r['sending_app'] for r in held] == ['RIS']
+    held = pipe.q("SELECT sending_app, raw_message FROM hl7_message_archive WHERE brayn_status = 'quarantined'")
+    assert len(held) == 1 and '|ACC73^' in held[0]['raw_message']
+    s = pipe.one("SELECT ris_room, appointment_at, current_rank FROM brayn_study_state WHERE accession_number = 'ACC72'")
+    assert (s['ris_room'], k.hl7(s['appointment_at']), s['current_rank']) == ('SJH-MRI', later, 40)
 
 
 # ── the HIS's time and the RIS study's report (migration 0175, 2026-11-20) ────
