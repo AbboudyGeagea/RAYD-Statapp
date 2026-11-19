@@ -110,6 +110,18 @@ def test_the_page_and_the_excel(client, october):
     assert sorted(accessions) == [f'ACC{BASE + n}' for n in (1, 2, 3, 4)]
 
 
+def test_the_page_does_not_run_until_generate(client, monkeypatch):
+    """Operator, 2026-11-19: Report 40 should not run on open; only Generate runs it."""
+    def must_not_run(*a, **k):
+        raise AssertionError('Report 40 ran on opening')
+    monkeypatch.setattr(lead, 'build', must_not_run)
+    for url in ('/report/40', '/viewer/40'):
+        r = client.get(url, headers=ADMIN)
+        assert r.status_code == 200, r.get_data(as_text=True)[:400]
+        page = r.get_data(as_text=True)
+        assert 'press <strong class="text-white">Generate</strong>' in page and 'could not be loaded' not in page
+
+
 def test_report_40_is_in_the_catalogue_and_the_licence():
     from db import db
     assert db.session.execute(text("SELECT report_name FROM report_template WHERE report_id = 40")).scalar() \

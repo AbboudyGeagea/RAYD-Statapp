@@ -74,20 +74,26 @@ def _site_label():
 @report_40_bp.route('/report/40')
 @login_required
 def report_40():
+    """Runs only when the panel's Generate sends the dates (operator, 2026-11-19: "should not
+    run on open"); opening the page shows the panel and asks for them."""
     _require_access()
     start, end, chosen = _read_filters()
-    from utils.audit import log_event
-    log_event('report_run', category='report', resource_type='report_40',
-              detail={'from': start.isoformat(), 'to': end.isoformat(),
-                      'filters': {k: sorted(v) for k, v in chosen.items()}})
-    try:
-        _cases, summary = lead.build(start, end, chosen)
-    except Exception:
-        db.session.rollback()
-        logger.exception('Report 40 failed')
-        summary = None
+    run = bool(request.values.get('start_date'))
+    summary, failed = None, False
+    if run:
+        from utils.audit import log_event
+        log_event('report_run', category='report', resource_type='report_40',
+                  detail={'from': start.isoformat(), 'to': end.isoformat(),
+                          'filters': {k: sorted(v) for k, v in chosen.items()}})
+        try:
+            _cases, summary = lead.build(start, end, chosen)
+        except Exception:
+            db.session.rollback()
+            logger.exception('Report 40 failed')
+            failed = True
     return render_template('report_40.html', start=start.isoformat(), end=end.isoformat(),
-                           summary=summary, filters=_panel_filters(summary) if summary else [],
+                           summary=summary, run_report=run, failed=failed,
+                           filters=_panel_filters(summary) if summary else [],
                            dimensions=lead.DIMENSIONS, weekdays=lead.WEEKDAYS,
                            ahead_days=lead.AHEAD_DAYS, unknown=lead.UNKNOWN,
                            breakdown_rows=lead.BREAKDOWN_ROWS, site=_site_label())

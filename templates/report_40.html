@@ -74,7 +74,9 @@
             <p class="text-slate-400 text-sm">How far ahead {{ site }}'s exams are booked: from when the order was created on the RIS to the appointment, for the appointments from {{ start }} to {{ end }}.</p>
         </div>
 
-        {% if summary is none %}
+        {% if not run_report %}
+        <div class="card p-6 text-sm text-slate-400">Choose the dates on the left and press <strong class="text-white">Generate</strong>. The filters appear once the report has run.</div>
+        {% elif summary is none %}
         <div class="card p-6 text-sm text-slate-400">The report could not be loaded.</div>
         {% else %}
         {% set k = summary.kpi %}

@@ -116,7 +116,8 @@ def test_super_report_shows_the_icons(client, ctx):
 
 def test_report_40_explains_its_title_every_figure_and_chart(client, ctx):
     """Operator, 2026-11-18: an (i) next to every new report's name, chart and figure."""
-    html = client.get('/report/40', headers={'X-Test-Role': 'administrator'}).get_data(as_text=True)
+    html = client.get('/report/40', headers={'X-Test-Role': 'administrator'},       # Generate pressed
+                      query_string={'start_date': '2026-10-01', 'end_date': '2026-10-31'}).get_data(as_text=True)
     for key in ('r40-report', 'r40-kpi-exams', 'r40-kpi-median', 'r40-kpi-p90', 'r40-kpi-same-day',
                 'r40-kpi-ahead', 'r40-kpi-cancelled', 'r40-kpi-rescheduled', 'r40-kpi-after'):
         assert f'data-explain="{key}"' in html

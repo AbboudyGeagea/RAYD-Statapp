@@ -44,17 +44,37 @@ After the deploy: **BRAYN console → Re-check** (814 held messages from the fir
    sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT sending_app, brayn_status, COUNT(*) AS messages FROM hl7_message_archive WHERE received_at >= now() - interval '24 hours' GROUP BY 1, 2 ORDER BY 1, 2;" -c "SELECT sending_app, rule_code, COUNT(*) AS findings, COUNT(*) FILTER (WHERE resolved_at IS NULL) AS still_open FROM brayn_findings WHERE created_at >= now() - interval '24 hours' GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 20;" -c "SELECT kind, sending_app, value, n, last_seen FROM brayn_unknown_values ORDER BY last_seen DESC LIMIT 15;" -c "SELECT COUNT(*) AS studies, COUNT(scheduled_at) AS scheduled, COUNT(arrived_at) AS arrived, COUNT(started_at) AS started, COUNT(completed_at) AS completed FROM brayn_study_state WHERE first_seen_at >= now() - interval '24 hours';"
    ```
 
-**Waiting on the operator (decisions):** item 9 switch ("Show them as Former staff" on Report 39:
-nobody is left by PACS alone, checked 19 Nov); item 13 PHILIPSCARM = RIS "PHILIPS" (C-Arm 2)?
-(operator, 19 Nov: not known yet, ask SJH), the 13d
-BRAYN routing walkthrough, the move date (planned Sat 28) and SJH's mail relay details; item 21 a
-look at Report 40 for October; item 33 reload Report 27's RIS tab (blue bars no longer 0); item 35
-(other session): is Mon 23 Nov a holiday, storage capacity 70,000 GB. The operator's RIS worklist
-export `MRI Page 1.xls` (in the project folder, untracked) holds patient names: delete it.
+**Operator's answers, 19 Nov evening:** `MRI Page 1.xls` deleted. Item 17: BRAYN is on and in use;
+it needs the enhancements the operator listed on 18 Nov (still to collect: which mappings are rigid
+or wrong). Item 4: keep open. Item 9: open until the manager checks. Item 13: the SJH move stays
+planned, **now before Tuesday 24 Nov** (was Sat 28). Item 21: Report 40 must not run on open
+(built 19 Nov: it runs on Generate only). Item 35: **Mon 23 Nov is a holiday** (the operator will
+compare predicted and actual), storage capacity 70 TB is right for now. New: **item 37** CRN workflow
+to discuss with the department (operator); **item 38** Live Department board fixes (below);
+**item 39** Report 31 (Operations Overview) removed from the side panel with everything related
+(built 19 Nov: route, template, menu entry, test; its (i) notes are Report 25's and stay; it never
+had a catalogue row, licence entry or grant).
 
-**Next builds:** item 13d (BRAYN routing by site, after the walkthrough); then the SJH move
-(runbook in item 13, "Production runbook (Sat 28)"); item 17 switch-on; low priority: the BRAYN
-revamp (mappings found rigid/wrong: ask which) and the Live Department board (ask for the list).
+**Item 38, Live Department board (operator, 19 Nov evening), read from BRAYN:**
+- filtered by site: its own RH / SJH switch on the board, remembered per screen (operator's choice);
+- one card per RIS room (room name, not AE title); a room shows when open today or busy;
+- per room: (a) how many scheduled on it (today's appointments); (b) how many arrived, each
+  patient's wait, red past a threshold set per modality (30 min default, editable on the board by
+  Super user / CHT / Administrator); (c) the exam running and its expected end (start + the RIS
+  procedure duration), orange when late, yellow when marked done in under half its duration
+  (percentage editable; yellow until the room's next exam starts); (d) utilization as it is.
+- **Open: where the appointment time sits in the RIS SC message** (BRAYN keeps when the SC arrived,
+  not the appointment): the operator runs the sample query in the 19 Nov reply.
+
+**Waiting on the operator (decisions):** item 9 switch (after the manager); item 13 PHILIPSCARM =
+RIS "PHILIPS" (C-Arm 2)? (ask SJH), the 13d BRAYN routing walkthrough, SJH's mail relay details;
+item 17 the BRAYN enhancements list; item 21 a look at Report 40 for October; item 33 reload Report
+27's RIS tab (blue bars no longer 0); item 37 CRN workflow with the department; item 38 the RIS SC
+sample.
+
+**Next builds:** item 38 (Live board); item 13d (BRAYN routing by site, after the walkthrough); then
+the SJH move before Tue 24 (runbook in item 13, "Production runbook (Sat 28)"); item 17 BRAYN
+enhancements once listed.
 Item 1, booked room: **built 19 Nov evening (migration 0172), deploy waiting.** The RIS check
 (`scripts/sql/ris_booked_room_check.sql`, run by the operator 19 Nov): SPS = 842,468 rows, SPS_ID
 its key (one booking per exam), START_DATETIME indexed, no change date; exams never booked
