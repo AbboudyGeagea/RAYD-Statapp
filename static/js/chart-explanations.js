@@ -690,6 +690,13 @@ const ChartExplanations = {
       interpretation: 'It sees signatures only, so reading, procedures and meetings look like breaks. Use it for workload patterns, not as an attendance record.'
     },
 
+    'sr-resident-wetreads': {
+      title: 'Wet Reads per Resident',
+      purpose: 'How many studies each resident wet-read (signed first, before the radiologist), by modality.',
+      valueMeaning: 'Each study counts once, for the resident whose wet read came first, from the PACS audit trail (every wet read with its login and time). A resident is a member of the PACS "residents" group. Only studies that reached PACS since the audit copy began (1 October 2026) can count, within the dates and filters chosen. Staff who left show as "Former staff" while that setting is on.',
+      interpretation: 'This is residents\' reading work, which the radiologist table above does not show (it credits the radiologist who approved). Compare residents over the same period and modalities.'
+    },
+
     // Report 36: the radiologists' reading TAT (the KPI) and the three-clock comparison
     'r36-reading-kpi': {
       title: 'Radiologist Reading TAT (KPI)',

@@ -149,6 +149,11 @@ routing would need the NLP worker and CRN on both databases: a follow-up if want
 routes SJH's HIS orders. Check the next morning:
 `sudo docker exec rayd_db psql -U etl_user -d etl_db_sjh -c "SELECT COUNT(*), MAX(received_at) FROM hl7_orders;"`
 (growing) and on `etl_db` no new order naming 2000 after the move time.
+**Item 8, residents by wet read (operator: from the audit trail; built 19 Nov night, deploy waiting):**
+the Super Report has a "Wet Reads per Resident" card next to Reports per Radiologist: studies
+wet-read by a resident (PACS group residents, or marked so), each once for the first resident's
+wet read, per modality, from the PACS audit trail copy (studies that reached PACS since 1 Oct), same
+dates and filters; leavers masked. Check after the deploy against what residents expect for October.
 **Item 14, where TAT lives (operator, 19 Nov night):** Report 36 holds every TAT, Report 32
 performance and report counts. Built: Report 32's Signature Turnaround card (four clocks per signing
 radiologist, PACS audit trail) moved to Report 36's TAT comparison tab, below the three-clock

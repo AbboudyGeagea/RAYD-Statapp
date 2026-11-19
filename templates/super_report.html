@@ -376,6 +376,26 @@
                     </div>
                 </div>
 
+                <!-- Residents by their wet reads, from the PACS audit trail (item 8, 2026-11-19) -->
+                <div class="card p-5" id="super-wetread-card" style="display:none">
+                    <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                        <h4 class="text-[#34d399] text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                            <i class="bi bi-pencil"></i> Wet Reads per Resident<i class="bi bi-info-circle chart-info-icon" data-explain="sr-resident-wetreads" role="button" tabindex="0" aria-label="About this table" title="About this table"></i>
+                        </h4>
+                        <button onclick="srExportWetCsv()" title="Export as CSV"
+                            style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #28332e;border-radius:6px;color:#64748b;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;">
+                            <i class="bi bi-download"></i> CSV
+                        </button>
+                    </div>
+                    <p id="sr-wet-note" style="font-size:10px;color:#64748b;margin-bottom:8px;"></p>
+                    <div style="overflow-x:auto;max-height:420px;overflow-y:auto;border:1px solid #1e2a26;border-radius:8px;">
+                        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:400px;">
+                            <thead id="sr-wet-thead" style="position:sticky;top:0;z-index:2;background:#1a2420;"></thead>
+                            <tbody id="sr-wet-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
             </div>
 
             <!-- Empty state -->
@@ -772,6 +792,40 @@
 
         // Radiologist matrix
         srRadMatrixInit(cur.rad_matrix || {});
+        // Residents by their wet reads (PACS audit trail, item 8)
+        srWetReads(cur.resident_wetreads || {});
+    }
+
+    // ── Wet reads per resident ────────────────────────────────────────
+    let _srWet = {};
+    function srWetReads(w) {
+        _srWet = w || {};
+        const card = document.getElementById('super-wetread-card');
+        const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+        if (!w || !w.coverage) {                 // the audit trail is not copied on this install
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = '';
+        const mods = w.modalities || [], rows = w.residents || [];
+        document.getElementById('sr-wet-note').textContent = rows.length
+            ? `${w.total.toLocaleString()} studies wet-read by a resident, each counted once for the first resident's wet read. From the PACS audit trail: studies that reached PACS from ${w.coverage.from}.`
+            : `No wet read by a resident in this range (the PACS audit trail covers studies that reached PACS from ${w.coverage.from}).`;
+        const th = s => `<th style="padding:6px 8px;text-align:right;color:#64748b;font-size:9px;text-transform:uppercase;letter-spacing:.05em;">${s}</th>`;
+        document.getElementById('sr-wet-thead').innerHTML = rows.length
+            ? `<tr><th style="padding:6px 8px;text-align:left;color:#64748b;font-size:9px;text-transform:uppercase;">Resident</th>${mods.map(m => th(esc(m))).join('')}${th('Total')}</tr>` : '';
+        document.getElementById('sr-wet-tbody').innerHTML = rows.map(r =>
+            `<tr style="border-top:1px solid #1e2a26;"><td style="padding:5px 8px;color:#e2e8f0;font-weight:700;">${esc(r.name)}</td>` +
+            mods.map(m => `<td style="padding:5px 8px;text-align:right;color:#cbd5e1;">${r.by_modality[m] || ''}</td>`).join('') +
+            `<td style="padding:5px 8px;text-align:right;color:#34d399;font-weight:800;">${r.total}</td></tr>`).join('');
+    }
+    function srExportWetCsv() {
+        const w = _srWet, mods = w.modalities || [], rows = w.residents || [];
+        if (!rows.length) return;
+        const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+        const lines = [['Resident', ...mods, 'Total'].map(q).join(','),
+                       ...rows.map(r => [r.name, ...mods.map(m => r.by_modality[m] || 0), r.total].map(q).join(','))];
+        _srDownloadCsv(lines.join('\n'), `resident_wet_reads_${new Date().toISOString().slice(0, 10)}.csv`);
     }
 
     // ── Radiologist Matrix ────────────────────────────────────────────

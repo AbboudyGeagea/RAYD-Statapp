@@ -881,7 +881,65 @@ def _collect_data(start, end, filters, rh_site_id=None):
         },
         "crn":         _get_crn_summary(start, end),
         "utilization": _get_utilization_summary(start, end),
+        "resident_wetreads": _get_resident_wetreads(where, params, mj, pj),
     }
+
+
+def _get_resident_wetreads(where, params, mj, pj):
+    """Item 8 (operator 2026-11-19): residents counted by their wet reads, from the PACS audit
+    trail copy (etl_pacs_audit_events, kind 'wetread', the login and second of each one): each
+    study once, for the resident whose wet read came first; a resident is a login of the PACS
+    "residents" group or marked so (utils/pacs_roles). Only studies that reached PACS while the
+    audit copy holds them count (from 1 Oct 2026). Same dates and filters as the rest of the page;
+    staff who left read "Former staff" while that switch is on (the audit copy has no rh view)."""
+    from ETL_JOBS.etl_pacs_audit import coverage as audit_coverage
+    from utils import staff_status
+    from utils.pacs_roles import role_lookup_cte
+    from utils.sticky_notes import person_name
+    out = {'coverage': None, 'modalities': [], 'residents': [], 'total': 0}
+    try:
+        audit_from, audit_until = audit_coverage(db.session)
+        if audit_from is None:
+            return out
+        out['coverage'] = {'from': audit_from.strftime('%Y-%m-%d'), 'until': audit_until.strftime('%Y-%m-%d %H:%M')}
+        rows = db.session.execute(text(f"""
+            WITH {role_lookup_cte('role_lookup')},
+            studies AS MATERIALIZED (
+                SELECT s.study_db_uid, BTRIM(s.study_instance_uid) AS uid,
+                       COALESCE(m.modality, s.study_modality, 'Unknown') AS modality
+                FROM etl_didb_studies s {mj} {pj}
+                WHERE {where} AND s.study_instance_uid IS NOT NULL
+                  AND s.insert_time >= :wr_from AND s.insert_time < :wr_until
+            ),
+            wet AS (
+                SELECT DISTINCT ON (st.study_db_uid) st.study_db_uid, st.modality, e.user_name
+                FROM studies st
+                JOIN etl_pacs_audit_events e ON e.study_instance_uid = st.uid AND e.kind = 'wetread'
+                JOIN role_lookup r ON r.login_id = UPPER(SPLIT_PART(e.user_name, '@', 1)) AND r.role = 'residents'
+                ORDER BY st.study_db_uid, e.event_at, e.log_dbid
+            )
+            SELECT w.user_name, alias.canonical_name AS alias,
+                   {staff_status.login_sql('w.user_name')} IN {staff_status.left_logins_sql()} AS left_staff,
+                   w.modality, COUNT(*) AS cnt
+            FROM wet w
+            LEFT JOIN physician_alias_map alias ON alias.dismissed = false AND alias.alias = w.user_name
+            GROUP BY 1, 2, 3, 4
+        """), {**params, 'wr_from': audit_from, 'wr_until': audit_until}).mappings().all()
+    except Exception:
+        logger.exception("resident wet reads not computed")
+        db.session.rollback()
+        return out
+    by_res, mods = {}, {}
+    for r in rows:
+        name = staff_status.FORMER if r['left_staff'] else (person_name(r['alias'], r['user_name']) or r['user_name'])
+        res = by_res.setdefault(name, {'name': name, 'total': 0, 'by_modality': {}})
+        res['by_modality'][r['modality']] = res['by_modality'].get(r['modality'], 0) + int(r['cnt'])
+        res['total'] += int(r['cnt'])
+        mods[r['modality']] = mods.get(r['modality'], 0) + int(r['cnt'])
+    out['modalities'] = sorted(mods, key=lambda m: (-mods[m], m))
+    out['residents'] = sorted(by_res.values(), key=lambda r: (-r['total'], r['name']))
+    out['total'] = sum(mods.values())
+    return out
 
 
 def _get_crn_summary(start, end):

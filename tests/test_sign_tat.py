@@ -284,6 +284,28 @@ def test_report_36_shows_its_tabs_before_generate(client, monkeypatch):
     assert 'new FormData(form)' in page                     # a tab sends the panel's current values
 
 
+def test_the_super_report_counts_residents_by_their_wet_reads():
+    """Item 8 (operator 2026-11-19): each study once, for the resident whose wet read came first,
+    from the PACS audit trail; residents only (the PACS group, here the override)."""
+    reading_studies()                                  # wet reads by res.one on studies 1, 8, 9, 10, 11
+    event(8, m(55), 'wetread', 'rad.two@ad')           # a radiologist's wet read does not count
+    from routes.super_report import _collect_data
+
+    w = _collect_data(DAY, DAY, {})['resident_wetreads']
+
+    assert w['coverage']['from'] == '2026-10-01'
+    assert (w['total'], w['modalities']) == (5, ['CT'])
+    assert w['residents'] == [{'name': 'Res One', 'total': 5, 'by_modality': {'CT': 5}}]
+
+
+def test_the_super_report_shows_no_wet_reads_without_the_audit_copy():
+    reading_studies()
+    sql("DELETE FROM settings WHERE key LIKE 'pacs_audit_%'")
+    from routes.super_report import _collect_data
+
+    assert _collect_data(DAY, DAY, {})['resident_wetreads']['coverage'] is None
+
+
 def test_the_signature_turnaround_moved_from_report_32_to_report_36(client):
     """Operator, 2026-11-19: Report 36 holds every TAT (its TAT comparison tab), Report 32
     performance and counts."""
