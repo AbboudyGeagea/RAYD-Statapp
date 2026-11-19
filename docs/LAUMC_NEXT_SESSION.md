@@ -209,6 +209,16 @@ only OBR-24/-19/-17, empty at LAUMC), with the RIS studies already stored filled
   signature at all it still is. After the deploy: the 7 approved without a report (an ORU feed
   gap for Mirth) by the query "approved in PACS, no report in RAYD" below; a BRAYN rule for it
   later if it keeps happening.
+- **After that deploy (20 Nov):** UNREPORTED 113 open, 42 closed (the stored-report link works);
+  no RIS study with an approval and no stored report (the 7 may have had their report in the
+  night's copy; whether the signature link ran is being checked); UNKNOWN_STATUS_CODE still 863
+  (Re-check not pressed yet; it runs inside the request, 863 fit in nginx's 300 s).
+- **Found and fixed the same day (engine, hand-ported from the HL7 branch):**
+  `brayn._bounded_query` set its 150 ms `statement_timeout` with SET LOCAL inside a savepoint and
+  assumed it ended with it; Postgres keeps SET LOCAL past a released savepoint (checked on 15), so
+  every write after BRAYN's first lookup in a message's transaction (events, study state, room,
+  report link) ran under 150 ms and, fail-open, was lost silently when slower. The previous limit
+  is now put back after the statement.
 
 **Waiting for the next deploy (`cd /opt/rayd && sudo bash update.sh LAUMC`), all pushed, tests
 passing (1369):** the TV layout of the Live board and Floor Plan removal (2b7ba3cb ...), Report 36

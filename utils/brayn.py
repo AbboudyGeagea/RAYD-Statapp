@@ -548,18 +548,25 @@ def _bounded_query(label, sql, params=None, one=False):
     point. The archive row, and anything else the caller has already written,
     survives untouched.
 
-    SET LOCAL is scoped to the savepoint too, so the 150ms ceiling reverts with it
-    and cannot leak onto the projection writes that follow — those are legitimately
-    larger than a point read and must not inherit a limit meant for one.
+    SET LOCAL is NOT scoped to the savepoint when the savepoint is released: Postgres
+    undoes it only on a rollback to the savepoint, and keeps it to the end of the
+    transaction otherwise (checked 2026-11-20 on LAUMC's Postgres 15). So the caller's
+    limit is put back explicitly after the statement, or the 150ms ceiling would bind
+    every projection write that follows in the same transaction (event, study state,
+    room booking, report link), legitimately larger than a point read, and a write
+    cancelled there is lost silently, every step being fail-open.
     """
     try:
         with db.session.begin_nested():
+            prev = db.session.execute(text("SELECT current_setting('statement_timeout')")).scalar()
             db.session.execute(
                 text("SET LOCAL statement_timeout = :ms"),
                 {'ms': str(_STATEMENT_TIMEOUT_MS)},
             )
             result = db.session.execute(text(sql), params or {})
             rows = result.mappings().first() if one else result.mappings().all()
+            db.session.execute(text("SELECT set_config('statement_timeout', :prev, true)"),
+                               {'prev': prev})
         return rows, None
     except Exception as exc:
         logger.warning("BRAYN %s failed or timed out: %s", label, exc)

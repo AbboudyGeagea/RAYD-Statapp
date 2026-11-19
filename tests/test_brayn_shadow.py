@@ -453,6 +453,22 @@ def test_migration_0175_corrects_the_studies_already_in_brayn(pipe):
     assert pipe.count('brayn_findings', "resolved_at IS NULL") == 0
 
 
+def test_the_150ms_limit_of_a_bounded_lookup_does_not_outlive_it(app):
+    """Postgres keeps SET LOCAL past a RELEASEd savepoint: the lookup's ceiling bound every write
+    after it in the transaction (found 2026-11-20)."""
+    from db import db
+    from utils import brayn
+    with app.app_context():
+        before = db.session.execute(text('SHOW statement_timeout')).scalar()
+        rows, err = brayn._bounded_query('test', 'SELECT 1 AS one')
+        assert err is None and rows[0]['one'] == 1
+        assert db.session.execute(text('SHOW statement_timeout')).scalar() == before
+        rows, err = brayn._bounded_query('test', 'SELECT pg_sleep(1)')      # cancelled: rolled back
+        assert err is not None
+        assert db.session.execute(text('SHOW statement_timeout')).scalar() == before
+        db.session.rollback()
+
+
 def test_an_exact_status_row_beats_the_wildcard(app, pipe):
     from utils import brayn
     pipe.exec("""INSERT INTO hl7_status_map (sending_app, order_control, order_status, canonical_state, ladder_rank)
