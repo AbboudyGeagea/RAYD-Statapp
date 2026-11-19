@@ -199,6 +199,16 @@ only OBR-24/-19/-17, empty at LAUMC), with the RIS studies already stored filled
   ORU or the nightly RIS report copy) its report time, so UNREPORTED means no report anywhere.
   Still to learn (query sent): the unmapped ORU statuses (to map them: the signature rungs) and
   how many of the rest PACS approved without any report reaching RAYD (an ORU feed gap).
+- **Answers (20 Nov, before the deploy of the above):** the ORU feed carries only FAP (final
+  approved, 4,703) and AAP (11), both mapped since 0170: no unmapped status, and no wet read ever
+  comes by HL7. Of the 110: report stored 50; wet-read in PACS 65; approved in PACS 28, of which
+  7 with no report anywhere in RAYD. **Built (migration 0177, an index):** every sweep also gives
+  the RIS studies not yet approved their PACS wet read (first signature) and approval (final)
+  from the audit trail copy (`brayn_shadow.link_pacs_signatures`, a day late like the copy, no
+  staff names), so a study wet-read and waiting for its approval is not "unreported"; with no
+  signature at all it still is. After the deploy: the 7 approved without a report (an ORU feed
+  gap for Mirth) by the query "approved in PACS, no report in RAYD" below; a BRAYN rule for it
+  later if it keeps happening.
 
 **Waiting for the next deploy (`cd /opt/rayd && sudo bash update.sh LAUMC`), all pushed, tests
 passing (1369):** the TV layout of the Live board and Floor Plan removal (2b7ba3cb ...), Report 36

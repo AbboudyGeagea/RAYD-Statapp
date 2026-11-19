@@ -285,6 +285,50 @@ def _link_report(msg):
         logger.exception("BRAYN shadow: report not linked to the RIS study | acc=%s", msg.accession_number)
 
 
+# Every sweep: the PACS's own signatures onto the RIS study, from the audit trail copy the
+# nightly ETL keeps (etl_pacs_audit_events, migrations 0155/0156; never the PACS itself): a
+# resident's wet read = the first signature, a radiologist's approval = the final one. The ORU
+# feed carries only final approvals (FAP) and amendments (AAP), so a study wet-read and waiting
+# for its approval read as "no report" (production, 20 Nov: 65 of the 110 UNREPORTED). A day
+# late, like the copy; earliest kept; times only, no staff.
+_PACS_SIGNATURES_SQL = text("""
+    WITH todo AS (
+        SELECT accession_number, pacs_accession FROM brayn_study_state
+         WHERE pacs_accession IS NOT NULL AND signed_final_at IS NULL AND cancelled_at IS NULL
+    ), e AS (
+        SELECT t.accession_number,
+               MIN(a.event_at) FILTER (WHERE a.kind = 'wetread') AS wet,
+               MIN(a.event_at) FILTER (WHERE a.kind = 'approve') AS appr
+          FROM todo t
+          JOIN etl_pacs_audit_events a
+            ON a.accession_number = t.pacs_accession AND a.kind IN ('wetread', 'approve')
+         GROUP BY 1
+    )
+    UPDATE brayn_study_state r
+       SET signed_prelim_at = LEAST(r.signed_prelim_at, e.wet),
+           signed_final_at  = LEAST(r.signed_final_at, e.appr),
+           updated_at = NOW()
+      FROM e
+     WHERE r.accession_number = e.accession_number
+       AND (e.appr IS NOT NULL
+            OR (e.wet IS NOT NULL AND (r.signed_prelim_at IS NULL OR r.signed_prelim_at > e.wet)))
+""")
+
+
+def link_pacs_signatures():
+    """The PACS's wet reads and approvals onto the RIS studies (see _PACS_SIGNATURES_SQL).
+    Returns how many studies changed; fail-open. Runs before the sweep."""
+    try:
+        with db.session.begin_nested():
+            n = db.session.execute(_PACS_SIGNATURES_SQL).rowcount
+        db.session.commit()
+        return n
+    except Exception:
+        db.session.rollback()
+        logger.exception("BRAYN shadow: PACS signatures not linked")
+        return 0
+
+
 def link_stored_reports():
     """RIS studies whose report RAYD already stores (see _STORED_REPORTS_SQL). Returns how many;
     fail-open. Runs before the sweep, so UNREPORTED closes in the same pass."""
@@ -465,6 +509,7 @@ def sweep(app):
             with clock():
                 from utils.brayn_sweep import run_sweep
                 link_stored_reports()
+                link_pacs_signatures()
                 return run_sweep()
         except Exception:
             db.session.rollback()

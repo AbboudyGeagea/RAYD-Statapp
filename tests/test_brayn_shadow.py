@@ -374,6 +374,39 @@ def test_a_report_rayd_stores_closes_unreported_on_the_next_sweep(app, pipe):
     assert abs((t - k.ago(100)).total_seconds()) < 120
 
 
+def test_the_pacs_wet_read_and_approval_reach_the_ris_study(app, pipe):
+    """The ORU feed sends only final approvals; the wet read is in the PACS audit trail copy
+    (production, 20 Nov: 65 of the 110 UNREPORTED were wet-read). A wet read is the first
+    signature, so the study is not "unreported"; with no signature at all it still is."""
+    from utils import brayn_shadow
+    pipe.brayn()
+    pipe.exec("UPDATE brayn_rules SET threshold_minutes = 120 WHERE rule_code = 'UNREPORTED'")
+    for acc, pacs in (('1003000000076', 'PACS76'), ('1003000000077', 'PACS77'), ('1003000000078', 'PACS78')):
+        for code, mins in (('SC', 300), ('CM', 240)):
+            pipe.send(k.status(code, acc, k.ts(mins), obr20=pacs if code == 'CM' else None))
+    pipe.screen()
+    events = (('PACS76', 'wetread', 200), ('PACS76', 'open', 150), ('PACS76', 'approve', 100),
+              ('PACS76', 'approve', 90), ('PACS77', 'wetread', 180))
+    try:
+        for i, (pacs, kind, mins) in enumerate(events):
+            pipe.exec("""INSERT INTO etl_pacs_audit_events (log_dbid, event_at, kind, user_name, study_instance_uid,
+                                                            accession_number)
+                         VALUES (:id, :t, :kind, 'rad@ad', :uid, :pacs)""",
+                      id=987650 + i, t=k.ago(mins), kind=kind, uid='1.2.' + pacs, pacs=pacs)
+        brayn_shadow.sweep(app)
+        s = {r['accession_number']: r for r in pipe.q(
+            "SELECT accession_number, signed_prelim_at, signed_final_at FROM brayn_study_state "
+            "WHERE accession_number LIKE '1003%'")}
+        near = lambda t, mins: t is not None and abs((t - k.ago(mins)).total_seconds()) < 120
+        assert near(s['1003000000076']['signed_prelim_at'], 200) and near(s['1003000000076']['signed_final_at'], 100)
+        assert near(s['1003000000077']['signed_prelim_at'], 180) and s['1003000000077']['signed_final_at'] is None
+        assert s['1003000000078']['signed_prelim_at'] is None
+        open_ = pipe.q("SELECT accession_number FROM brayn_findings WHERE rule_code = 'UNREPORTED' AND resolved_at IS NULL")
+        assert [r['accession_number'] for r in open_] == ['1003000000078']
+    finally:
+        pipe.exec("DELETE FROM etl_pacs_audit_events WHERE log_dbid BETWEEN 987650 AND 987659")
+
+
 def test_migration_0175_corrects_the_studies_already_in_brayn(pipe):
     raw_his = k.order('PL81', when='20261121083000', msh_when='20261118100000', app='SAP_P', ctrl='H81')
     raw_prov = k.order('PL82', when='20261125090000', msh_when='20261118120000', app='SAP_P', ctrl='H82')
