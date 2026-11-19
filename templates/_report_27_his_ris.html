@@ -92,8 +92,9 @@
             </select>
         </label>
     </div>
-    <p class="px-4 pt-3 text-[11px] text-slate-500">Room: {{ his.room_from_ris }} order{{ 's' if his.room_from_ris != 1 }} in the room the RIS performed {{ 'it' if his.room_from_ris == 1 else 'them' }} in;
-        {{ his.room_from_lookup }} not performed yet, placed by the RIS booking rules for the procedure (several possible rooms shown together).</p>
+    <p class="px-4 pt-3 text-[11px] text-slate-500">Room, one per order: {{ his.room_from_ris }} in the room the RIS performed them in;
+        not performed yet: {{ his.room_from_usual }} in the room most used for that procedure (last 90 days), {{ his.room_from_lookup }} in its only bookable room{% if his.room_unknown %}, {{ his.room_unknown }} with no room decided{% endif %}.
+        Each room's orders download on its row.</p>
     <div class="p-2">
     {% for key, label in his_dimensions %}
     {% set bd = his.breakdowns[key] %}
@@ -103,6 +104,7 @@
                 <th>{{ label }}</th><th class="text-right">HIS orders</th><th class="text-right">On the RIS</th>
                 <th class="text-right">Done</th><th class="text-right">Not on the RIS</th><th class="text-right">Cancelled on the HIS</th>
                 <th class="text-right">Not copied yet</th><th class="text-right">HIS → RIS (median min)</th><th class="text-right">HIS → done (median h)</th>
+                {% if key == 'room' %}<th class="text-right">Excel</th>{% endif %}
             </tr></thead>
             <tbody>
             {% for r in bd.rows %}
@@ -116,6 +118,18 @@
                 <td class="text-right">{{ r.pending if r.pending else '' }}</td>
                 <td class="text-right">{{ num(r.median_to_ris_min) }}</td>
                 <td class="text-right">{{ num(r.median_to_done_h) }}</td>
+                {% if key == 'room' %}
+                <td class="text-right">
+                    <form method="POST" action="{{ url_for('report_27.export_his_ris') }}" class="inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is defined else '' }}">
+                        <input type="hidden" name="start_date" value="{{ display_start }}">
+                        <input type="hidden" name="end_date" value="{{ display_end }}">
+                        <input type="hidden" name="room" value="{{ r.value }}">
+                        <button type="submit" class="text-[#60a5fa] hover:text-white" title="Download {{ r.value }}'s orders as Excel"
+                                aria-label="Download {{ r.value }}'s orders as Excel"><i class="bi bi-file-earmark-excel"></i></button>
+                    </form>
+                </td>
+                {% endif %}
             </tr>
             {% endfor %}
             </tbody>

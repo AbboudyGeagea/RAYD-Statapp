@@ -78,7 +78,13 @@ def rooms():
         sql("""INSERT INTO aetitle_modality_map (aetitle, modality, station_name, ris_modality_key, site_id)
                SELECT :a, 'CT', :r, :k, id FROM sites WHERE code = :c""", a=ae, r=room, k=key, c=code)
         sql("INSERT INTO public.ris_modality_schedule_stage (sps_code_key, modality_key) VALUES (990001, :k)", k=key)
+    # the last 90 days at RH: J17A-01 performed twice in CT Room 1, once in CT128 ER
+    from datetime import datetime as _dt, timedelta as _td
+    for key, ae in ((770001, 'HR_CT1'), (770002, 'HR_CT1'), (770003, 'HR_CT2')):
+        sql("""INSERT INTO std_pps (pps_key, procedure_code, performing_ae_title, start_datetime)
+               VALUES (:k, 'J17A-01', :a, :t)""", k=key, a=ae, t=_dt.now() - _td(days=5))
     yield
+    sql("DELETE FROM std_pps WHERE pps_key BETWEEN 770001 AND 770003")
     sql("DELETE FROM public.ris_modality_schedule_stage WHERE sps_code_key = 990001")
     sql("DELETE FROM aetitle_modality_map WHERE aetitle IN ('HR_CT1', 'HR_CT2', 'HR_CTJ')")
     sql("DELETE FROM procedure_duration_map WHERE procedure_code = 'J17A-01'")
@@ -126,10 +132,12 @@ def test_the_tab_for_rh(feeds):
     assert got['0019400003'] == 'cancelled_his'      # billed (NW), then cancelled: still counted
     by_no = {c['his_no']: c for c in cases}
     assert by_no['0019400001']['room'] == 'CT128 ER'                  # performed: the room the RIS used
-    assert by_no['0019400002']['room'] == 'CT Room 1 / CT128 ER'      # not yet: RH's bookable rooms, not SJH's
+    assert by_no['0019400002']['room'] == 'CT Room 1'                 # not yet: RH's most used for J17A-01
+    assert by_no['0019400002']['room_how'].startswith('not performed yet: most used')
     assert by_no['0019400015']['room'] == his_ris.NO_ROOM
-    assert [r['value'] for r in s['breakdowns']['room']['rows']] == ['CT Room 1 / CT128 ER', 'CT128 ER', his_ris.NO_ROOM]
-    assert (s['room_from_ris'], s['room_from_lookup']) == (1, 6)
+    assert [r['value'] for r in s['breakdowns']['room']['rows']] == ['CT Room 1', 'CT128 ER', his_ris.NO_ROOM]
+    assert not any(' / ' in r['value'] for r in s['breakdowns']['room']['rows'])   # each room alone
+    assert (s['room_from_ris'], s['room_from_usual'], s['room_from_lookup'], s['room_unknown']) == (1, 5, 0, 1)
     assert his_ris.DIMENSIONS[0][0] == 'room'                         # the breakdown opens on Room
     assert k['median_to_ris_min'] == 25.0            # 20 and 30 minutes
     assert k['median_to_done_h'] == 2.0
@@ -144,7 +152,8 @@ def test_the_tab_for_sjh_takes_the_other_orders(feeds):
     cases, s = his_ris.build(date(2026, 11, 18), date(2026, 11, 19), site('SJH'))
     assert {c['his_no']: c['outcome'] for c in cases} == {'0019400005': 'done', '0019400006': 'not_on_ris',
                                                           '0019400012': 'not_on_ris'}
-    assert {c['room'] for c in cases} == {'CTScanner'}                # SJH's own room
+    assert {c['room'] for c in cases} == {'CTScanner'}                # SJH: no recent exam, its only bookable room
+    assert {c['room_from'] for c in cases if c['room'] == 'CTScanner'} == {'lookup'}
 
 
 def test_the_page_and_the_excel(client, feeds):
@@ -183,3 +192,15 @@ def test_a_tab_opens_without_running_until_run_analysis(client, monkeypatch):
     assert 'Select Analysis Range' in page
     assert 'value="2026-11-18"' in page                    # the dates still fill the form
     assert 'start_date=' not in page.split('aria-label="Report 27 views"')[1].split('</nav>')[0]
+
+
+def test_each_room_downloads_its_own_orders(client, feeds):
+    r = client.post('/report/27/export-his-ris', headers=ADMIN, data={**PERIOD, 'room': 'CT128 ER'})
+    assert r.status_code == 200 and 'CT128_ER' in r.headers['Content-Disposition']
+    import io
+    from openpyxl import load_workbook
+    sheet = load_workbook(io.BytesIO(r.data)).active
+    assert 'room CT128 ER' in sheet.cell(row=1, column=1).value
+    assert [sheet.cell(row=i, column=1).value for i in range(6, sheet.max_row + 1)] == ['0019400001']
+    page = client.get('/report/27', headers=ADMIN, query_string={**PERIOD, 'tab': 'his'}).get_data(as_text=True)
+    assert page.count('name="room" value=') == 3          # one Excel button per room row

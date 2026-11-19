@@ -403,9 +403,9 @@ def report_27():
                 import logging
                 logging.getLogger(__name__).exception('Report 27 HIS vs RIS tab failed')
                 his = None
-        from utils.his_ris import DIMENSIONS as his_dimensions, UNKNOWN, NO_ROOM
+        from utils.his_ris import DIMENSIONS as his_dimensions, UNKNOWN, NO_ROOM, UNDECIDED_ROOM
         return render_template("report_27.html", data={}, run_report=run_report, tab=tab, his=his,
-                               his_dimensions=his_dimensions, his_muted=(UNKNOWN, NO_ROOM),
+                               his_dimensions=his_dimensions, his_muted=(UNKNOWN, NO_ROOM, UNDECIDED_ROOM),
                                display_start=start_a, display_end=end_a)
 
     if run_report:
@@ -542,13 +542,17 @@ def export_his_ris():
         abort(403)
     start = date.fromisoformat(request.values.get("start_date"))
     end = date.fromisoformat(request.values.get("end_date"))
+    room = (request.values.get("room") or '').strip() or None      # one room's orders (19 Nov)
     cases, summary = his_ris.build(start, end, served_site_id())
-    data = his_ris.workbook(start, end, cases, summary, site_code(served_site_id()) or 'this site')
+    data = his_ris.workbook(start, end, cases, summary, site_code(served_site_id()) or 'this site', room=room)
     from utils.audit import log_event
     log_event('report_export', category='report', resource_type='report_27_his_ris',
-              detail={'from': start.isoformat(), 'to': end.isoformat(), 'rows': len(cases)})
+              detail={'from': start.isoformat(), 'to': end.isoformat(), 'room': room,
+                      'rows': sum(1 for c in cases if room is None or c['room'] == room)})
+    import re
+    tag = ('_' + re.sub(r'[^A-Za-z0-9]+', '_', room).strip('_')[:40]) if room else ''
     return Response(data, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    headers={'Content-Disposition': f'attachment; filename=his_vs_ris_{start}_{end}.xlsx'})
+                    headers={'Content-Disposition': f'attachment; filename=his_vs_ris{tag}_{start}_{end}.xlsx'})
 
 # ── Cancelled exam list (RIS) ─────────────────────────────────────────────────
 # Operator request: exportable list of cancelled exams, from RIS data.

@@ -28,17 +28,18 @@ one row per RIS order), each with the HIS order number it was created from
                     RIS; otherwise it is unknown and only counted, never listed. The matching
                     reads every site's RIS orders (public.etl_orders), then keeps this
                     database's site.
-    room            the room the RIS used when the order was performed (rpt.exams.room: its
-                    performed step's device, else its PACS study's). One not performed yet takes
-                    the room from the HIS message's procedure code (OBR-4) and the RIS's own
-                    lookup (operator, 2026-11-19): the RIS procedure catalogue
-                    (procedure_duration_map, the same codes, with each one's SPS key) ->
-                    MODALITY_SCHEDULE, the rooms a procedure can be booked on
-                    (ris_modality_schedule_stage, refilled by the nightly ETL) -> the RIS
-                    device's room (aetitle_modality_map). Only the rooms of the order's hospital;
-                    several left are listed together ("CT 1 / CT 2"), none is "No room in the
-                    RIS lookup". The lookup alone would rarely name one room: 673 of the 703 codes
-                    it knows are bookable in several (production, 19 Nov). The breakdown opens on it.
+    room            one room per order, each room alone and exportable (operator, 2026-11-19):
+                      1. performed: the room the RIS used (rpt.exams.room: its performed step's
+                         device, else its PACS study's);
+                      2. not performed yet: the room the order's hospital performed that
+                         procedure in most over the last 90 days (RIS performed steps, std_pps);
+                      3. no such exam: the procedure's one bookable room at that hospital, from
+                         the RIS's own lookup (the procedure catalogue procedure_duration_map, its
+                         SPS key -> MODALITY_SCHEDULE, ris_modality_schedule_stage, refilled
+                         nightly -> the RIS device's room); several bookable: "Room not decided";
+                      4. a code the RIS lookup does not know: "No room in the RIS lookup".
+                    The lookup alone rarely names one room: 673 of the 703 codes it knows are
+                    bookable in several (production, 19 Nov). The breakdown opens on Room.
     RIS only        RIS orders created since the HIS feed began with no HIS message for
                     their number, or with no HIS number at all (created on the RIS)
 
@@ -70,6 +71,12 @@ OUTCOMES = (
 OUTCOME_LABELS = dict(OUTCOMES)
 
 NO_ROOM = 'No room in the RIS lookup'
+UNDECIDED_ROOM = 'Room not decided'
+USUAL_ROOM_DAYS = 90
+ROOM_HOW = {'ris': 'performed there',
+            'usual': f'not performed yet: most used for this procedure ({USUAL_ROOM_DAYS} days)',
+            'lookup': 'not performed yet: its only bookable room',
+            'none': ''}
 
 DIMENSIONS = (
     ('room', 'Room'),                     # first: the breakdown opens on it (operator, 19 Nov)
@@ -83,7 +90,7 @@ BREAKDOWN_ROWS = 60
 COLUMNS = (
     ('HIS order number', 'his_no'), ('Ordered on the HIS', 'ordered'), ('Last HIS message', 'control'),
     ('HIS messages', 'messages'), ('Procedure code', 'procedure_code'), ('Procedure', 'procedure'),
-    ('Room (RIS lookup)', 'room'), ('HIS location', 'location'), ('Patient class', 'patient_class'),
+    ('Room', 'room'), ('Room decided by', 'room_how'), ('HIS location', 'location'), ('Patient class', 'patient_class'),
     ('Patient ID', 'patient_id'),
     ('Outcome', 'outcome_label'), ('RIS orders', 'ris_orders'), ('Registered on the RIS', 'registered'),
     ('HIS to RIS (minutes)', 'his_to_ris_min'), ('Accession', 'accessions'), ('Appointment', 'appointment'),
@@ -167,10 +174,35 @@ def room_lookup():
 
 
 def room_of(case, lookup):
-    """The room(s) of the case's procedure at its hospital, as one label."""
-    rooms = lookup.get((case['procedure_code'] or '').upper(), [])
-    here = sorted({r for r, s in rooms if case['site_id'] is None or s is None or s == case['site_id']})
-    return ' / '.join(here) if here else NO_ROOM
+    """The procedure's bookable room at the case's hospital: (room, source)."""
+    code = (case['procedure_code'] or '').upper()
+    if code not in lookup:
+        return NO_ROOM, 'none'
+    here = sorted({r for r, s in lookup[code] if case['site_id'] is None or s is None or s == case['site_id']})
+    if len(here) == 1:
+        return here[0], 'lookup'
+    return UNDECIDED_ROOM, 'none'
+
+
+# The room each hospital performed each procedure in most, over the last USUAL_ROOM_DAYS days.
+_USUAL_ROOM_SQL = f"""
+WITH used AS (
+    SELECT UPPER(BTRIM(p.procedure_code)) AS code, m.site_id,
+           COALESCE(NULLIF(BTRIM(m.station_name), ''), UPPER(BTRIM(p.performing_ae_title))) AS room,
+           COUNT(*) AS n
+    FROM public.std_pps p
+    JOIN public.aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(p.performing_ae_title))
+    WHERE p.start_datetime >= now() - interval '{USUAL_ROOM_DAYS} days'
+      AND NULLIF(BTRIM(p.procedure_code), '') IS NOT NULL
+    GROUP BY 1, 2, 3
+)
+SELECT DISTINCT ON (code, site_id) code, site_id, room FROM used ORDER BY code, site_id, n DESC, room
+"""
+
+
+def usual_rooms():
+    """{(procedure code, site_id): the room that hospital performed it in most, lately}."""
+    return {(code, site): room for code, site, room in db.session.execute(text(_USUAL_ROOM_SQL))}
 
 
 def performed_rooms(order_ids):
@@ -332,13 +364,18 @@ def build(start, end, site_id):
     site_ids = {code: sid for code, sid in db.session.execute(text("SELECT code, id FROM public.sites"))}
     _assign_sites(every, site_ids)
     rooms = room_lookup()
+    usual = usual_rooms()
     used = performed_rooms([r['order_dbid'] for c in every for r in c['ris']])
     for c in every:
-        actual = sorted({used[r['order_dbid']] for r in c['ris'] if r['order_dbid'] in used})
+        # several RIS orders of one HIS order (4 in 3,968) performed apart: the first one's room
+        actual = [used[r['order_dbid']] for r in sorted(c['ris'], key=lambda r: r['order_dbid']) if r['order_dbid'] in used]
         if actual:
-            c['room'], c['room_from'] = ' / '.join(actual), 'ris'
+            c['room'], c['room_from'] = actual[0], 'ris'
+        elif (key := ((c['procedure_code'] or '').upper(), c['site_id'])) in usual:
+            c['room'], c['room_from'] = usual[key], 'usual'
         else:
-            c['room'], c['room_from'] = room_of(c, rooms), 'lookup'
+            c['room'], c['room_from'] = room_of(c, rooms)
+        c['room_how'] = ROOM_HOW[c['room_from']]
     here = [c for c in every if site_id is None or c['site_id'] == site_id]
     cases = [c for c in here if c['billed']]                  # billed = an NW message
     not_billed = len(here) - len(cases)
@@ -359,7 +396,9 @@ def build(start, end, site_id):
         'unknown_site': unknown_site, 'not_billed': not_billed,
         'feed_start': started, 'copied_until': copied_until, 'apps': apps, 'ris_only': ris_only,
         'room_from_ris': sum(1 for c in cases if c['room_from'] == 'ris'),
+        'room_from_usual': sum(1 for c in cases if c['room_from'] == 'usual'),
         'room_from_lookup': sum(1 for c in cases if c['room_from'] == 'lookup'),
+        'room_unknown': sum(1 for c in cases if c['room_from'] == 'none'),
         'site_from_his': sum(1 for c in cases if c['site_from'] == 'his'),
         'site_from_location': sum(1 for c in cases if c['site_from'] == 'location'),
     }
@@ -371,15 +410,19 @@ def _as_datetime(d):
     return datetime.combine(d, time.min)
 
 
-def workbook(start, end, cases, summary, site_label):
+def workbook(start, end, cases, summary, site_label, room=None):
+    """The orders as an .xlsx; with room, that room's orders only (and its figures)."""
     import xlsxwriter
+    if room is not None:
+        cases = [c for c in cases if c['room'] == room]
+        summary = {**summary, 'kpi': _block(cases)}
     buf = io.BytesIO()
     book = xlsxwriter.Workbook(buf, {'in_memory': True, 'strings_to_formulas': False,
                                      'strings_to_urls': False, 'strings_to_numbers': False})
     sheet = book.add_worksheet('HIS vs RIS')
     bold = book.add_format({'bold': True})
     k = summary['kpi']
-    sheet.write(0, 0, f'{TITLE}, {site_label}: HIS orders placed {start} to {end}', bold)
+    sheet.write(0, 0, f'{TITLE}, {site_label}{", room " + room if room else ""}: HIS orders placed {start} to {end}', bold)
     sheet.write(1, 0, f"{k['orders']:,} HIS orders; on the RIS {k['on_ris_pct']} %; not on the RIS "
                       f"{k['not_on_ris']:,}; cancelled on the HIS {k['cancelled_his']:,}; not copied yet {k['pending']:,}")
     sheet.write(2, 0, 'One row per billed HIS order (the HIS sent it as a new order, ORC-1 NW), as its latest '
