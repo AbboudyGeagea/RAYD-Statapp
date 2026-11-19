@@ -28,13 +28,17 @@ one row per RIS order), each with the HIS order number it was created from
                     RIS; otherwise it is unknown and only counted, never listed. The matching
                     reads every site's RIS orders (public.etl_orders), then keeps this
                     database's site.
-    room            from the HIS message's procedure code (OBR-4) and the RIS's own lookup
-                    (operator, 2026-11-19): the RIS procedure catalogue (procedure_duration_map,
-                    the same codes, with each one's SPS key) -> MODALITY_SCHEDULE, the rooms a
-                    procedure can be booked on (ris_modality_schedule_stage, refilled by the
-                    nightly ETL) -> the RIS device's room (aetitle_modality_map). Only the rooms
-                    of the order's hospital; several left are listed together ("CT 1 / CT 2"),
-                    none is "No room in the RIS lookup". The breakdown opens on it.
+    room            the room the RIS used when the order was performed (rpt.exams.room: its
+                    performed step's device, else its PACS study's). One not performed yet takes
+                    the room from the HIS message's procedure code (OBR-4) and the RIS's own
+                    lookup (operator, 2026-11-19): the RIS procedure catalogue
+                    (procedure_duration_map, the same codes, with each one's SPS key) ->
+                    MODALITY_SCHEDULE, the rooms a procedure can be booked on
+                    (ris_modality_schedule_stage, refilled by the nightly ETL) -> the RIS
+                    device's room (aetitle_modality_map). Only the rooms of the order's hospital;
+                    several left are listed together ("CT 1 / CT 2"), none is "No room in the
+                    RIS lookup". The lookup alone would rarely name one room: 673 of the 703 codes
+                    it knows are bookable in several (production, 19 Nov). The breakdown opens on it.
     RIS only        RIS orders created since the HIS feed began with no HIS message for
                     their number, or with no HIS number at all (created on the RIS)
 
@@ -167,6 +171,16 @@ def room_of(case, lookup):
     rooms = lookup.get((case['procedure_code'] or '').upper(), [])
     here = sorted({r for r, s in rooms if case['site_id'] is None or s is None or s == case['site_id']})
     return ' / '.join(here) if here else NO_ROOM
+
+
+def performed_rooms(order_ids):
+    """{RIS order id: the room the RIS performed it in} (rpt.exams.room, else its device)."""
+    if not order_ids or not db.session.execute(text("SELECT to_regclass('rpt.exams') IS NOT NULL")).scalar():
+        return {}
+    rows = db.session.execute(text(
+        "SELECT e.exam_id, COALESCE(NULLIF(BTRIM(e.room), ''), NULLIF(BTRIM(e.device), '')) AS room "
+        "FROM rpt.exams e WHERE e.exam_id = ANY(:ids)"), {'ids': list(order_ids)})
+    return {exam_id: room for exam_id, room in rows if room}
 
 
 def his_apps():
@@ -318,8 +332,13 @@ def build(start, end, site_id):
     site_ids = {code: sid for code, sid in db.session.execute(text("SELECT code, id FROM public.sites"))}
     _assign_sites(every, site_ids)
     rooms = room_lookup()
+    used = performed_rooms([r['order_dbid'] for c in every for r in c['ris']])
     for c in every:
-        c['room'] = room_of(c, rooms)
+        actual = sorted({used[r['order_dbid']] for r in c['ris'] if r['order_dbid'] in used})
+        if actual:
+            c['room'], c['room_from'] = ' / '.join(actual), 'ris'
+        else:
+            c['room'], c['room_from'] = room_of(c, rooms), 'lookup'
     here = [c for c in every if site_id is None or c['site_id'] == site_id]
     cases = [c for c in here if c['billed']]                  # billed = an NW message
     not_billed = len(here) - len(cases)
@@ -339,6 +358,8 @@ def build(start, end, site_id):
         'not_on_ris': [c for c in cases if c['outcome'] == 'not_on_ris'][:200],
         'unknown_site': unknown_site, 'not_billed': not_billed,
         'feed_start': started, 'copied_until': copied_until, 'apps': apps, 'ris_only': ris_only,
+        'room_from_ris': sum(1 for c in cases if c['room_from'] == 'ris'),
+        'room_from_lookup': sum(1 for c in cases if c['room_from'] == 'lookup'),
         'site_from_his': sum(1 for c in cases if c['site_from'] == 'his'),
         'site_from_location': sum(1 for c in cases if c['site_from'] == 'location'),
     }

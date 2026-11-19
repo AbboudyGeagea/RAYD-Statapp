@@ -89,6 +89,10 @@ def feeds(rooms):
     d = lambda h, m=0, day=18: datetime(2026, 11, day, h, m)
     sql("INSERT INTO etl_job_log (job_name, status, start_time) VALUES ('ORDERS_ETL', 'SUCCESS', :t)", t=d(5, day=19))
     his('0019400001', 'NW', d(10));                ris(66001, '0019400001', d(10, 20), done_at=d(12))
+    # performed: its PACS study came from the CT128 ER device, so that is its room
+    sql("""INSERT INTO etl_didb_studies (study_db_uid, patient_db_uid, storing_ae, study_date, study_modality)
+           VALUES (66001, 66001, 'HR_CT2', '2026-11-18', 'CT')""")
+    sql("UPDATE etl_orders SET study_db_uid = 66001 WHERE order_dbid = 66001")
     his('0019400002', 'NW', d(10, 30)); his('0019400002', 'RQ', d(10, 45))
     ris(66002, '0019400002', d(11), status='scheduled')
     his('0019400003', 'NW', d(11)); his('0019400003', 'CA', d(11, 30))
@@ -121,9 +125,11 @@ def test_the_tab_for_rh(feeds):
     assert s['not_billed'] == 1                      # 14: only changes (RQ), never a new order (NW)
     assert got['0019400003'] == 'cancelled_his'      # billed (NW), then cancelled: still counted
     by_no = {c['his_no']: c for c in cases}
-    assert by_no['0019400001']['room'] == 'CT Room 1 / CT128 ER'      # RH's two rooms, not SJH's
+    assert by_no['0019400001']['room'] == 'CT128 ER'                  # performed: the room the RIS used
+    assert by_no['0019400002']['room'] == 'CT Room 1 / CT128 ER'      # not yet: RH's bookable rooms, not SJH's
     assert by_no['0019400015']['room'] == his_ris.NO_ROOM
-    assert [r['value'] for r in s['breakdowns']['room']['rows']] == ['CT Room 1 / CT128 ER', his_ris.NO_ROOM]
+    assert [r['value'] for r in s['breakdowns']['room']['rows']] == ['CT Room 1 / CT128 ER', 'CT128 ER', his_ris.NO_ROOM]
+    assert (s['room_from_ris'], s['room_from_lookup']) == (1, 6)
     assert his_ris.DIMENSIONS[0][0] == 'room'                         # the breakdown opens on Room
     assert k['median_to_ris_min'] == 25.0            # 20 and 30 minutes
     assert k['median_to_done_h'] == 2.0

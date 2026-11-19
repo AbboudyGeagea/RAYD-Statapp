@@ -480,7 +480,7 @@ const ChartExplanations = {
     'r27-his-breakdown': {
       title: 'HIS orders breakdown',
       purpose: 'The same outcomes per room (it opens on it), HIS location (the ward that ordered), procedure, patient class, or the last HIS message (NW new, RQ changed, CA cancelled).',
-      valueMeaning: 'Room = where the RIS lets the ordered procedure be booked: the procedure code the HIS sent, looked up in the RIS procedure list and its booking rules (MODALITY_SCHEDULE), keeping the rooms of the order's hospital. A procedure bookable in several rooms shows them together ("CT 1 / CT 2"); "No room in the RIS lookup" = the RIS has no booking rule for that code. On the RIS = share of the orders already copied that have a RIS order. HIS → RIS = minutes from the order on the HIS to its registration on the RIS (median). HIS → done = hours to the exam done (median).',
+      valueMeaning: 'Room = the room the RIS performed the exam in. An order not performed yet takes the room from the procedure code the HIS sent, looked up in the RIS procedure list and its booking rules (MODALITY_SCHEDULE), keeping the rooms of the order's hospital; a procedure bookable in several rooms shows them together ("CT 1 / CT 2"), and "No room in the RIS lookup" = the RIS has no booking rule for that code. The line above the table says how many came each way. On the RIS = share of the orders already copied that have a RIS order. HIS → RIS = minutes from the order on the HIS to its registration on the RIS (median). HIS → done = hours to the exam done (median).',
       interpretation: 'A ward with many orders not on the RIS, or a long HIS → RIS time, points at orders that reach radiology late or not at all.'
     },
     'r27-his-missing': {
