@@ -380,8 +380,10 @@ def report_27():
     today = date.today()
     go_live = get_report_start_date() or date(2025, 1, 1)
 
-    start_a = request.values.get("start_date", go_live.strftime('%Y-%m-%d'))
-    end_a   = request.values.get("end_date",   today.strftime('%Y-%m-%d'))
+    # Runs only when the form is submitted (start_date); a tab link carries the dates as
+    # d_start / d_end to fill the form without running (operator, 2026-11-19).
+    start_a = request.values.get("start_date") or request.values.get("d_start") or go_live.strftime('%Y-%m-%d')
+    end_a   = request.values.get("end_date") or request.values.get("d_end") or today.strftime('%Y-%m-%d')
 
     run_report = 'start_date' in request.values
     data = {}
@@ -401,9 +403,9 @@ def report_27():
                 import logging
                 logging.getLogger(__name__).exception('Report 27 HIS vs RIS tab failed')
                 his = None
-        from utils.his_ris import DIMENSIONS as his_dimensions, UNKNOWN as his_unknown
+        from utils.his_ris import DIMENSIONS as his_dimensions, UNKNOWN, NO_ROOM
         return render_template("report_27.html", data={}, run_report=run_report, tab=tab, his=his,
-                               his_dimensions=his_dimensions, his_unknown=his_unknown,
+                               his_dimensions=his_dimensions, his_muted=(UNKNOWN, NO_ROOM),
                                display_start=start_a, display_end=end_a)
 
     if run_report:

@@ -41,7 +41,7 @@ def site(code):
 _n = iter(range(1, 10_000))
 
 
-def his(number, control, at, location='CTSCAN', app='SAP_P', cls='O', facility='1000', entering=''):
+def his(number, control, at, location='CTSCAN', app='SAP_P', cls='O', facility='1000', entering='', proc='J17A-01'):
     """An HIS ORM as SAP_P sends it: PV1-3 = location^room^bed^^^^facility (1000 RH, 2000 SJH),
     ORC-17 = the entering unit."""
     ctrl = f'MSG{next(_n)}'
@@ -50,11 +50,11 @@ def his(number, control, at, location='CTSCAN', app='SAP_P', cls='O', facility='
            f"PID|1||P0001^^^HIS\r"
            f"PV1|1|{cls}|{location}^^^^^^{facility}\r"
            f"{orc}\r"
-           f"OBR|1|{number}^HIS||J17A-01^CT SCAN, BRAIN\r")
+           f"OBR|1|{number}^HIS||{proc}^CT SCAN, BRAIN\r")
     sql("""INSERT INTO hl7_orders (message_id, message_datetime, message_type, patient_id, placer_order_number,
                                    procedure_code, procedure_text, patient_location, patient_class, raw_message, received_at)
-           VALUES (:m, :at, 'ORM^O01', 'P0001', :n, 'J17A-01', 'CT SCAN, BRAIN', :loc, :cls, :raw, :at)""",
-        m=ctrl, at=at, n=number, loc=location, cls=cls, raw=raw)
+           VALUES (:m, :at, 'ORM^O01', 'P0001', :n, :proc, 'CT SCAN, BRAIN', :loc, :cls, :raw, :at)""",
+        m=ctrl, at=at, n=number, loc=location, cls=cls, raw=raw, proc=proc)
 
 
 def ris(key, number, created, status='CM', issuer='SAP_PROD', appointment=FAR, done_at=None):
@@ -67,7 +67,25 @@ def ris(key, number, created, status='CM', issuer='SAP_PROD', appointment=FAR, d
 
 
 @pytest.fixture
-def feeds():
+def rooms():
+    """The RIS lookup: procedure J17A-01 bookable on two RH CT rooms and SJH's CT (MODALITY_SCHEDULE)."""
+    sql("""CREATE TABLE IF NOT EXISTS public.ris_modality_schedule_stage
+           (sps_code_key BIGINT, modality_key BIGINT, schedule_template_key BIGINT)""")
+    sql("""INSERT INTO procedure_duration_map (procedure_code, duration_minutes, clinical_rvu, technical_rvu, ris_sps_code_key)
+           VALUES ('J17A-01', 15, 1, 1, 990001)""")
+    for ae, room, key, code in (('HR_CT1', 'CT Room 1', 880001, 'RH'), ('HR_CT2', 'CT128 ER', 880002, 'RH'),
+                                ('HR_CTJ', 'CTScanner', 880003, 'SJH')):
+        sql("""INSERT INTO aetitle_modality_map (aetitle, modality, station_name, ris_modality_key, site_id)
+               SELECT :a, 'CT', :r, :k, id FROM sites WHERE code = :c""", a=ae, r=room, k=key, c=code)
+        sql("INSERT INTO public.ris_modality_schedule_stage (sps_code_key, modality_key) VALUES (990001, :k)", k=key)
+    yield
+    sql("DELETE FROM public.ris_modality_schedule_stage WHERE sps_code_key = 990001")
+    sql("DELETE FROM aetitle_modality_map WHERE aetitle IN ('HR_CT1', 'HR_CT2', 'HR_CTJ')")
+    sql("DELETE FROM procedure_duration_map WHERE procedure_code = 'J17A-01'")
+
+
+@pytest.fixture
+def feeds(rooms):
     d = lambda h, m=0, day=18: datetime(2026, 11, day, h, m)
     sql("INSERT INTO etl_job_log (job_name, status, start_time) VALUES ('ORDERS_ETL', 'SUCCESS', :t)", t=d(5, day=19))
     his('0019400001', 'NW', d(10));                ris(66001, '0019400001', d(10, 20), done_at=d(12))
@@ -81,6 +99,7 @@ def feeds():
     his('0019400012', 'NW', d(13, 40), location='', facility='', entering='ENDOS-J')   # SJH by its unit
     his('0019400013', 'NW', d(13, 50), location='WARD9', facility='1000')    # RH: the HIS says 1000
     his('0019400014', 'RQ', d(14, 10)); his('0019400014', 'RQ', d(14, 20))   # never sent as new: not billed
+    his('0019400015', 'NW', d(14, 30), proc='ZZ-99')                          # no booking rule on the RIS
     his('0019400008', 'NW', d(6, day=19))                                     # after the last RIS copy
     his('0019400009', 'NW', d(14), app='OTHERAPP')                            # not the HIS
     ris(66010, None, d(15))                                                   # created on the RIS
@@ -94,25 +113,32 @@ def test_the_tab_for_rh(feeds):
         cases, s = his_ris.build(date(2026, 11, 18), date(2026, 11, 19), site('RH'))
     got = {c['his_no']: c['outcome'] for c in cases}
     assert got == {'0019400001': 'done', '0019400002': 'open', '0019400003': 'cancelled_his',
-                   '0019400004': 'not_on_ris', '0019400008': 'pending', '0019400013': 'not_on_ris'}
+                   '0019400004': 'not_on_ris', '0019400008': 'pending', '0019400013': 'not_on_ris',
+                   '0019400015': 'not_on_ris'}
     k = s['kpi']
-    assert k['orders'] == 6 and k['on_ris_pct'] == 40.0 and k['not_on_ris_pct'] == 40.0
-    assert s['site_from_his'] == 4                   # 3, 4, 8 and 13: no RIS order, the HIS names RH
+    assert k['orders'] == 7 and k['on_ris_pct'] == 33.3 and k['not_on_ris_pct'] == 50.0
+    assert s['site_from_his'] == 5                   # 3, 4, 8, 13, 15: no RIS order, the HIS names RH
     assert s['not_billed'] == 1                      # 14: only changes (RQ), never a new order (NW)
     assert got['0019400003'] == 'cancelled_his'      # billed (NW), then cancelled: still counted
+    by_no = {c['his_no']: c for c in cases}
+    assert by_no['0019400001']['room'] == 'CT Room 1 / CT128 ER'      # RH's two rooms, not SJH's
+    assert by_no['0019400015']['room'] == his_ris.NO_ROOM
+    assert [r['value'] for r in s['breakdowns']['room']['rows']] == ['CT Room 1 / CT128 ER', his_ris.NO_ROOM]
+    assert his_ris.DIMENSIONS[0][0] == 'room'                         # the breakdown opens on Room
     assert k['median_to_ris_min'] == 25.0            # 20 and 30 minutes
     assert k['median_to_done_h'] == 2.0
     assert s['unknown_site'] == 1                    # NEWWARD: not listed, only counted
     assert s['ris_only'] == {'no_his_number': 1, 'not_sent': 1, 'created': 4}
     two = next(c for c in cases if c['his_no'] == '0019400002')
     assert two['messages'] == 2 and two['control'] == 'RQ' and two['ordered'] == '2026-11-18 10:30'
-    assert [c['his_no'] for c in s['not_on_ris']] == ['0019400004', '0019400013']
+    assert [c['his_no'] for c in s['not_on_ris']] == ['0019400004', '0019400013', '0019400015']
 
 
 def test_the_tab_for_sjh_takes_the_other_orders(feeds):
     cases, s = his_ris.build(date(2026, 11, 18), date(2026, 11, 19), site('SJH'))
     assert {c['his_no']: c['outcome'] for c in cases} == {'0019400005': 'done', '0019400006': 'not_on_ris',
                                                           '0019400012': 'not_on_ris'}
+    assert {c['room'] for c in cases} == {'CTScanner'}                # SJH's own room
 
 
 def test_the_page_and_the_excel(client, feeds):
@@ -128,7 +154,8 @@ def test_the_page_and_the_excel(client, feeds):
     from openpyxl import load_workbook
     sheet = load_workbook(io.BytesIO(r.data)).active
     numbers = sorted(sheet.cell(row=i, column=1).value for i in range(6, sheet.max_row + 1))
-    assert numbers == ['0019400001', '0019400002', '0019400003', '0019400004', '0019400008', '0019400013']
+    assert numbers == ['0019400001', '0019400002', '0019400003', '0019400004', '0019400008', '0019400013',
+                       '0019400015']
 
 
 def test_the_ris_tab_shows_both_tabs_and_an_empty_range_says_so(client):
@@ -137,3 +164,16 @@ def test_the_ris_tab_shows_both_tabs_and_an_empty_range_says_so(client):
     page = r.get_data(as_text=True)
     assert 'RIS orders vs PACS' in page and 'HIS orders vs RIS' in page
     assert 'No RIS order in this range' in page
+
+
+def test_a_tab_opens_without_running_until_run_analysis(client, monkeypatch):
+    """Operator, 19 Nov: no query when the page or a tab opens; only Run Analysis runs it."""
+    def must_not_run(*a, **k):
+        raise AssertionError('the HIS vs RIS query ran on opening')
+    monkeypatch.setattr(his_ris, 'build', must_not_run)
+    r = client.get('/report/27', headers=ADMIN, query_string={'tab': 'his', 'd_start': '2026-11-18', 'd_end': '2026-11-19'})
+    assert r.status_code == 200
+    page = r.get_data(as_text=True)
+    assert 'Select Analysis Range' in page
+    assert 'value="2026-11-18"' in page                    # the dates still fill the form
+    assert 'start_date=' not in page.split('aria-label="Report 27 views"')[1].split('</nav>')[0]

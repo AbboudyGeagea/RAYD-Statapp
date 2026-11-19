@@ -169,11 +169,13 @@
         <!-- Main content -->
         <main class="flex-1 overflow-y-auto p-6 bg-[#181f1c] custom-scrollbar space-y-6">
             <nav class="flex gap-8 border-b border-[#28332e]" aria-label="Report 27 views">
+                {#- The dates only fill the form (d_start / d_end): a tab opens empty and runs on
+                    Run Analysis, like every report (operator, 2026-11-19). -#}
                 <a class="tab-btn {{ 'active' if tab != 'his' }}" {% if tab != 'his' %}aria-current="page"{% endif %}
-                   href="{{ url_for('report_27.report_27', start_date=display_start, end_date=display_end) }}">
+                   href="{{ url_for('report_27.report_27', d_start=display_start, d_end=display_end) }}">
                     <i class="bi bi-hdd-network"></i> RIS orders vs PACS</a>
                 <a class="tab-btn {{ 'active' if tab == 'his' }}" {% if tab == 'his' %}aria-current="page"{% endif %}
-                   href="{{ url_for('report_27.report_27', start_date=display_start, end_date=display_end, tab='his') }}">
+                   href="{{ url_for('report_27.report_27', d_start=display_start, d_end=display_end, tab='his') }}">
                     <i class="bi bi-arrow-left-right"></i> HIS orders vs RIS</a>
             </nav>
             {% if tab == 'his' %}

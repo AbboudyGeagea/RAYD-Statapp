@@ -105,7 +105,7 @@
             <tbody>
             {% for r in bd.rows %}
             <tr>
-                <td class="{{ 'text-slate-500 italic' if r.value == his_unknown else 'font-bold text-white' }}">{{ r.value }}</td>
+                <td class="{{ 'text-slate-500 italic' if r.value in his_muted else 'font-bold text-white' }}">{{ r.value }}</td>
                 <td class="text-right">{{ '{:,}'.format(r.orders) }}</td>
                 <td class="text-right">{{ num(r.on_ris_pct, '%') }}</td>
                 <td class="text-right">{{ r.done if r.done else '' }}</td>
@@ -129,11 +129,11 @@
     {% if his.not_on_ris %}
     <div class="overflow-x-auto p-2">
         <table class="w-full text-left hr-table">
-            <thead><tr><th>HIS order</th><th>Ordered</th><th>Last HIS message</th><th>Procedure</th><th>HIS location</th><th>Class</th></tr></thead>
+            <thead><tr><th>HIS order</th><th>Ordered</th><th>Last HIS message</th><th>Procedure</th><th>Room</th><th>HIS location</th><th>Class</th></tr></thead>
             <tbody>
             {% for c in his.not_on_ris %}
             <tr><td class="font-bold text-white">{{ c.his_no }}</td><td>{{ c.ordered }}</td><td>{{ c.control }}</td>
-                <td>{{ c.procedure }}</td><td>{{ c.location }}</td><td>{{ c.patient_class }}</td></tr>
+                <td>{{ c.procedure }}</td><td>{{ c.room }}</td><td>{{ c.location }}</td><td>{{ c.patient_class }}</td></tr>
             {% endfor %}
             </tbody>
         </table>

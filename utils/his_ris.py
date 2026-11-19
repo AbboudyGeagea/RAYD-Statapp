@@ -28,6 +28,13 @@ one row per RIS order), each with the HIS order number it was created from
                     RIS; otherwise it is unknown and only counted, never listed. The matching
                     reads every site's RIS orders (public.etl_orders), then keeps this
                     database's site.
+    room            from the HIS message's procedure code (OBR-4) and the RIS's own lookup
+                    (operator, 2026-11-19): the RIS procedure catalogue (procedure_duration_map,
+                    the same codes, with each one's SPS key) -> MODALITY_SCHEDULE, the rooms a
+                    procedure can be booked on (ris_modality_schedule_stage, refilled by the
+                    nightly ETL) -> the RIS device's room (aetitle_modality_map). Only the rooms
+                    of the order's hospital; several left are listed together ("CT 1 / CT 2"),
+                    none is "No room in the RIS lookup". The breakdown opens on it.
     RIS only        RIS orders created since the HIS feed began with no HIS message for
                     their number, or with no HIS number at all (created on the RIS)
 
@@ -58,7 +65,10 @@ OUTCOMES = (
 )
 OUTCOME_LABELS = dict(OUTCOMES)
 
+NO_ROOM = 'No room in the RIS lookup'
+
 DIMENSIONS = (
+    ('room', 'Room'),                     # first: the breakdown opens on it (operator, 19 Nov)
     ('location', 'HIS location'),
     ('procedure', 'Procedure'),
     ('patient_class', 'Patient class'),
@@ -69,7 +79,8 @@ BREAKDOWN_ROWS = 60
 COLUMNS = (
     ('HIS order number', 'his_no'), ('Ordered on the HIS', 'ordered'), ('Last HIS message', 'control'),
     ('HIS messages', 'messages'), ('Procedure code', 'procedure_code'), ('Procedure', 'procedure'),
-    ('HIS location', 'location'), ('Patient class', 'patient_class'), ('Patient ID', 'patient_id'),
+    ('Room (RIS lookup)', 'room'), ('HIS location', 'location'), ('Patient class', 'patient_class'),
+    ('Patient ID', 'patient_id'),
     ('Outcome', 'outcome_label'), ('RIS orders', 'ris_orders'), ('Registered on the RIS', 'registered'),
     ('HIS to RIS (minutes)', 'his_to_ris_min'), ('Accession', 'accessions'), ('Appointment', 'appointment'),
     ('Exam done', 'exam_done'), ('HIS to exam done (hours)', 'his_to_done_h'),
@@ -127,6 +138,35 @@ FROM etl_orders o
 LEFT JOIN sent s ON s.p = BTRIM(o.placer_order_number)
 WHERE o.order_created_at >= :start AND o.order_created_at < :end
 """
+
+
+# Procedure code -> the rooms the RIS lets it be booked on, with each room's site.
+_ROOMS_SQL = """
+SELECT DISTINCT UPPER(BTRIM(p.procedure_code)) AS code,
+       COALESCE(NULLIF(BTRIM(m.station_name), ''), UPPER(BTRIM(m.aetitle))) AS room, m.site_id
+FROM public.procedure_duration_map p
+JOIN public.ris_modality_schedule_stage st ON st.sps_code_key = p.ris_sps_code_key
+JOIN public.aetitle_modality_map m ON m.ris_modality_key = st.modality_key
+WHERE NULLIF(BTRIM(p.procedure_code), '') IS NOT NULL AND COALESCE(m.active, TRUE)
+"""
+
+
+def room_lookup():
+    """{procedure code: [(room, site_id), ...]} from the RIS's MODALITY_SCHEDULE. Empty when
+    the nightly ETL has not created its table (a fresh install)."""
+    if not db.session.execute(text("SELECT to_regclass('public.ris_modality_schedule_stage') IS NOT NULL")).scalar():
+        return {}
+    out = {}
+    for code, room, site in db.session.execute(text(_ROOMS_SQL)):
+        out.setdefault(code, []).append((room, site))
+    return out
+
+
+def room_of(case, lookup):
+    """The room(s) of the case's procedure at its hospital, as one label."""
+    rooms = lookup.get((case['procedure_code'] or '').upper(), [])
+    here = sorted({r for r, s in rooms if case['site_id'] is None or s is None or s == case['site_id']})
+    return ' / '.join(here) if here else NO_ROOM
 
 
 def his_apps():
@@ -277,6 +317,9 @@ def build(start, end, site_id):
     every = [_shape(h, ris_by_no.get(h['his_no'], []), copied_until) for h in his]
     site_ids = {code: sid for code, sid in db.session.execute(text("SELECT code, id FROM public.sites"))}
     _assign_sites(every, site_ids)
+    rooms = room_lookup()
+    for c in every:
+        c['room'] = room_of(c, rooms)
     here = [c for c in every if site_id is None or c['site_id'] == site_id]
     cases = [c for c in here if c['billed']]                  # billed = an NW message
     not_billed = len(here) - len(cases)
