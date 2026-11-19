@@ -195,8 +195,8 @@ INSERT INTO brayn_findings
 SELECT
     NULL, :code, :severity, s.accession_number, s.patient_id,
     jsonb_build_object(
-        'since',            s.{since},
-        'stalled_minutes',  ROUND(EXTRACT(EPOCH FROM (NOW() - s.{since})) / 60.0),
+        'since',            {clock},
+        'stalled_minutes',  ROUND(EXTRACT(EPOCH FROM (NOW() - {clock})) / 60.0),
         'threshold_minutes', :threshold,
         'modality',         s.modality,
         'aetitle',          s.aetitle,
@@ -206,12 +206,34 @@ FROM brayn_study_state s
 WHERE {where}
   AND s.cancelled_at IS NULL
   AND NOT s.is_closed
-  AND s.{since} < NOW() - make_interval(mins => :threshold)
+  AND {clock} < NOW() - make_interval(mins => :threshold)
   AND (:modality = '' OR s.modality = :modality)
 ON CONFLICT (rule_code, accession_number)
     WHERE message_archive_id IS NULL AND resolved_at IS NULL
 DO NOTHING
 """
+
+# LAUMC (2026-11-20). "Scheduled, no arrival" counts from the APPOINTMENT (OBR-36, migration
+# 0173), not from scheduled_at, which is when the RIS booked it: an exam booked a week ahead is not
+# late. And the HIS sends every order twice; the RIS keeps one copy Scheduled for good. A study
+# whose twin (same HIS order number) went ahead is that copy, not a no-show. Production dry run,
+# 20 Nov: 41 appointments 2 hours past with no arrival and no twin.
+_SCHEDULED_CLOCK = 'COALESCE(s.appointment_at, s.scheduled_at)'
+_NO_TWIN_WENT_AHEAD = """NOT EXISTS (
+        SELECT 1 FROM brayn_study_state t
+         WHERE t.placer_order_number = s.placer_order_number
+           AND t.accession_number <> s.accession_number
+           AND COALESCE(t.arrived_at, t.started_at, t.completed_at, t.pacs_completed_at) IS NOT NULL)"""
+
+
+def _stall_statement(rule):
+    """_STALL_SQL for one rule: its clock (the rung's own column; the appointment for
+    STALLED_SCHEDULED) and its WHERE."""
+    clock, where = f"s.{rule['since']}", rule['where']
+    if rule['code'] == 'STALLED_SCHEDULED':
+        clock = _SCHEDULED_CLOCK
+        where = f"{where} AND {_NO_TWIN_WENT_AHEAD}"
+    return _STALL_SQL.replace('{clock}', clock).replace('{where}', where)
 
 # ORPHAN_ORDER looks at the other side: a HIS order the RIS never scheduled, so it
 # can never be matched to a study.
@@ -327,7 +349,7 @@ def run_sweep():
     raised = {}
 
     for rule in _stall_rules():
-        sql = _STALL_SQL.replace('{since}', rule['since']).replace('{where}', rule['where'])
+        sql = _stall_statement(rule)
         for cfg in _rule_settings(rule['code']):
             try:
                 with db.session.begin_nested():

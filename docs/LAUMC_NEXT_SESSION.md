@@ -224,6 +224,24 @@ only OBR-24/-19/-17, empty at LAUMC), with the RIS studies already stored filled
   hospital time) kept pushing it back; the check ran at 23:24. Sweeps had run at 22:46 (closed
   the 42 0175 linked) and 23:01. No stuck session, nothing pending. The sweep now first runs 2
   minutes after a start (app.py).
+- **After the deploy + Re-check (20 Nov, ~00:00):** UNKNOWN_STATUS_CODE 0 (all released);
+  RIS studies 401 completed, 165 with a report, 97 with the PACS wet read, 28 with the approval;
+  UNREPORTED 32 open (123 closed) = no signature, no report anywhere; TIME_CONTRADICTION 15 (walk-ins
+  booked ~6 min after arriving 10 + 3, arrived > started 2, an HIS order entered after the exam 2:
+  workflow, kept as notes). 7 approved in PACS with no report in RAYD, all 18 Nov 14:48-17:18 (6 SJH,
+  1 RH; four SJH RF accessions 1005003450340-343 approved the same second = one report for linked
+  exams?): for Mirth, low priority.
+- **Dry run of the rules still off (20 Nov), against 401 completed:** STALLED_SCHEDULED as seeded 0
+  (the feed is 2 days old; it would count from the booking) / from the appointment, 2 h, no twin
+  41; STALLED_ARRIVED 84; STALLED_STARTED 187; ORPHAN_ORDER 79 (≈ the HIS orders never booked,
+  ~48/day; Report 27's HIS tab shows them); SKIPPED_RUNG no arrival 168 / no start 167 (~40 %: the
+  RIS does not send A and IP for every exam); ORPHAN_EVENT 38. **Built (migration 0178):**
+  STALLED_SCHEDULED counts from the appointment (OBR-36), skips the HIS's duplicate copy whose twin
+  (same HIS number) went ahead, threshold 2 h (was 48 h from the booking); still off, switch it on
+  in the console. **Next:** the per-modality breakdown (query sent; best after the 05:00 ETL so the
+  RIS copy has 19 Nov) decides STALLED_ARRIVED / STARTED, SKIPPED_RUNG (likely: arrival and start
+  not expected for the modalities that never send them) and ORPHAN_EVENT; ORPHAN_ORDER suggested
+  off (Report 27 covers it).
 
 **Waiting for the next deploy (`cd /opt/rayd && sudo bash update.sh LAUMC`), all pushed, tests
 passing (1369):** the TV layout of the Live board and Floor Plan removal (2b7ba3cb ...), Report 36

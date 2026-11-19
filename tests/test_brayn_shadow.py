@@ -453,6 +453,28 @@ def test_migration_0175_corrects_the_studies_already_in_brayn(pipe):
     assert pipe.count('brayn_findings', "resolved_at IS NULL") == 0
 
 
+def test_scheduled_never_arrived_counts_from_the_appointment_and_skips_the_his_twin(app, pipe):
+    """Migration 0178: from the appointment (OBR-36), not the booking; and the HIS's duplicate copy
+    the RIS leaves Scheduled is not a no-show when its twin went ahead."""
+    from utils import brayn_shadow
+    pipe.brayn()
+    pipe.exec("UPDATE brayn_rules SET enabled = TRUE WHERE rule_code = 'STALLED_SCHEDULED' AND modality = ''")
+    assert pipe.scalar("SELECT threshold_minutes FROM brayn_rules WHERE rule_code = 'STALLED_SCHEDULED' "
+                       "AND modality = ''") == 120
+    at = lambda minutes: k.hl7(k.now() + timedelta(minutes=minutes))
+    booked = k.ts(3 * 24 * 60)                                          # booked three days ago
+    pipe.send(k.status('SC', 'ACC-F', booked, placer='PL-F', appt=at(24 * 60)))     # tomorrow
+    pipe.send(k.status('SC', 'ACC-L', booked, placer='PL-L', appt=at(-180)))        # 3 h ago
+    pipe.send(k.status('SC', 'ACC-T1', booked, placer='PL-T', appt=at(-180)))       # the twins
+    pipe.send(k.status('SC', 'ACC-T2', booked, placer='PL-T', appt=at(-180)))
+    pipe.send(k.status('A', 'ACC-T1', k.ts(170), placer='PL-T'))
+    pipe.screen()
+    brayn_shadow.sweep(app)
+    flagged = pipe.q("SELECT accession_number, detail FROM brayn_findings WHERE rule_code = 'STALLED_SCHEDULED'")
+    assert [r['accession_number'] for r in flagged] == ['ACC-L']
+    assert 170 <= flagged[0]['detail']['stalled_minutes'] <= 190
+
+
 def test_the_150ms_limit_of_a_bounded_lookup_does_not_outlive_it(app):
     """Postgres keeps SET LOCAL past a RELEASEd savepoint: the lookup's ceiling bound every write
     after it in the transaction (found 2026-11-20)."""
