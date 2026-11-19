@@ -27,9 +27,11 @@ DEFAULT_FIELD_MAP = [
 
 
 def _hospital():
-    """(SQL, params) keeping the orders of the hospital picked in the header. This page reads the
-    main database (utils/site_db.MAIN_BLUEPRINTS), where the listener writes every HIS order of
-    both hospitals; SJH's own database gets none until BRAYN routes by site (item 13d)."""
+    """(engine, SQL, params): the database of the hospital picked in the header and the clause
+    keeping its orders. The listener writes each HIS order to its hospital's database once that
+    hospital has moved (item 13d, utils/hl7_site.py); before, every order of both hospitals is on
+    the main database, hence the clause on the code the HIS sends (PV1-3.7). The page itself is in
+    MAIN_BLUEPRINTS: its field map lives on the main database, which the listener reads."""
     from flask import session
     from utils import site_db
     from utils.his_ris import his_site_clause
@@ -37,25 +39,31 @@ def _hospital():
     picked = session.get('site_id')
     if picked not in granted_site_ids(current_user):
         picked = site_db.default_site_id()
-    return his_site_clause('hl7_orders', site_db.site_code(picked) or 'RH')
+    sql, params = his_site_clause('hl7_orders', site_db.site_code(picked) or 'RH')
+    return site_db.engine_for(picked), sql, params
+
+
+def _rows(engine, statement, params=None):
+    with engine.connect() as conn:
+        return conn.execute(text(statement), params or {}).fetchall()
 
 
 def _count_orders(date_str):
     """Return (performed, cancelled) for a given date. CA = cancelled, everything else = performed."""
-    site_sql, site_params = _hospital()
-    row = db.session.execute(text(f"""
+    engine, site_sql, site_params = _hospital()
+    row = _rows(engine, f"""
         SELECT
             COUNT(*) FILTER (WHERE UPPER(COALESCE(order_status, '')) != 'CA') AS performed,
             COUNT(*) FILTER (WHERE UPPER(COALESCE(order_status, '')) = 'CA')  AS cancelled
         FROM hl7_orders
         WHERE (DATE(scheduled_datetime) = :d OR DATE(received_at) = :d) AND {site_sql}
-    """), {"d": date_str, **site_params}).fetchone()
+    """, {"d": date_str, **site_params})[0]
     return (int(row[0] or 0), int(row[1] or 0))
 
 
 def _fetch_orders(date_str=None, modality=None, status=None):
     """Fetch hl7_orders with optional filters. Returns list of dicts."""
-    site_sql, site_params = _hospital()
+    engine, site_sql, site_params = _hospital()
     filters = ["1=1", "(order_status IS NULL OR order_status <> 'CM')", site_sql]
     params  = dict(site_params)
 
@@ -76,7 +84,7 @@ def _fetch_orders(date_str=None, modality=None, status=None):
         params['status'] = status
 
     where = " AND ".join(filters)
-    sql = text(f"""
+    sql = f"""
         SELECT
             id, message_id, received_at,
             patient_id, patient_name, date_of_birth, gender,
@@ -89,20 +97,19 @@ def _fetch_orders(date_str=None, modality=None, status=None):
         WHERE {where}
         ORDER BY received_at DESC
         LIMIT 1000
-    """)
-
-    rows = db.session.execute(sql, params).fetchall()
-    return [dict(r._mapping) for r in rows]
+    """
+    return [dict(r._mapping) for r in _rows(engine, sql, params)]
 
 
 def _fetch_filter_options():
     """Get distinct modalities and statuses for filter dropdowns."""
-    modalities = db.session.execute(
-        text("SELECT DISTINCT modality FROM hl7_orders WHERE modality IS NOT NULL AND modality NOT IN ('SR', 'BMD') ORDER BY modality")
-    ).fetchall()
-    statuses = db.session.execute(
-        text("SELECT DISTINCT order_status FROM hl7_orders WHERE order_status IS NOT NULL ORDER BY order_status")
-    ).fetchall()
+    engine, site_sql, site_params = _hospital()
+    modalities = _rows(engine,
+        f"SELECT DISTINCT modality FROM hl7_orders WHERE modality IS NOT NULL AND modality NOT IN ('SR', 'BMD') "
+        f"AND {site_sql} ORDER BY modality", site_params)
+    statuses = _rows(engine,
+        f"SELECT DISTINCT order_status FROM hl7_orders WHERE order_status IS NOT NULL AND {site_sql} "
+        f"ORDER BY order_status", site_params)
     return (
         [r[0] for r in modalities],
         [r[0] for r in statuses]

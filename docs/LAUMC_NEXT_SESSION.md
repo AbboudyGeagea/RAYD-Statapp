@@ -134,6 +134,21 @@ by the code the HIS sends (PV1-3.7 = `sites.hl7_building`, else a -J location or
 it showed both hospitals' orders on RH. Its date filter missed brackets, so the "not completed"
 and modality filters were skipped for orders received that day: fixed. Still read per database
 after the move, a day late for SJH through the nightly site route: the ORU tab.
+**Item 13d, routing by hospital (operator: before the move; built 19 Nov night, deploy waiting).**
+The feeds (19 Nov, 2 days): SAP_P ORM 2,112, RIS ORM 1,900, CARESTREAM ORU 884; no PACS completion.
+ORUs carry no PV1 or ORC (only OBR-3 accession, MSH-4 = 2); only 138 of 882 found a RIS exam-done
+by accession (OBR-20; the RIS feed began 18 Nov). Built (`utils/hl7_site.py`): an HIS order goes to
+its hospital's database by PV1-3.7 (else a -J location / unit) once that hospital's one-time move
+has recorded itself (`site_route_moved_SJH`), so nothing changes before the move; the move and the
+nightly site route take SJH's HIS orders (`_r_his`); HL7 Orders and Report 27's HIS tab read the
+picked hospital's database (the hospital filter kept for the main one). ORUs stay on the main
+database: they name no hospital and the NLP worker and CRN read only the main database; the nightly
+route moves SJH's by accession with their NLP analysis (SJH's ORU tab a day late). Real-time ORU
+routing would need the NLP worker and CRN on both databases: a follow-up if wanted.
+**Runbook addition (Sat move):** after `--move`, send nothing special: within a minute the listener
+routes SJH's HIS orders. Check the next morning:
+`sudo docker exec rayd_db psql -U etl_user -d etl_db_sjh -c "SELECT COUNT(*), MAX(received_at) FROM hl7_orders;"`
+(growing) and on `etl_db` no new order naming 2000 after the move time.
 **Item 17, BRAYN enhancement (built, migration 0174):** the RIS's modality from OBR-18 (BRAYN read
 only OBR-24/-19/-17, empty at LAUMC), with the RIS studies already stored filled.
 

@@ -731,18 +731,32 @@ def _handle_client(conn, addr, app):
                                     parsed = _apply_field_map(seg_dict, parsed, field_map)
 
                                 with app.app_context():
+                                    import contextlib
                                     from sqlalchemy import text
                                     from db import db
+                                    from utils import site_db
+                                    # Item 13d: into its hospital's database once that hospital
+                                    # has moved (utils/hl7_site.py); otherwise the main one.
+                                    target = None
                                     try:
-                                        db.session.execute(text(INSERT_SQL), parsed)
-                                        db.session.execute(
-                                            text("SELECT pg_notify('hl7_new_order', :mid)"),
-                                            {"mid": str(parsed.get("message_id") or "")}
-                                        )
-                                        db.session.commit()
+                                        from utils.hl7_site import his_order_site
+                                        target = his_order_site(segments)
                                     except Exception:
-                                        db.session.rollback()
-                                        raise
+                                        logger.exception("HIS order not routed: main database")
+                                    with (site_db.use_site(target) if target else contextlib.nullcontext()):
+                                        try:
+                                            db.session.execute(text(INSERT_SQL), parsed)
+                                            db.session.execute(
+                                                text("SELECT pg_notify('hl7_new_order', :mid)"),
+                                                {"mid": str(parsed.get("message_id") or "")}
+                                            )
+                                            db.session.commit()
+                                        except Exception:
+                                            db.session.rollback()
+                                            raise
+                                        finally:
+                                            if target:
+                                                db.session.remove()
 
                                 logger.info(
                                     f"✅ HL7 stored | msg_id={parsed['message_id']} "

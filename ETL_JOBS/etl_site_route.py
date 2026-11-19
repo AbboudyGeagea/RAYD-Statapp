@@ -70,6 +70,15 @@ KEY_SETS = (
     ('_r_oru', """SELECT id FROM hl7_oru_reports
                   WHERE accession_number IS NOT NULL
                     AND (accession_number IN (SELECT acc FROM _r_acc) OR site_id = %(site)s)"""),
+    # the HIS's orders (item 13d, 2026-11-19): the hospital the message names (PV1-3.7 =
+    # sites.hl7_building), else for SJH a location or entering unit (ORC-17) ending in -J
+    ('_r_his', r"""SELECT h.id FROM hl7_orders h JOIN sites si ON si.id = %(site)s
+                  WHERE BTRIM(split_part(split_part(substring(h.raw_message from 'PV1\|[^\r]*'), '|', 4), '^', 7))
+                        = COALESCE(NULLIF(BTRIM(si.hl7_building), ''), '#')
+                     OR (COALESCE(BTRIM(split_part(split_part(substring(h.raw_message from 'PV1\|[^\r]*'), '|', 4), '^', 7)), '') = ''
+                         AND UPPER(si.code) = 'SJH'
+                         AND (UPPER(COALESCE(h.patient_location, '')) LIKE '%%-J'
+                              OR UPPER(BTRIM(split_part(split_part(substring(h.raw_message from 'ORC\|[^\r]*'), '|', 18), '^', 1))) LIKE '%%-J'))"""),
     ('_r_patients', """SELECT DISTINCT s.patient_db_uid FROM etl_didb_studies s
                        JOIN _r_studies r USING (study_db_uid) WHERE s.patient_db_uid IS NOT NULL"""),
     ('_r_visits', """SELECT DISTINCT o.visit_dbid::text AS visit FROM etl_orders o JOIN _r_orders r USING (order_dbid)
@@ -168,11 +177,14 @@ TABLES = (
           skip=('id',), parent_col='source_id'),
     Table('hl7_oru_rule_cache', ('report_id',), _ORU_CHILD.format(col='report_id'), 'cascade',
           parent_col='report_id'),
+    # the HIS's orders: SJH's go to SJH's database (the listener routes new ones once moved)
+    Table('hl7_orders', ('message_id',), "t.id IN (SELECT id FROM _r_his)", skip=('id',)),
 )
 
 # Deleting from RH, children first. (label, SQL); studies and the "unreferenced" ones are
 # handled in code.
 _DELETE_STEPS = (
+    ('hl7_orders', "DELETE FROM hl7_orders WHERE id IN (SELECT id FROM _r_his)"),
     ('hl7_oru_reports', "DELETE FROM hl7_oru_reports WHERE id IN (SELECT id FROM _r_oru)"),
     ('std_site_pps_ext', "DELETE FROM std_site_pps_ext WHERE pps_key IN (SELECT pps_key FROM _r_pps)"),
     ('std_pps_person_reference', "DELETE FROM std_pps_person_reference WHERE pps_key IN (SELECT pps_key FROM _r_pps)"),

@@ -23,7 +23,7 @@ DATA = ('hl7_oru_rule_cache', 'hl7_oru_analysis', 'ai_nlp_cache', 'crn_events', 
         'std_worklist_scheduled', 'std_worklist_arrivals', 'std_worklist_exam_done', 'std_worklist_cancellations',
         'etl_orders', 'fact_exam', 'cd_print_log', 'etl_pacs_audit_events', 'study_access_history',
         'etl_sticky_notes', 'etl_image_locations', 'etl_didb_raw_images', 'etl_didb_serieses',
-        'etl_didb_studies', 'etl_patient_view')
+        'etl_didb_studies', 'etl_patient_view', 'hl7_orders')
 CATALOGS = tuple(t.name for t in route.TABLES if t.where == 'TRUE')
 DEVICES = ('CT_RH_T', 'CT_SJ_T')
 
@@ -141,6 +141,31 @@ def test_the_move_puts_sjh_in_its_database_and_leaves_rh_alone(dbs):
     assert keys(main, "SELECT report_key FROM std_reports") == [62]
     assert keys(sjh, "SELECT accession_number FROM hl7_oru_reports") == ['A201']
     assert keys(main, "SELECT accession_number FROM hl7_oru_reports") == ['A101', 'A999']
+
+
+def his_order(main, message_id, pv1_3, unit=''):
+    orc = '|'.join(['ORC', 'NW', f'{message_id}^HIS'] + [''] * 14 + [f'{unit}^^'])   # unit = ORC-17
+    raw = (f"MSH|^~\\&|SAP_P||RAYD||20261119120000||ORM^O01|{message_id}|P|2.3\r"
+           f"PV1|1|O|{pv1_3}\r{orc}\r")
+    run(main, """INSERT INTO hl7_orders (message_id, placer_order_number, patient_location, raw_message, received_at)
+                 VALUES (:m, :m, :loc, :raw, :t)""", m=message_id, loc=pv1_3.split('^')[0], raw=raw, t=T)
+
+
+def test_the_move_takes_sjhs_his_orders(dbs):
+    """Item 13d: the HIS's orders of SJH (PV1-3.7 = 2000, else an SJH location or unit ending in
+    -J) go to SJH's database; RH's (1000) and those naming no hospital stay."""
+    main, sjh = dbs
+    two_hospitals(main)
+    his_order(main, 'H-RH', 'WARD9^^^^^^1000')
+    his_order(main, 'H-SJ', 'EM-J^^^^^^2000')
+    his_order(main, 'H-SJ-UNIT', '', unit='ENDOS-J')
+    his_order(main, 'H-NONE', 'NEWWARD')
+
+    report = move(main, sjh)
+
+    assert report['verified']
+    assert keys(sjh, "SELECT message_id FROM hl7_orders") == ['H-SJ', 'H-SJ-UNIT']
+    assert keys(main, "SELECT message_id FROM hl7_orders") == ['H-NONE', 'H-RH']
 
 
 def test_oru_children_find_their_report_by_accession(dbs):

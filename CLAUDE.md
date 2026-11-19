@@ -132,7 +132,11 @@ routes/
                                    through. Moved out of Report Composer 2026-11-07
   report_cache.py               — shared cache/dropdown helpers
 hl7_listener.py                 — MLLP :6661: stores ORU (fill-only), orders, PACS completions;
-                                   then hands each message to BRAYN AFTER the ACK
+                                   then hands each message to BRAYN AFTER the ACK. Item 13d: an HIS
+                                   order goes to its hospital's database (PV1-3.7, utils/hl7_site.py)
+                                   once that hospital's one-time move recorded itself; ORUs stay on
+                                   the main database (no hospital in them; NLP worker and CRN read
+                                   it), the nightly site route moves SJH's
 utils/brayn_shadow.py           — BRAYN on LAUMC, OBSERVING ONLY (migration 0133, 2026-10-26):
                                    archive after the ACK, background worker screens into
                                    BRAYN's own tables, 15-min sweep. Off until

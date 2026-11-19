@@ -179,18 +179,24 @@ def test_the_tab_for_sjh_takes_the_other_orders(feeds):
     assert {c['room_from'] for c in cases if c['room'] == 'CTScanner'} == {'lookup'}
 
 
-def test_on_sjhs_own_database_the_his_orders_still_come_from_the_main_one(feeds):
-    """Item 13, before the move: the listener writes every HIS order to the main database; SJH's
-    own database gets none until BRAYN routes by site. The tab reads them from the main one."""
+def test_on_sjhs_own_database_the_tab_reads_sjhs_his_orders(feeds):
+    """Item 13d: once SJH has moved, its HIS orders are in its own database (the listener routes
+    them, the move takes the history); the tab on SJH reads them there, RH's stay on RH's."""
     from utils import site_db
     if not site_db.has_site_databases():
         pytest.skip('no site database configured')
-    with site_db.use_site(site('SJH')):
-        cases, s = his_ris.build(date(2026, 11, 18), date(2026, 11, 19), site('SJH'))
-    got = {c['his_no'] for c in cases}
-    assert {'0019400006', '0019400012'} <= got           # SJH's by PV1-3.7 = 2000 and by its -J unit
-    assert not got & {'0019400001', '0019400004'}         # RH's stay out
-    assert s['feed_start'] is not None
+    d = lambda h, m=0: datetime(2026, 11, 18, h, m)
+    try:
+        with site_db.use_site(site('SJH')):
+            his('0019400031', 'NW', d(9), location='EM-J', facility='2000')
+            his('0019400032', 'NW', d(9, 30), location='', facility='', entering='ENDOS-J')
+            cases, s = his_ris.build(date(2026, 11, 18), date(2026, 11, 19), site('SJH'))
+        got = {c['his_no'] for c in cases}
+        assert got == {'0019400031', '0019400032'}             # SJH's own; RH's are on RH's database
+        assert s['feed_start'] is not None
+    finally:
+        with site_db.use_site(site('SJH')):
+            sql("DELETE FROM hl7_orders WHERE placer_order_number IN ('0019400031', '0019400032')")
 
 
 def test_the_hl7_orders_page_keeps_the_picked_hospital(client, feeds):
