@@ -84,6 +84,18 @@
         .rc-row > * { min-width: 0; flex: 1 1 0; }
         .rc-row > .lbl, .rc-row > .fixed { flex: none; }
         .rc-row .lbl { font-size: 10px; font-weight: 800; color: var(--rc-faint); text-transform: uppercase; }
+        /* Days and times of a date filter: one box per window */
+        .rc-win { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+        .rc-win-row { border: 1px solid var(--rc-line); border-radius: 10px; padding: 8px; }
+        .rc-win-row .rc-row { margin-top: 6px; }
+        .rc-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+        .rc-day { border: 1px solid var(--rc-line); background: var(--rc-input); color: var(--rc-muted); border-radius: 6px; padding: 4px 0; font-size: 10px; font-weight: 800; cursor: pointer; }
+        .rc-day:hover { border-color: var(--rc-accent); color: var(--rc-fg); }
+        .rc-day[aria-pressed="true"] { background: var(--rc-primary); border-color: var(--rc-primary); color: #fff; }
+        .rc-win-tools { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
+        .rc-win-tools .rc-link { font-size: 10px; }
+        .rc-win-hint { margin-top: 6px; color: var(--rc-accent); font-weight: 700; }
+        .rc-win-hint.bad { color: var(--rc-bad); }
         .rc-seg { display: inline-flex; border: 1px solid var(--rc-line); border-radius: 8px; overflow: hidden; background: var(--rc-input); }
         .rc-seg button { border: 0; background: transparent; padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: 700; color: var(--rc-muted); }
         .rc-seg button + button { border-left: 1px solid var(--rc-line); }

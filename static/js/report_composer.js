@@ -198,9 +198,30 @@ function renderHeader() {
 }
 
 // ── Criteria: what each one says ─────────────────────────────────────────────
+// Days and times of a date filter: windows of days, each with an optional from → to time that
+// may run through midnight (engine._windows_sql). {Sat, 13:00, 07:00} = Saturday 13:00 to
+// Sunday 07:00.
+const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const DAY_SETS = [['1,2,3,4,5', 'Mon–Fri'], ['6,7', 'Weekend'], ['1,2,3,4,5,6,7', 'Every day']];
+const windowsOf = c => (c && Array.isArray(c.windows)) ? c.windows : [];
+function daysText(days) {
+  const d = [...new Set(days)].filter(x => x >= 1 && x <= 7).sort((a, b) => a - b);
+  if (d.length === 7) return 'Every day';
+  const runs = [];
+  d.forEach(x => { const last = runs[runs.length - 1]; if (last && x === last[1] + 1) last[1] = x; else runs.push([x, x]); });
+  return runs.map(([a, b]) => a === b ? DAY_SHORT[a - 1]
+    : b === a + 1 ? `${DAY_SHORT[a - 1]}, ${DAY_SHORT[b - 1]}` : `${DAY_SHORT[a - 1]}–${DAY_SHORT[b - 1]}`).join(', ');
+}
+function windowText(w) {
+  const days = (w.days || []).length ? daysText(w.days) : 'no day picked';
+  if (!w.from && !w.to) return `${days}, all day`;
+  const a = w.from || '00:00', b = w.to || '00:00';
+  if (b === '00:00') return `${days} ${a} → midnight`;
+  return `${days} ${a} → ${b}${b <= a ? ' next day' : ''}`;
+}
 function isActive(f, c) {
   if (!c) return false;
-  if (f.type === 'date') return !!c.mode && c.mode !== 'none';
+  if (f.type === 'date') return (!!c.mode && c.mode !== 'none') || windowsOf(c).length > 0;
   if (f.type === 'multi') return (c.values || []).length > 0;
   if (f.type === 'text') return !!String(c.value || '').trim();
   if (f.type === 'yesno') return c.value === 'yes' || c.value === 'no';
@@ -215,9 +236,12 @@ function optLabel(f, v) {
 function summary(f, c) {
   if (!isActive(f, c)) return '';
   if (f.type === 'date') {
-    if (c.mode === 'quick') return (CAT.quick_dates.find(q => q.id === c.quick) || {}).label || c.quick;
-    if (c.mode === 'relative') return `${c.dir === 'next' ? 'Next' : 'Previous'} ${c.n} ${c.unit}`;
-    if (c.mode === 'fixed') return c.from === c.to ? c.from : `${c.from} → ${c.to}`;
+    const parts = [];
+    if (c.mode === 'quick') parts.push((CAT.quick_dates.find(q => q.id === c.quick) || {}).label || c.quick);
+    if (c.mode === 'relative') parts.push(`${c.dir === 'next' ? 'Next' : 'Previous'} ${c.n} ${c.unit}`);
+    if (c.mode === 'fixed') parts.push(c.from === c.to ? c.from : `${c.from} → ${c.to}`);
+    windowsOf(c).forEach(w => parts.push(windowText(w)));
+    return parts.join(' · ');
   }
   if (f.type === 'multi') {
     const names = c.values.map(v => optLabel(f, v));
@@ -269,6 +293,12 @@ function control(f, c, where) {
       <input type="number" min="1" class="rfp-input fixed" data-k="n" ${a} value="${esc(c.n || 7)}" style="width:4.5rem" aria-label="How many">
       <select class="rfp-input" data-k="unit" ${a} aria-label="Days or hours"><option${c.unit !== 'hours' ? ' selected' : ''}>days</option><option${c.unit === 'hours' ? ' selected' : ''}>hours</option></select></div>`;
     if (mode === 'quick') html += '<p class="rc-hint mt-2">Worked out on the day it runs, on the hospital clock.</p>';
+    const wins = windowsOf(c), dayOnly = (f.day_only || []).includes(D().dataset);
+    html += `<div class="rc-win">${wins.map((w, i) => windowRow(f, w, i, dayOnly)).join('')}
+      <button type="button" class="rc-link" data-act="win-add" ${a} style="align-self:flex-start"><i class="bi bi-plus-lg" aria-hidden="true"></i> ${
+        wins.length ? 'Another window' : dayOnly ? 'Days of the week' : 'Days of the week and times'}</button>
+      ${wins.length && !dayOnly ? `<p class="rc-hint">A window that ends earlier than it starts runs on to the next morning: Sat 13:00 → 07:00 is Saturday 13:00 to Sunday 07:00.${
+        (f.time_known || []).includes(D().dataset) ? ' A study PACS sent without a time is left out of a window with times.' : ''}</p>` : ''}</div>`;
     return html;
   }
   if (f.type === 'multi') {
@@ -292,6 +322,18 @@ function control(f, c, where) {
     <span class="lbl">to</span><input class="rfp-input" type="number" step="any" data-k="max" ${a} value="${esc(c.max ?? '')}" placeholder="To" aria-label="${esc(f.label)}: to"></div>${f.unit ? `<p class="rc-hint mt-1">${esc(f.unit)}</p>` : ''}`;
   return '';
 }
+function windowRow(f, w, i, dayOnly) {
+  const a = `data-f="${f.id}" data-i="${i}"`, days = w.days || [];
+  return `<div class="rc-win-row">
+    <div class="rc-days" role="group" aria-label="Days">${DAY_SHORT.map((d, j) =>
+      `<button type="button" class="rc-day" data-act="win-day" ${a} data-v="${j + 1}" aria-pressed="${days.includes(j + 1)}">${d}</button>`).join('')}</div>
+    <div class="rc-win-tools">${DAY_SETS.map(([v, l]) => `<button type="button" class="rc-link" data-act="win-days" ${a} data-v="${v}">${l}</button>`).join('')}
+      <span class="flex-1"></span><button type="button" class="rc-icon danger" data-act="win-del" ${a} title="Remove this window" aria-label="Remove this window"><i class="bi bi-x-lg"></i></button></div>
+    ${dayOnly ? '' : `<div class="rc-row"><input type="time" class="rfp-input" data-k="wfrom" ${a} value="${esc(w.from || '')}" aria-label="From time">
+      <span class="lbl">→</span><input type="time" class="rfp-input" data-k="wto" ${a} value="${esc(w.to || '')}" aria-label="To time"></div>`}
+    <p class="rc-hint rc-win-hint${days.length ? '' : ' bad'}">${esc(days.length ? windowText(w) : 'Pick at least one day')}</p>
+  </div>`;
+}
 function dateDefaults(c) {
   if (c.mode === 'relative') { c.dir = c.dir || 'prev'; c.n = c.n || 7; c.unit = c.unit || 'days'; }
   if (c.mode === 'fixed') { const today = isoToday(); c.from = c.from || CAT.report_start_date || today; c.to = c.to || today; }
@@ -301,6 +343,15 @@ function applyClick(criteria, b) {
   const fid = b.dataset.f, v = b.dataset.v, act = b.dataset.act;
   if (!fid || !FIELD[fid]) return false;
   const c = criteria[fid] = criteria[fid] || {};
+  if (act.startsWith('win-')) {
+    const wins = c.windows = windowsOf(c), w = wins[+b.dataset.i];
+    if (act === 'win-add') wins.push({days: [1, 2, 3, 4, 5], from: '', to: ''});
+    else if (act === 'win-del') wins.splice(+b.dataset.i, 1);
+    else if (act === 'win-day' && w) { const d = +v; w.days = w.days.includes(d) ? w.days.filter(x => x !== d) : [...w.days, d].sort((x, y) => x - y); }
+    else if (act === 'win-days' && w) w.days = v.split(',').map(Number);
+    if (!wins.length) delete c.windows;
+    return true;
+  }
   if (act === 'quick') { if (v === 'none') c.mode = 'none'; else { c.mode = 'quick'; c.quick = v; } return true; }
   if (act === 'mode') { c.mode = v; dateDefaults(c); return true; }
   if (act === 'yn') { c.value = v; return true; }
@@ -315,6 +366,13 @@ function applyInput(criteria, t) {
   const fid = t.dataset.f, k = t.dataset.k;
   if (!fid || !k || !FIELD[fid]) return false;
   const c = criteria[fid] = criteria[fid] || {};
+  if (k === 'wfrom' || k === 'wto') {          // a window's time: its line below says what it means
+    const w = windowsOf(c)[+t.dataset.i]; if (!w) return false;
+    w[k === 'wfrom' ? 'from' : 'to'] = t.value;
+    const hint = t.closest('.rc-win-row') && t.closest('.rc-win-row').querySelector('.rc-win-hint');
+    if (hint && (w.days || []).length) hint.textContent = windowText(w);
+    return true;
+  }
   c[k] = k === 'n' ? Math.max(1, parseInt(t.value || '1', 10)) : t.value;
   return true;
 }

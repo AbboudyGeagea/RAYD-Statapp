@@ -127,7 +127,9 @@ routes/
                                    their row count in the last year, "Add filter" for the rest,
                                    Generate, CSV; result in cards), the SQL in a drawer behind the
                                    SQL button, page script static/js/report_composer.js, one example
-                                   report left (migration 0181).
+                                   report left (migration 0181). Every date filter also takes days
+                                   and times (windows of days, from → to, through midnight:
+                                   engine._windows_sql), for after-hours reports.
                                    REPLACED Custom Reports (custom_reports.py,
                                    report_widgets.py and 3 templates removed; same licence key +
                                    page permission `custom_reports`; /reports/custom redirects).

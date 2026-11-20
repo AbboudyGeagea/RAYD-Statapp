@@ -13,7 +13,11 @@ RIS ETL, and Bekaa's PACS datasets). A field lives on every dataset whose view h
 column (same name everywhere, by construction of the views).
 
 Field types and the filters they take:
-    date    none | quick | relative (prev/next N hours/days) | fixed (from–to)
+    date    none | quick | relative (prev/next N hours/days) | fixed (from–to), and days and
+            times: windows of days of the week, each with an optional from → to time that
+            may run through midnight (worklist_engine._windows_sql); 'time_known' names, per
+            dataset, a column that is NULL when the time of day is unknown, 'day_only' the
+            datasets where the field holds a day only
     multi   pick values (a picker of the values actually present, or a fixed list)
     text    contains | equals | starts with | does not contain
     yesno   any | yes | no
@@ -217,7 +221,11 @@ FIELDS = [
     # ── Study ──
     {'id': 'study_at', 'label': 'Study date', 'tab': 'study', 'type': 'date', 'col': 'study_at',
      'datasets': {ST, SE, SG}, 'date_col': _STUDY_DAY,
-     'hint': 'PACS study date and time.'},
+     # PACS sends no usable time for some studies: study_at is then 00:00 and hour is NULL.
+     # Storage is a summary per day.
+     'time_known': {ST: 'hour', SE: 'hour'}, 'day_only': {SG},
+     'hint': 'PACS study date and time. A study PACS sent without a time is left out of a '
+             'time window (it would otherwise count at midnight).'},
     {'id': 'stored_at', 'label': 'Stored in PACS', 'tab': 'study', 'type': 'date',
      'col': 'stored_at', 'datasets': {EX, ST}},
     {'id': 'accession', 'label': 'Accession', 'tab': 'study', 'type': 'text', 'col': 'accession',
@@ -930,7 +938,9 @@ def as_json():
                      for k, d in DATASETS.items()},
         'fields': [{'id': f['id'], 'label': f['label'], 'tab': f['tab'], 'type': f['type'],
                     'col': f['col'], 'datasets': sorted(f['datasets']),
-                    'options': opts(f), 'hint': f.get('hint'), 'unit': f.get('unit')}
+                    'options': opts(f), 'hint': f.get('hint'), 'unit': f.get('unit'),
+                    'day_only': sorted(f.get('day_only') or ()),
+                    'time_known': sorted(f.get('time_known') or {})}
                    for f in FIELDS],
         'quick_dates': [{'id': q, 'label': l} for q, l in QUICK_DATES],
         'additive': [k for k, m in MEASURES.items() if m['additive']],

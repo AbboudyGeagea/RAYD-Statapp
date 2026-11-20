@@ -574,7 +574,7 @@ const ChartExplanations = {
     'rc-filters': {
       title: 'Filters applied',
       purpose: 'Everything that narrows the report right now, as set in the left panel: the date range and each filter with the values picked.',
-      valueMeaning: 'A filter with several values keeps rows with any of them (CT or MR). Different filters all apply together (CT or MR, and in room CT1). (blank) = rows where the value is missing. A filter marked “asked when run” is asked for each time the report runs, its saved value as the default.',
+      valueMeaning: 'A filter with several values keeps rows with any of them (CT or MR). Different filters all apply together (CT or MR, and in room CT1). (blank) = rows where the value is missing. Days and times keep the rows whose time falls in one of the windows listed: “Sat 13:00 → 07:00 next day” is Saturday 13:00 to Sunday 07:00 (the start is included, the end is not). A filter marked “asked when run” is asked for each time the report runs, its saved value as the default.',
       interpretation: 'Click a tag to find its filter in the panel; the × takes it off. No tag means the report reads all the data, which is slow for the large datasets: add a date range.'
     },
     'rc-show-as': {

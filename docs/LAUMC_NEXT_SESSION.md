@@ -32,6 +32,22 @@ Page script moved to `static/js/report_composer.js`. The definition format, the 
 sandbox, permissions, versions and schedules are unchanged. **Next:** the operator looks at it on
 the server after the deploy and gives the next points.
 
+**Days and times in every date filter (operator, 20 Nov late: "specific day of the week, and from
+time → to time"),** for a customer's after-hours report the operator wants built in the Report
+Composer rather than as a Clinical KPI report: Monday–Friday 19:00 → 07:00, Saturday 13:00 →
+Sunday 07:00, Sunday 07:00 → Monday 07:00. A date criterion now holds `windows`: [{days (ISO 1 =
+Mon), from, to}], any number up to 10; a row matches any window; no times = whole days; a window
+whose end is not later than its start runs to the next morning (start in, end out);
+`engine._windows_sql`. study_at in Studies / Series leaves a study without a PACS time out of a
+window with times (catalog `time_known`: hour IS NULL, else it sits at 00:00); Storage takes days
+only (`day_only`). The customer's three windows are a test (week of 16 Nov 2026, edges at 07:00 /
+19:00). **Still open:** what the customer counts in those windows (studies? RIS exams performed?
+reports signed?) and by what, then save it as a shared report; whether production's studies carry
+a PACS time (the local sample has none):
+```bash
+sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT COUNT(*) AS studies, COUNT(hour) AS with_pacs_time FROM rpt.studies WHERE study_date >= DATE '2026-10-01' AND study_date < DATE '2026-11-01';" -c "SELECT COUNT(*) AS ris_exams, COUNT(started_at) AS with_scan_start, COUNT(exam_done_at) AS with_exam_done FROM rpt.exams WHERE scheduled_at >= DATE '2026-10-01' AND scheduled_at < DATE '2026-11-01';"
+```
+
 Report Composer before the revamp: `/report-composer`, `routes/worklists.py` (489 lines),
 `utils/worklist_engine.py` (compiler), `utils/worklist_catalog.py` (fields; tests fail on an
 undocumented view column), `utils/worklist_email.py` (scheduled .xlsx mails),
@@ -55,6 +71,7 @@ fixes; update.sh refuses while a move runs). Confirm with
 | # | Item | Status |
 |---|------|--------|
 | **New** | **Report Composer revamp**, spec points 1–4 (above), migration 0181 | Built and tested 20 Nov evening; deploy, then the operator looks and gives the next points |
+| **New** | Report Composer: days and times in the date filter (done) → the customer's after-hours report | Waiting on the operator: what to count and by what; production's PACS times (query above) |
 | 1 | HIS vs RIS: 19 Nov MRI on Report 27's HIS tab (query in the 20 Nov morning checklist below) | Waiting on the operator (booked room closed: 1,472 / 1,472) |
 | — | Deploy c116e9b0, 2d9a96e2, a3bd60b9 and the Report Composer revamp (0181): `cd /opt/rayd && sudo bash update.sh LAUMC`; then open the Super Report (Generate, a preset, comparison dates under the range), Report AI (each tab, calendar, device switch), Report 27 (Peak Hours under Hourly Load), the Report Composer (a dropdown's counts, Add filter, the SQL button) | Ready, any time |
 | 17 | BRAYN: per-modality breakdown (query in item 17, "The breakdown") → mark arrival/start not expected where the RIS never sends them → operator switches on the stall rules (ORPHAN_ORDER suggested off); the 7 approved-without-report accessions to Mirth | Waiting on the operator |

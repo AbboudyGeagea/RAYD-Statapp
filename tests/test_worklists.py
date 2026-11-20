@@ -235,6 +235,8 @@ def test_every_field_column_exists_in_its_datasets(app, dataset):
         assert f['col'] in view, (dataset, f['id'])
         day = (f.get('date_col') or {}).get(dataset)
         assert day is None or day in view, (dataset, f['id'], day)
+        known = (f.get('time_known') or {}).get(dataset)
+        assert known is None or known in view, (dataset, f['id'], known)
 
 
 @pytest.mark.parametrize('dataset,measure', [(d, m) for d in cat.DATASETS
@@ -673,6 +675,98 @@ def test_date_edges(app):
     assert get({'mode': 'quick', 'quick': 'today'}) == ['A2']
     assert get({'mode': 'relative', 'dir': 'prev', 'n': 2, 'unit': 'hours'}) == ['A1', 'A2']
     assert get({'mode': 'fixed', 'from': str(TODAY), 'to': str(yesterday)}) == ['A1', 'A2']
+
+
+# ── days and times of a date filter (operator, 2026-11-20) ────────────────────
+# The customer's after-hours report: Monday to Friday 19:00 → 07:00, Saturday 13:00 → Sunday
+# 07:00, Sunday 07:00 → Monday 07:00.
+AFTER_HOURS = [{'days': [1, 2, 3, 4, 5], 'from': '19:00', 'to': '07:00'},
+               {'days': [6], 'from': '13:00', 'to': '07:00'},
+               {'days': [7], 'from': '07:00', 'to': '07:00'}]
+
+
+def _accessions(criteria, dataset='studies'):
+    return {r[0] for r in run_defn({'dataset': dataset, 'criteria': criteria,
+                                     'output': {'kind': 'list', 'columns': ['accession']}})['rows']}
+
+
+def test_days_and_times_the_customers_after_hours(app):
+    """The week of Monday 16 Nov 2026: each study in or out of the three windows."""
+    cases = [  # (day, PACS study time, inside)
+        (date(2026, 11, 16), '050000', True),    # Monday before 07:00: Sunday's 24 hours
+        (date(2026, 11, 16), '070000', False),   # 07:00 itself: a window's end is left out
+        (date(2026, 11, 16), '185959', False),
+        (date(2026, 11, 16), '190000', True),    # Monday evening: a window's start is in
+        (date(2026, 11, 17), '030000', True),    # Monday's night, into Tuesday
+        (date(2026, 11, 17), '100000', False),   # Tuesday, working hours
+        (date(2026, 11, 21), '030000', True),    # Friday's night, into Saturday
+        (date(2026, 11, 21), '100000', False),   # Saturday morning is working hours
+        (date(2026, 11, 21), '130000', True),    # Saturday from 13:00
+        (date(2026, 11, 22), '050000', True),    # Saturday's night, into Sunday
+        (date(2026, 11, 22), '120000', True),    # Sunday
+        (date(2026, 11, 23), '065900', True),    # Sunday's 24 hours end Monday 07:00
+        (date(2026, 11, 23), '080000', False),
+    ]
+    for uid, (day, tm, _) in enumerate(cases, start=1):
+        study(uid, study_date=day, study_time=tm, accession_number=f'W{uid}')
+    study(99, study_date=date(2026, 11, 22), study_time=None, accession_number='NO-TIME')
+    got = _accessions({'study_at': {'mode': 'fixed', 'from': '2026-11-16', 'to': '2026-11-23',
+                                    'windows': AFTER_HOURS}})
+    assert got == {f'W{uid}' for uid, (_, _, inside) in enumerate(cases, start=1) if inside}
+    # a study PACS sent without a time sits at 00:00: never counted in a window with times
+    assert 'NO-TIME' not in got
+
+
+def test_days_without_times_are_whole_days(app):
+    study(1, study_date=date(2026, 11, 22), study_time=None, accession_number='SUN-NO-TIME')
+    study(2, study_date=date(2026, 11, 21), study_time='235900', accession_number='SAT')
+    study(3, study_date=date(2026, 11, 23), study_time='000000', accession_number='MON')
+    assert _accessions({'study_at': {'windows': [{'days': [6, 7], 'from': '', 'to': ''}]}}) == \
+        {'SUN-NO-TIME', 'SAT'}                          # the day is known even without a time
+    # to midnight, and from midnight
+    assert _accessions({'study_at': {'windows': [{'days': [6], 'from': '19:00', 'to': ''}]}}) == {'SAT'}
+    assert _accessions({'study_at': {'windows': [{'days': [1], 'from': '', 'to': '06:00'}]}}) == {'MON'}
+
+
+@pytest.mark.parametrize('windows, msg', [
+    ([{'days': [], 'from': '19:00', 'to': '07:00'}], 'pick at least one day'),
+    ([{'days': [8]}], 'pick at least one day'),
+    ([{'days': ['1']}], 'pick at least one day'),
+    ([{'days': [True]}], 'pick at least one day'),
+    ([{'days': [1], 'from': '25:00'}], 'is not a time'),
+    ([{'days': [1], 'from': "19:00'; DROP TABLE x; --"}], 'is not a time'),
+    ([{'days': [1]}] * 11, 'at most'),
+    ('Mon', 'at most'),
+])
+def test_days_and_times_refuse(app, windows, msg):
+    with pytest.raises(WorklistError, match=msg):
+        engine.compile_definition({'dataset': 'studies', 'criteria': {'study_at': {'windows': windows}}})
+
+
+def test_storage_takes_days_not_times(app):
+    """Storage is a summary per day: its date has no time to put in a window."""
+    with pytest.raises(WorklistError, match='holds a day'):
+        engine.compile_definition({'dataset': 'storage', 'criteria': {'study_at': {'windows': AFTER_HOURS}}})
+    run_defn({'dataset': 'storage', 'criteria': {'study_at': {'windows': [{'days': [6, 7]}]}}})
+
+
+@pytest.mark.parametrize('dataset,fid', [(d, f['id']) for d in cat.DATASETS
+                                         for f in cat.fields_for(d) if f['type'] == 'date'])
+def test_every_date_field_takes_days_and_times(app, dataset, fid):
+    day_only = dataset in (cat.FIELD[fid].get('day_only') or ())
+    run_defn({'dataset': dataset, 'criteria': {fid: {
+        'mode': 'quick', 'quick': 'last_30_days',
+        'windows': [{'days': [6, 7]}] if day_only else AFTER_HOURS}}})
+
+
+def test_days_and_times_are_bound_and_the_editable_sql_runs(app):
+    study(1, study_date=date(2026, 11, 16), study_time='200000', accession_number='MON-EVE')
+    defn = {'dataset': 'studies', 'criteria': {'study_at': {'windows': AFTER_HOURS}},
+            'output': {'kind': 'list', 'columns': ['accession']}}
+    compiled = engine.compile_definition(defn)
+    assert '19:00' not in compiled['sql'] and ':study_at_w0_from' in compiled['sql']
+    assert compiled['params']['study_at_w0_days'] == [1, 2, 3, 4, 5]
+    assert engine.run(hand_sql=engine.inline_sql(compiled))['rows'] == [['MON-EVE']]
 
 
 def test_multi_text_yesno_range_and_blank(app):

@@ -157,23 +157,91 @@ def _dimension(ds, dim_id):
     return f"COALESCE({_col(f['col'])}::text, '{_BLANK}')", offered[dim_id]
 
 
+_TIME = re.compile(r'([01]\d|2[0-3]):[0-5]\d')
+MAX_WINDOWS = 10
+_DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+
+def _windows_sql(ds, f, windows, params):
+    """
+    The days and times of a date criterion (operator, 2026-11-20: "specific day of the
+    week" and "from time → to time", for the customer's after-hours report: Monday to
+    Friday 19:00 → 07:00, Saturday 13:00 → Sunday 07:00, Sunday 07:00 → Monday 07:00).
+
+    windows: [{'days': [1..7] (ISO, 1 = Monday), 'from': 'HH:MM' or '', 'to': 'HH:MM' or ''}]
+    A row matches when its time falls in ANY window. A window with no times is the whole of
+    each day named. With times, it starts on a day named at 'from' (included) and ends at
+    'to' (left out); when 'to' is not later than 'from' it ends the next day, so
+    {Sat, 13:00, 07:00} is Saturday 13:00 to Sunday 07:00 and {Sun, 07:00, 07:00} is the 24
+    hours from Sunday 07:00. A missing 'from' is 00:00, a missing 'to' is midnight.
+
+    A field whose time of day is not always known names, per dataset, a column that is NULL
+    then (catalog 'time_known': a study PACS sent without a time sits at 00:00 in study_at):
+    a window with times leaves such a row out instead of counting it at midnight. A field
+    that holds a day only (catalog 'day_only') takes days, not times.
+    """
+    if windows in (None, []):
+        return None
+    if not isinstance(windows, list) or len(windows) > MAX_WINDOWS:
+        raise WorklistError(f'{f["label"]}: at most {MAX_WINDOWS} time windows')
+    col, pid = _col(f['col']), f['id']
+    known = (f.get('time_known') or {}).get(ds)
+    dow = f'CAST(extract(isodow FROM {col}) AS int)'
+    tod = f'CAST({col} AS time)'
+    parts = []
+    for i, w in enumerate(windows):
+        if not isinstance(w, dict):
+            raise WorklistError(f'{f["label"]}: a time window is an object')
+        days = w.get('days')
+        if (not isinstance(days, list) or not days
+                or any(isinstance(d, bool) or not isinstance(d, int) or not 1 <= d <= 7 for d in days)):
+            raise WorklistError(f'{f["label"]}: pick at least one day for each time window')
+        start, end = (str(w.get(k) or '').strip() for k in ('from', 'to'))
+        for v in (start, end):
+            if v and not _TIME.fullmatch(v):
+                raise WorklistError(f'{f["label"]}: {v!r} is not a time (HH:MM)')
+        k = f'{pid}_w{i}'
+        params[f'{k}_days'] = sorted(set(days))
+        if not start and not end:
+            parts.append(f'{dow} = ANY(:{k}_days)')
+            continue
+        if ds in (f.get('day_only') or ()):
+            raise WorklistError(f'{f["label"]} holds a day, not a time: a window can name days only')
+        params[f'{k}_from'], params[f'{k}_to'] = start or '00:00', end or '00:00'
+        is_known = f'{_col(known)} IS NOT NULL AND ' if known else ''
+        after = f'{tod} >= CAST(:{k}_from AS time)'
+        before = f'{tod} < CAST(:{k}_to AS time)'
+        if (start or '00:00') < (end or '00:00'):
+            parts.append(f'({is_known}{dow} = ANY(:{k}_days) AND {after} AND {before})')
+        else:
+            # Through midnight: from 'from' on a day named, until 'to' the next morning.
+            prev = f"CAST(extract(isodow FROM {col} - INTERVAL '1 day') AS int)"
+            parts.append(f'({is_known}(({dow} = ANY(:{k}_days) AND {after}) '
+                         f'OR ({prev} = ANY(:{k}_days) AND {before})))')
+    return '(' + ' OR '.join(parts) + ')'
+
+
 def _criterion(ds, f, c, params, now):
     """SQL for one criterion (or None when it filters nothing), filling params."""
     col, pid = _col(f['col']), f['id']
     t = f['type']
     if t == 'date':
+        parts = []
         bounds = date_bounds(c, now)
-        if not bounds:
-            return None
-        params[f'{pid}_from'], params[f'{pid}_to'] = bounds
-        sql = f'{col} >= :{pid}_from AND {col} < :{pid}_to'
-        day = (f.get('date_col') or {}).get(ds)
-        if day:
-            # The same rows, through the indexed date column: the time of day can never
-            # move a study to another day, so this bound only lets the planner use it.
-            sql = (f'{_col(day)} >= CAST(:{pid}_from AS date) '
-                   f'AND {_col(day)} <= CAST(:{pid}_to AS date) AND {sql}')
-        return sql
+        if bounds:
+            params[f'{pid}_from'], params[f'{pid}_to'] = bounds
+            sql = f'{col} >= :{pid}_from AND {col} < :{pid}_to'
+            day = (f.get('date_col') or {}).get(ds)
+            if day:
+                # The same rows, through the indexed date column: the time of day can never
+                # move a study to another day, so this bound only lets the planner use it.
+                sql = (f'{_col(day)} >= CAST(:{pid}_from AS date) '
+                       f'AND {_col(day)} <= CAST(:{pid}_to AS date) AND {sql}')
+            parts.append(sql)
+        windows = _windows_sql(ds, f, c.get('windows'), params)
+        if windows:
+            parts.append(windows)
+        return ' AND '.join(parts) or None
     if t == 'multi':
         values = [v for v in (c.get('values') or []) if v is not None]
         if not values:
