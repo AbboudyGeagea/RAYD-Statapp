@@ -100,8 +100,13 @@ def test_the_super_report_draws_the_shared_panel(client, ctx):
     assert 'class="rfp-generate">Generate</button>' in side
     # the query never applied these two, so they are no longer offered
     assert 'protocol_name' not in side and 'body_part_series' not in side
-    # the page builds its query from the panel and honours the ticks
-    assert "addEventListener('submit'" in html and '_on"]' in html
+    # the page builds its query from the panel and honours the ticks (its script moved to
+    # static/js/super_report.js on 2026-11-20)
+    import os
+    assert 'js/super_report.js' in html
+    js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           'static', 'js', 'super_report.js'), encoding='utf-8').read()
+    assert "addEventListener('submit'" in js and '_on"]' in js
 
 
 def test_the_super_report_query_reads_every_panel_name():

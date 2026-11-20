@@ -1036,10 +1036,9 @@ def _get_utilization_summary(start, end):
     same start_date/end_date), so a Report 34 view for the same range makes
     this instant.
     """
-    from routes.report_34 import get_device_utilization_data
-    from werkzeug.datastructures import MultiDict
+    from routes.report_34 import utilization_data
 
-    data, _, _ = get_device_utilization_data(MultiDict({"start_date": start, "end_date": end}))
+    data = utilization_data(start, end)
     if not data:
         return {"available": False}
 

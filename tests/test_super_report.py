@@ -228,9 +228,33 @@ def test_the_narrative_thresholds_are_settings(app):
         assert 'Storage intake elevated at 1.5 GB/day' in t
 
 
+def _page_js():
+    import os
+    return open(os.path.join(os.path.dirname(__file__), '..', 'static', 'js', 'super_report.js'), encoding='utf-8').read()
+
+
 def test_the_filter_banner_and_the_cards_escape_what_they_show():
     """2.4: chip values come from the database."""
-    import os
-    page = open(os.path.join(os.path.dirname(__file__), '..', 'templates', 'super_report.html'), encoding='utf-8').read()
-    assert 'title="${c.label}' not in page and '${c.label}: ${c.value}</span>' not in page
-    assert 'title="${k.cur||' not in page
+    js = _page_js()
+    assert 'title="${c.label}' not in js and '${c.label}: ${c.value}</span>' not in js
+    assert 'title="${k.cur||' not in js
+
+
+# ── block 3 ───────────────────────────────────────────────────────────────────
+
+def test_the_page_script_is_a_static_file_loaded_deferred(client):
+    """3.1 / 3.2: no inline page script left, no Jinja inside the moved one, dead window._fd gone."""
+    html = client.get('/viewer/super-report-page', headers=ADMIN).get_data(as_text=True)
+    assert 'js/super_report.js" defer></script>' in html
+    assert 'function runSuperReport' not in html
+    js = _page_js()
+    assert 'function runSuperReport' in js and '{{' not in js and '{%' not in js
+    assert 'window._fd' not in js and 'function setPicked' in js        # setPicked loads presets
+
+
+def test_the_super_report_reads_the_utilization_through_the_report_34_wrapper():
+    """3.3"""
+    import inspect
+    from routes import super_report
+    src = inspect.getsource(super_report._get_utilization_summary)
+    assert 'utilization_data(start, end)' in src and 'get_device_utilization_data' not in src.split('"""')[-1]

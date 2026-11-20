@@ -44,6 +44,14 @@ logger = logging.getLogger("report_34")
 report_34_bp = Blueprint("report_34", __name__)
 
 
+def utilization_data(start_date, end_date):
+    """The device-utilization data alone (or None), for the period only: what the Super Report's
+    utilization card reads. Same computation and cache as the page."""
+    from werkzeug.datastructures import MultiDict
+    data, _, _ = get_device_utilization_data(MultiDict({"start_date": start_date, "end_date": end_date}))
+    return data
+
+
 def get_device_utilization_data(form_data):
     """
     Main data-fetch for Report 34. Ports report_25.get_gold_standard_data()'s
