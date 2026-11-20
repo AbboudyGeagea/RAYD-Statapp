@@ -81,9 +81,9 @@ fixes; update.sh refuses while a move runs). Confirm with
 | 13-3 | Drop the partial copy: `sudo docker exec rayd_db psql -U etl_user -d etl_db -c "DROP DATABASE IF EXISTS etl_db_sjh WITH (FORCE);"` | Now |
 | 13-4 | Keep only the newest backup: `ls -lh /opt/rayd/backups && df -h /opt/rayd /var/lib/docker` | When the move resumes |
 | 13-5 | Deploy (has the copy fixes) | Same deploy as above |
-| 13-6 | `sudo bash /opt/rayd/scripts/sjh_move.sh check`, then `copy`; send the log (per-table times) | When the move resumes |
+| 13-6 | `sudo bash /opt/rayd/scripts/sjh_move.sh check`, then `copy` (no dry run any more); send the log (per-table times) | When the move resumes |
 | 13-7 | SJH's reports: Report 22 and the Super Report side by side (account holding both sites) | After 13-6 |
-| 13-8 | `sudo bash /opt/rayd/scripts/sjh_move.sh move` (deletes from RH, 1–2 h), by hand or a Saturday 23:00 timer | After 13-7 |
+| 13-8 | `sudo bash /opt/rayd/scripts/sjh_move.sh move` (one `--move`: copies what is new, verifies, deletes from RH, 1–2 h), by hand or a Saturday 23:00 timer | After 13-7 |
 | 13-9 | SJH's mail server (SJH in the header → Administration → Email Server) | After 13-8 |
 | 4, 9, 37 | Open items (below) | Later |
 | 21, 33, 35 | Operator checks (below) | Waiting on the operator |
@@ -1434,6 +1434,15 @@ read; radiologists approve or finalise (check both).
     one-off container); deploys allowed during the move (update.sh now refuses); the app's start
     waited for ever on locks (now 10-15 s timeouts). Clean restart: SJH off, drop etl_db_sjh,
     deploy, `check`, `copy` (timed per table), then `move`.
+    **20 Nov, late evening (before the restart, operator: "we can start the DB migration"):**
+    the script ran the dry run (~2 h, counts only) before every copy, and `move` ran the dry
+    run, `--copy`, then `--move`, which copies and verifies everything again before deleting:
+    copy-then-move copied the history three times and built the key sets four times. Now
+    `copy` = backup, SJH on, `--copy`; `move` = backup, SJH on, one `--move` (copies, verifies
+    every table, deletes). A row already in SJH's database is rewritten only when a value
+    differs (`ON CONFLICT ... DO UPDATE ... WHERE ROW(...) IS DISTINCT FROM ROW(EXCLUDED...)`),
+    so the move's pass after a copy writes only what the ETL brought since. A `--move` that
+    stops before deleting switches SJH off again as the copy did. `tests/test_site_route.py`.
     **Production runbook (the script's steps), on the server:**
     0. (added 2026-11-20) Before: deploy the latest code; note RH's figures for a fixed period
        (Report 22, 38, Super Report); check the disk

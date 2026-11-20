@@ -15,8 +15,9 @@ How a run goes
      database and are upserted on the table's NATURAL key (never a generated id: the site
      database gets its own writes later, so ids would collide; ORU children find their
      report by accession). Parents are upserted, never deleted and re-inserted, because a
-     cascade would drop children RH no longer holds. Then each table is verified: every row
-     sent must be found in the site database. All in one transaction there.
+     cascade would drop children RH no longer holds; a row already there is rewritten only
+     when a value differs. Then each table is verified: every row sent must be found in the
+     site database. One transaction per table there.
   3. Delete from RH, children first, only when every table verified, and only for the tables
      marked so (devices, catalogs and RIS patients stay: RH's site resolution and other
      orders need them). Studies go in batches; their series, raw images and image locations
@@ -429,10 +430,15 @@ def _copy(cur, dcur, t):
         return f's.{_q(c)}'
     values = ', '.join(value(c) for c in cols)
     rest = [c for c in cols if c not in t.key]
-    action = ('DO UPDATE SET ' + ', '.join(f'{_q(c)} = EXCLUDED.{_q(c)}' for c in rest)) if rest else 'DO NOTHING'
+    # A row already there is rewritten only when a value differs (2026-11-20): a second pass
+    # (the move after the copy, every night) would otherwise rewrite millions of identical
+    # series rows. copied = rows inserted or changed.
+    action = ('DO UPDATE SET ' + ', '.join(f'{_q(c)} = EXCLUDED.{_q(c)}' for c in rest)
+              + ' WHERE ROW(' + ', '.join(f'existing.{_q(c)}' for c in rest) + ') IS DISTINCT FROM ROW('
+              + ', '.join(f'EXCLUDED.{_q(c)}' for c in rest) + ')') if rest else 'DO NOTHING'
     found_parent = ("WHERE EXISTS (SELECT 1 FROM public.hl7_oru_reports r WHERE r.accession_number = s._parent_acc)"
                     if t.parent_col else '')
-    dcur.execute(f"INSERT INTO public.{_q(t.name)} ({col_list}) SELECT {values} FROM _stage s {found_parent} "
+    dcur.execute(f"INSERT INTO public.{_q(t.name)} AS existing ({col_list}) SELECT {values} FROM _stage s {found_parent} "
                  f"ON CONFLICT ({', '.join(_q(k) for k in t.key)}) {action}")
     copied = dcur.rowcount
 

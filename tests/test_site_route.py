@@ -240,6 +240,40 @@ def test_copy_only_deletes_nothing(dbs):
     assert keys(sjh, "SELECT study_db_uid FROM etl_didb_studies") == [201, 202]
 
 
+def test_a_second_pass_rewrites_only_what_changed(dbs):
+    """The move after a copy run (20 Nov evening: no separate copy step, --move copies again):
+    rows already there and unchanged are not rewritten (millions of series at LAUMC), a changed
+    one is, and the move still verifies every table and deletes from RH."""
+    main, sjh = dbs
+    two_hospitals(main)
+    first = route.route_site(main, sjh, SJH, first_time=True)
+    assert first['verified'] and not first['deleted']
+    copied = lambda report, table: next(r['copied'] for r in report['tables'] if r['table'] == table)
+    assert copied(first, 'etl_didb_studies') == 2
+    xmin = lambda: dict(rows(sjh, "SELECT study_db_uid, xmin::text FROM etl_didb_studies"))
+    before = xmin()
+    run(main, "UPDATE etl_didb_studies SET report_status = 'APPROVED' WHERE study_db_uid = 202")
+
+    second = move(main, sjh)
+
+    assert second['verified'] and second['deleted']
+    assert copied(second, 'etl_didb_studies') == 1 and copied(second, 'etl_didb_serieses') == 0
+    after = xmin()
+    assert after[201] == before[201] and after[202] != before[202]      # 201 untouched, 202 rewritten
+    assert rows(sjh, "SELECT report_status FROM etl_didb_studies WHERE study_db_uid = 202") == [('APPROVED',)]
+    assert keys(main, "SELECT study_db_uid FROM etl_didb_studies") == [101, 301]
+
+
+def test_the_move_script_has_no_dry_run_and_no_copy_before_the_move():
+    """20 Nov evening: copy = copy only; move = one --move run (it verifies before deleting)."""
+    import os
+    import re
+    src = open(os.path.join(os.path.dirname(__file__), '..', 'scripts', 'sjh_move.sh'), encoding='utf-8').read()
+    calls = re.findall(r'\$ROUTE (--[a-z-]+)', src)
+    assert calls == ['--copy', '--move']
+    assert src.index('$ROUTE --copy') < src.index('exit 0', src.index('$ROUTE --copy')) < src.index('$ROUTE --move')
+
+
 def test_the_next_night_updates_what_the_etl_read_again(dbs):
     """The studies ETL re-reads the last 10 days, so a moved study comes back to RH with
     its new values and a new series: SJH's copy is updated, not duplicated."""

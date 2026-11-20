@@ -4,15 +4,19 @@
 #
 #   sudo bash /opt/rayd/scripts/sjh_move.sh check   # changes nothing: done already? ETL running?
 #                                                   #   disk, counts per site
-#   sudo bash /opt/rayd/scripts/sjh_move.sh copy    # steps 0-3: backup of RH's database, SJH's
-#                                                   #   database switched on, dry run, copy + verify.
+#   sudo bash /opt/rayd/scripts/sjh_move.sh copy    # steps 0-2: backup of RH's database, SJH's
+#                                                   #   database switched on, copy + verify.
 #                                                   #   Deletes nothing from RH.
-#   sudo bash /opt/rayd/scripts/sjh_move.sh move    # steps 0-5: the same, then the move (SJH's rows
-#                                                   #   deleted from RH once every table verified),
-#                                                   #   VACUUM ANALYZE, counts before / after
+#   sudo bash /opt/rayd/scripts/sjh_move.sh move    # steps 0-3: the same, but one --move run copies,
+#                                                   #   verifies every table, then deletes SJH's rows
+#                                                   #   from RH; VACUUM ANALYZE, counts before / after
 #
-# Scheduled by the operator for Sunday 22 Nov 2026, 01:00 (Saturday night), validated Sunday and
-# Monday. History is copied Postgres to Postgres (no PACS read); from the night after the move the
+# No dry run, and no separate copy before the move (2026-11-20, evening): the dry run only counted
+# (~2 h at LAUMC on 20 Nov), and --move copies and verifies every table itself before deleting, so
+# copy-then-move copied everything up to three times. A second pass rewrites only changed rows.
+#
+# First scheduled for Sunday 22 Nov 2026, 01:00; restarted clean on 20 Nov evening (copy first,
+# SJH's reports checked, then move). History is copied Postgres to Postgres (no PACS read); from the night after the move the
 # 05:00 ETL stores SJH's new rows in SJH's database itself (ETL_JOBS/etl_site_route.py).
 #
 # Stops at the first problem. Until the move has started deleting, a stop also switches SJH's
@@ -168,35 +172,38 @@ say "SJH's database is ready"
 # container: a restart or a deploy of the app no longer kills the copy under way (2026-11-20).
 ROUTE="$COMPOSE run --rm --no-deps -T rayd-app python -m ETL_JOBS.etl_site_route --site SJH"
 
-# ── 2. dry run ────────────────────────────────────────────────────────────────
-say "step 2, dry run"
-wait_etl || { switch_off; stop "the ETL has been running for 2 hours"; }
-$ROUTE --dry-run || { switch_off; stop "the dry run failed"; }
-
-# ── 3. copy and verify ────────────────────────────────────────────────────────
-say "step 3, copy and verify"
-wait_etl || { switch_off; stop "the ETL has been running for 2 hours"; }
-$ROUTE --copy || { switch_off; stop "the copy did not verify (table above); RH untouched"; }
-SJH_COPIED="$(sql "SELECT COUNT(*) FROM etl_didb_studies" "$SJH_DB")"
-say "SJH's database holds $SJH_COPIED studies (SJH's on RH: $SJH_BEFORE)"
-
+# ── 2. copy and verify (copy mode) ────────────────────────────────────────────
 if [ "$MODE" = copy ]; then
+    # (no dry run: it only counted, ~2 h at LAUMC; the copy prints the same counts as "selected")
+    say "step 2, copy and verify (each table's time is logged)"
+    wait_etl || { switch_off; stop "the ETL has been running for 2 hours"; }
+    $ROUTE --copy || { switch_off; stop "the copy did not verify (table above); RH untouched"; }
+    SJH_COPIED="$(sql "SELECT COUNT(*) FROM etl_didb_studies" "$SJH_DB")"
+    say "SJH's database holds $SJH_COPIED studies (SJH's on RH: $SJH_BEFORE)"
     say "DONE (copy). SJH's database is filled and on; RH's database is untouched (SJH's rows still"\
 " there, hidden as before). Check SJH's reports (an account holding both sites: Report 22, the Super"\
 " Report side by side), then: sudo bash $RAYD/scripts/sjh_move.sh move"
     exit 0
 fi
 
-# ── 4. the move: delete SJH's rows from RH once every table verified ─────────
-say "step 4, move (about 182,000 studies in batches of 2,000; 1-2 hours)"
-wait_etl || stop "the ETL has been running for 2 hours; the copy is in SJH's database, nothing deleted from RH;"\
-" run 'sudo bash $RAYD/scripts/sjh_move.sh move' later"
-$ROUTE --move || stop "the move stopped (above). Every row it deleted from RH is in SJH's database"\
-" (verified before any delete); run 'sudo bash $RAYD/scripts/sjh_move.sh move' again to finish."\
-" SJH's database stays on."
+# ── 2. the move (move mode): one --move run copies, verifies every table, then deletes ──
+# No separate copy first: --move verifies every table before deleting anything, and a second pass
+# rewrites only what is new or changed since a copy run (2026-11-20, evening).
+say "step 2, move: copy (what is new or changed, if copied before), verify every table, then delete"\
+" about 182,000 studies from RH in batches of 2,000"
+wait_etl || { switch_off; stop "the ETL has been running for 2 hours; nothing deleted from RH"; }
+if ! $ROUTE --move; then
+    if [ "$(count_site SJH)" = "$SJH_BEFORE" ]; then
+        switch_off
+        stop "the move stopped before deleting anything (table above); RH untouched"
+    fi
+    stop "the move stopped (above) after deleting part of SJH's rows from RH. Every row it deleted is in"\
+" SJH's database (verified before any delete); run 'sudo bash $RAYD/scripts/sjh_move.sh move' again to"\
+" finish. SJH's database stays on."
+fi
 
-# ── 5. VACUUM ANALYZE, counts after ───────────────────────────────────────────
-say "step 5, VACUUM ANALYZE on RH's database"
+# ── 3. VACUUM ANALYZE, counts after ───────────────────────────────────────────
+say "step 3, VACUUM ANALYZE on RH's database"
 sql "VACUUM ANALYZE" || say "VACUUM ANALYZE failed (not critical; run it by hand)"
 RH_AFTER="$(count_site RH)"
 SJH_LEFT="$(count_site SJH)"
