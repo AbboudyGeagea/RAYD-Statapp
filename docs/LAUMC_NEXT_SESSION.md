@@ -254,8 +254,8 @@ the HIS readers on the right database and 13d routing (0f11e9f3, 9a132604), migr
 for October; the Super Report's new card; HL7 Orders on RH and SJH.
 
 **Waiting on the operator (decisions):** item 9 switch (after the manager); item 13 PHILIPSCARM =
-RIS "PHILIPS" (C-Arm 2)? (ask SJH), SJH's mail relay details, the day of the move (before Tue 24;
-Mon 23 is a holiday); item 17 the BRAYN enhancements list; item 21 a look at Report 40 for October;
+RIS "PHILIPS" (C-Arm 2)? (ask SJH), SJH's mail relay details; **the SJH move is scheduled for
+Sunday 22 Nov 01:00 (`scripts/sjh_move.sh`, item 13)**; item 17 the BRAYN enhancements list; item 21 a look at Report 40 for October;
 item 33 reload Report 27's RIS tab (blue bars no longer 0); item 35 predicted vs actual after the
 23rd; item 37 CRN workflow with the department. (Floor plan data: dropped, migration 0179.)
 
@@ -1289,8 +1289,21 @@ read; radiologists approve or finalise (check both).
     The storage rollup now counts the site its database serves (`rayd_served_site_id()`),
     and the ETL runs SJH's right after the nightly route, on SJH's database. (The local
     sample has no images: covered by the tests only.)
-    **Production runbook (moved to before Tue 24; day to pick, 2-3 hours, not during the 05:00
-    ETL; Mon 23 is a holiday), on the server:**
+    **Scheduled (operator, 20 Nov): Saturday night, Sunday 22 Nov 01:00, validated Sunday and
+    Monday.** Steps 0-5 below are one script, `scripts/sjh_move.sh` (check | copy | move): it
+    stops at the first problem, never restarts the app while the ETL runs, and until the move
+    starts deleting a stop switches SJH's database off again (.env restored). Log
+    `/opt/rayd/logs/sjh_move_<time>.log`. Plan: after the deploy, `sudo bash
+    /opt/rayd/scripts/sjh_move.sh check` (disk, counts; changes nothing); schedule `copy` for
+    Sun 01:00 with `sudo systemd-run --unit=rayd-sjh-move --on-calendar='2026-11-22 01:00:00
+    Asia/Beirut' /bin/bash /opt/rayd/scripts/sjh_move.sh copy` (see `systemctl list-timers
+    'rayd-sjh-move*'`; cancel `sudo systemctl stop rayd-sjh-move.timer`); Sunday morning check
+    SJH's reports, then `sudo bash /opt/rayd/scripts/sjh_move.sh move` by hand (1-2 h, after the
+    05:00 ETL); Monday: RH's reports, SJH's first night (`SITE_ROUTE_SJH` in etl_job_log). Or
+    schedule `move` directly (every table verified before any delete; the backup is the net),
+    starting earlier (Sat 23:00) so it ends before the 05:00 ETL, which skips its run while the
+    move holds its lock.
+    **Production runbook (the script's steps), on the server:**
     0. (added 2026-11-20) Before: deploy the latest code; note RH's figures for a fixed period
        (Report 22, 38, Super Report); check the disk
        (`df -h /var/lib/docker /opt/rayd` and `pg_database_size('etl_db')`); back up RH's database,

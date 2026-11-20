@@ -38,6 +38,9 @@ ETL_JOBS/etl_site_route.py      — item 13b: SJH's rows from RH's database into
                                    line, then the ETL's last step every night (off until the move
                                    recorded itself). A new table holding site rows needs a line in
                                    its TABLES list
+scripts/sjh_move.sh             — the one-time move on the server, unattended (check | copy | move:
+                                   backup, POSTGRES_DB_SJH on, dry run, copy, move, VACUUM, counts);
+                                   scheduled for Sun 22 Nov 2026 01:00 (docs, item 13)
 routes/site_controller.py       — POST /site/switch, the header's site dropdown
 routes/
   report_22.py                  — main radiology stats (date/modality/physician filters)
