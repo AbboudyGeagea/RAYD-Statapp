@@ -459,6 +459,10 @@ def mirror_users():
     for sid, engine in list(_engines.items()):
         try:
             with engine.begin() as c:
+                # a short lock wait (2026-11-20): this runs during the app's start, and a long
+                # transaction on the site database (the SJH copy) held the start for as long as it
+                # ran; past 15 s it is skipped and logged, and runs again with the next user change
+                c.execute(text("SET LOCAL lock_timeout = '15s'"))
                 for gone in c.execute(text("SELECT id FROM users WHERE id <> ALL(:ids)"),
                                       {'ids': ids}).scalars().all():
                     try:
@@ -556,6 +560,9 @@ def _copy_shared(main_engine, site_engine, cols):
     dst = site_engine.raw_connection()
     try:
         cur = dst.cursor()
+        # a short lock wait (2026-11-20): also run during the app's start; a long transaction on
+        # the site database held the start with it. Past 15 s it fails and the 15-minute sync retries.
+        cur.execute("SET LOCAL lock_timeout = '15s'")
         for t in reversed(SHARED_TABLES):               # children first
             cur.execute(f"DELETE FROM public.{t}")
         for t in SHARED_TABLES:                         # parents first
