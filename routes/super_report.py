@@ -273,21 +273,35 @@ def super_report():
     if not start or not end:
         return jsonify({"error": "start and end date required"}), 400
 
-    from utils.audit import log_event
-    log_event('report_run', category='report', resource_type='super_report',
-              detail={'from': start, 'to': end, 'cmp_from': cmp_start, 'cmp_to': cmp_end})
-
+    # The server validates every date it is given, the comparison window included: the page's
+    # updateCmpDates() is the single source of the AUTOMATIC comparison window (the same length,
+    # ending the day before start) and sends it, but a hand-written URL or an old preset can
+    # send anything. A date that does not parse used to fall through to delta = 30 with the
+    # comparison dates left empty, so the previous period ran BETWEEN NULL AND NULL and every
+    # change read as zero.
     try:
         d_start = datetime.strptime(start, "%Y-%m-%d")
         d_end   = datetime.strptime(end,   "%Y-%m-%d")
-        delta   = (d_end - d_start).days + 1
-        if not cmp_start or not cmp_end:
-            cmp_end_dt   = d_start - timedelta(days=1)
-            cmp_start_dt = cmp_end_dt - timedelta(days=delta - 1)
-            cmp_start    = cmp_start_dt.strftime("%Y-%m-%d")
-            cmp_end      = cmp_end_dt.strftime("%Y-%m-%d")
-    except Exception:
-        delta = 30
+        if cmp_start and cmp_end:
+            d_cmp_start = datetime.strptime(cmp_start, "%Y-%m-%d")
+            d_cmp_end   = datetime.strptime(cmp_end,   "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "dates must be YYYY-MM-DD"}), 400
+    if d_end < d_start:
+        return jsonify({"error": "the end date is before the start date"}), 400
+    delta = (d_end - d_start).days + 1
+    if not cmp_start or not cmp_end:
+        d_cmp_end   = d_start - timedelta(days=1)
+        d_cmp_start = d_cmp_end - timedelta(days=delta - 1)
+        cmp_start   = d_cmp_start.strftime("%Y-%m-%d")
+        cmp_end     = d_cmp_end.strftime("%Y-%m-%d")
+    elif d_cmp_end < d_cmp_start:
+        return jsonify({"error": "the comparison end date is before its start date"}), 400
+    cmp_days = (d_cmp_end - d_cmp_start).days + 1
+
+    from utils.audit import log_event
+    log_event('report_run', category='report', resource_type='super_report',
+              detail={'from': start, 'to': end, 'cmp_from': cmp_start, 'cmp_to': cmp_end})
 
     filters = _request_filters()
 
@@ -320,7 +334,7 @@ def super_report():
 
         current   = _collect_data(start, end, filters, rh_site_id)
         previous  = _collect_data(cmp_start, cmp_end, filters, rh_site_id)
-        narrative = _generate_narrative(current, previous, start, end, cmp_start, cmp_end, delta)
+        narrative = _generate_narrative(current, previous, start, end, cmp_start, cmp_end, cmp_days)
         result = {
             "current":     current,
             "previous":    previous,
@@ -328,6 +342,7 @@ def super_report():
             "cmp_start":   cmp_start,
             "cmp_end":     cmp_end,
             "delta_days":  delta,
+            "cmp_days":    cmp_days,
             "crn_enabled": crn_enabled,
             "crn_dry_run": crn_dry_run,
         }
@@ -650,13 +665,16 @@ def _collect_data(start, end, filters, rh_site_id=None):
         "SELECT key, value FROM settings WHERE key IN ('pc_inpatient', 'pc_outpatient', 'pc_emergency')"
     )).fetchall()
     _pc_cfg = {r[0]: r[1] for r in _pc_rows}
+    # Each category's classes are a bound array parameter (= ANY, as in _build_where), never
+    # quoted into the SQL text. pc_params joins params wherever one of these filters is used.
+    pc_params = {}
 
     def _pc_filter(cfg_key, default):
         vals = [v.strip() for v in _pc_cfg.get(cfg_key, default).split(',') if v.strip()]
         if not vals:
             return 'FALSE'
-        safe = [v.replace("'", "''") for v in vals]
-        return "s.patient_class IN (" + ','.join(f"'{v}'" for v in safe) + ")"
+        pc_params[cfg_key] = vals
+        return f"s.patient_class = ANY(:{cfg_key})"
 
     inp_filter  = _pc_filter('pc_inpatient',  'I,IP,INPAT,INPATIENT,INN')
     outp_filter = _pc_filter('pc_outpatient', 'O,OP,OUTPAT,OUTPATIENT,AMB,AMBULATORY')
@@ -670,7 +688,7 @@ def _collect_data(start, end, filters, rh_site_id=None):
                MIN(s.age_at_exam) AS min_age,
                MAX(s.age_at_exam) AS max_age
         FROM etl_didb_studies s {mj} {pj} WHERE {where}
-    """), params).mappings().fetchone()
+    """), {**params, **pc_params}).mappings().fetchone()
 
     pc_breakdown = db.session.execute(text(f"""
         SELECT COALESCE(s.patient_class, 'Unknown') AS class, COUNT(*) AS cnt
@@ -679,7 +697,6 @@ def _collect_data(start, end, filters, rh_site_id=None):
     """), params).mappings().fetchall()
 
     er_filter = _pc_filter('pc_emergency', 'E,EP,ER,EMERGENCY,URG,URGENT')
-    _er_vals  = [v.strip() for v in _pc_cfg.get('pc_emergency', 'E,EP,ER,EMERGENCY,URG,URGENT').split(',') if v.strip()]
 
     # Busiest AE title by study count in period
     ae_busy_row = db.session.execute(text(f"""
@@ -711,13 +728,14 @@ def _collect_data(start, end, filters, rh_site_id=None):
     # 2026-07-27) -- rep_study_last_composed_ts is the PACS field confirmed
     # reliable here and already the standard TAT anchor in report_25.py.
     # Non-ER studies with TAT > P75 on days that also had ER volume (resource contention proxy)
-    if _er_vals:
-        _er_in = ','.join(f"'{v.replace(chr(39), chr(39)*2)}'" for v in _er_vals)
+    if 'pc_emergency' in pc_params:
+        # er_days applies the page's own WHERE (site, modality, patient class and every other
+        # filter), like p75 and the count: it used to take any ER study of any site or
+        # modality, so with CT on RH picked a day counted for an ER MR or an SJH ER study.
         er_delayed_row = db.session.execute(text(f"""
             WITH er_days AS (
-                SELECT DISTINCT study_date FROM etl_didb_studies
-                WHERE study_date BETWEEN :start AND :end
-                  AND patient_class IN ({_er_in})
+                SELECT DISTINCT s.study_date FROM etl_didb_studies s {mj} {pj}
+                WHERE {where} AND {er_filter}
             ),
             p75 AS (
                 SELECT PERCENTILE_CONT(0.75) WITHIN GROUP (
@@ -735,7 +753,7 @@ def _collect_data(start, end, filters, rh_site_id=None):
               AND NOT ({er_filter})
               AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL AND s.insert_time IS NOT NULL
               AND EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) - s.insert_time)) / 60.0 > p75.val
-        """), params).mappings().fetchone()
+        """), {**params, **pc_params}).mappings().fetchone()
         er_delayed = int(er_delayed_row.get("cnt") or 0) if er_delayed_row else 0
     else:
         er_delayed = 0
@@ -756,7 +774,7 @@ def _collect_data(start, end, filters, rh_site_id=None):
             COUNT(*) FILTER (WHERE NOT ({er_filter}) AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL) AS non_er_reported_count
         FROM etl_didb_studies s {mj} {pj}
         WHERE {where} AND s.insert_time IS NOT NULL
-    """), params).mappings().fetchone()
+    """), {**params, **pc_params}).mappings().fetchone()
 
     tat_by_mod = db.session.execute(text(f"""
         SELECT COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
@@ -1029,7 +1047,9 @@ def _trend(p):
     return "flat"
 
 
-def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, delta):
+def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, cmp_days):
+    """cmp_days: the length of the COMPARISON window, which the user can set to any length;
+    "vs prior N-day period" names that window, not the current one."""
     current_kpis      = cur["kpis"]
     prev_kpis         = prev["kpis"]
     current_orders    = cur["orders"]
@@ -1051,7 +1071,7 @@ def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, delta):
 
     # ── Overview ──────────────────────────────────────────────
     overview = []
-    chg_str = f" ({_fp(studies_chg)} vs prior {delta}-day period)" if studies_chg is not None else ""
+    chg_str = f" ({_fp(studies_chg)} vs prior {cmp_days}-day period)" if studies_chg is not None else ""
     overview.append(
         f"{_fmt(current_kpis.get('total_studies'))} studies completed between {start} and {end}{chg_str}"
     )

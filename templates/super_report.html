@@ -449,12 +449,24 @@
     updateCmpDates();
     [$start(), $end()].forEach(el => el.addEventListener('change', updateCmpDates));
 
+    // The single source of the AUTOMATIC comparison window: the same number of days, ending
+    // the day before start. The server validates whatever is sent (dates, order).
     function updateCmpDates() {
         const s = $start().value;
         const e = $end().value;
+        if (s) {                                   // the end date cannot go before the start
+            $end().min = s;
+            if ($end()._flatpickr) $end()._flatpickr.set('minDate', s);
+        }
         if (!s || !e) return;
         const ds = new Date(s), de = new Date(e);
         const delta = Math.round((de - ds) / 86400000) + 1;
+        if (delta <= 0) {                          // end before start: no comparison window
+            document.getElementById('cmp-start').value = '';
+            document.getElementById('cmp-end').value   = '';
+            document.getElementById('cmp-auto-label').textContent = 'end is before start';
+            return;
+        }
         const ce = new Date(ds); ce.setDate(ce.getDate() - 1);
         const cs = new Date(ce); cs.setDate(cs.getDate() - delta + 1);
         document.getElementById('cmp-end').value   = ce.toISOString().split('T')[0];
@@ -576,6 +588,7 @@
         const start = $start().value;
         const end   = $end().value;
         if (!start || !end) { alert('Select a date range'); return; }
+        if (end < start)    { alert('The end date is before the start date'); return; }
 
         document.getElementById('super-empty').classList.add('hidden');
         document.getElementById('super-results').classList.add('hidden');
