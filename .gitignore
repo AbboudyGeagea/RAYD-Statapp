@@ -34,3 +34,4 @@ rayd_sample/
 
 # SJH move backups on the server (scripts/sjh_move.sh)
 backups/
+.sjh_move.pid

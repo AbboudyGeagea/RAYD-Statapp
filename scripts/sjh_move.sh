@@ -45,6 +45,17 @@ cd "$RAYD" || stop "$RAYD not found"
 if docker compose version >/dev/null 2>&1; then COMPOSE="docker compose"; else COMPOSE="docker-compose"; fi
 
 say "SJH move, mode $MODE, log $LOG"
+
+# One move at a time, and update.sh refuses to deploy while this file names a live process
+# (2026-11-20: two copies were cut short by deploys that recreated the app container).
+PIDFILE="$RAYD/.sjh_move.pid"
+if [ "$MODE" != check ]; then
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+        stop "another SJH move is running (pid $(cat "$PIDFILE")); nothing done"
+    fi
+    echo $$ > "$PIDFILE"
+    trap 'rm -f "$PIDFILE"' EXIT
+fi
 sql "SELECT 1" >/dev/null || stop "RH's database does not answer (rayd_db)"
 
 # ── done already? ────────────────────────────────────────────────────────────
@@ -153,7 +164,9 @@ for i in $(seq 1 60); do
 done
 say "SJH's database is ready"
 
-ROUTE="docker exec rayd_service python -m ETL_JOBS.etl_site_route --site SJH"
+# In a one-off container of the app's image (same .env, same volumes), not inside the app's own
+# container: a restart or a deploy of the app no longer kills the copy under way (2026-11-20).
+ROUTE="$COMPOSE run --rm --no-deps -T rayd-app python -m ETL_JOBS.etl_site_route --site SJH"
 
 # ── 2. dry run ────────────────────────────────────────────────────────────────
 say "step 2, dry run"

@@ -358,3 +358,55 @@ def test_a_dry_run_counts_and_writes_nothing(dbs):
     assert counts['std_pps'] == 2 and counts['etl_didb_raw_images'] == 1
     assert keys(sjh, "SELECT COUNT(*) FROM etl_didb_studies") == [0]
     assert keys(main, "SELECT COUNT(*) FROM etl_didb_studies") == [4]
+
+
+# ── speed and resilience at production size (2026-11-20) ──────────────────────
+
+def test_the_verification_matches_with_equals_where_a_key_cannot_be_null():
+    """IS NOT DISTINCT FROM uses neither an index nor a hash: on every key it made the check
+    quadratic (two copies of SJH ran for hours on production). Only nullable keys keep it."""
+    t = next(t for t in route.TABLES if t.name == 'std_worklist_scheduled')
+    assert route._verify_match(t, {'site_worklist_key'}) == \
+        'x."site_worklist_key" = s."site_worklist_key" AND x."scheduled_at" IS NOT DISTINCT FROM s."scheduled_at"'
+    studies = next(t for t in route.TABLES if t.name == 'etl_didb_studies')
+    assert route._verify_match(studies, {'study_db_uid'}) == 'x."study_db_uid" = s."study_db_uid"'
+    oru_child = next(t for t in route.TABLES if t.name == 'hl7_oru_analysis')
+    assert 'hl7_oru_reports r WHERE r.accession_number = s._parent_acc' in route._verify_match(oru_child, set())
+
+
+def test_the_check_runs_as_a_hash_anti_join_on_a_large_table(dbs):
+    """60,000 staged rows against 60,000 copied: the plan the copy now gets."""
+    _main, sjh = dbs
+    with sjh.connect() as c:
+        c.execute(text("CREATE TEMP TABLE _stage AS SELECT g AS study_db_uid FROM generate_series(1, 60000) g"))
+        c.execute(text("INSERT INTO etl_didb_studies (study_db_uid, patient_db_uid) SELECT study_db_uid, study_db_uid FROM _stage"))
+        c.execute(text("ANALYZE _stage"))
+        c.execute(text("ANALYZE etl_didb_studies"))
+        t = next(t for t in route.TABLES if t.name == 'etl_didb_studies')
+        match = route._verify_match(t, {'study_db_uid'})
+        plan = '\n'.join(r[0] for r in c.execute(text(
+            f"EXPLAIN SELECT COUNT(*) FROM _stage s WHERE NOT EXISTS (SELECT 1 FROM public.etl_didb_studies x WHERE {match})")))
+        assert 'Anti Join' in plan and 'Nested Loop' not in plan, plan
+        c.rollback()
+
+
+def test_a_copy_cut_short_keeps_the_tables_it_finished(dbs, monkeypatch):
+    """One transaction per table on the site database: a cut loses the table under way only,
+    and the site database's tables are not held for the whole copy."""
+    main, sjh = dbs
+    two_hospitals(main)
+    real = route._copy
+
+    def cut(cur, dcur, t):
+        if t.name == 'etl_orders':
+            raise RuntimeError('deploy restarted the app')
+        return real(cur, dcur, t)
+    monkeypatch.setattr(route, '_copy', cut)
+    with pytest.raises(RuntimeError):
+        route.route_site(main, sjh, SJH, first_time=True)
+    assert keys(sjh, "SELECT study_db_uid FROM etl_didb_studies") == [201, 202]      # finished before the cut
+    assert keys(sjh, "SELECT order_dbid FROM etl_orders") == []                      # the table under way
+    assert keys(main, "SELECT study_db_uid FROM etl_didb_studies") == [101, 201, 202, 301]   # RH untouched
+    monkeypatch.setattr(route, '_copy', real)
+    report = route.route_site(main, sjh, SJH, first_time=True)                       # the rerun completes it
+    assert report['verified'] and keys(sjh, "SELECT order_dbid FROM etl_orders") == [5201]

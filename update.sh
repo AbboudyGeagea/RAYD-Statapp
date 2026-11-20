@@ -27,6 +27,12 @@ ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
+# Never during the SJH move (scripts/sjh_move.sh writes .sjh_move.pid): recreating the app and
+# running migrations under a copy cut two copies short on 2026-11-20.
+if [ -f .sjh_move.pid ] && kill -0 "$(cat .sjh_move.pid 2>/dev/null)" 2>/dev/null; then
+    error "The SJH move is running (scripts/sjh_move.sh, pid $(cat .sjh_move.pid)). Deploy when it has finished: tail -f $(ls -t logs/sjh_move_*.log 2>/dev/null | head -1)"
+fi
+
 BRANCH="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 
 # ── Fixed credentials (same as install.sh) ────────────────────────────────────

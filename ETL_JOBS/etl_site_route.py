@@ -38,6 +38,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -269,14 +270,27 @@ def route_site(rh_engine, site_engine, site_id, *, delete=False, dry_run=False, 
         chosen = [t for t in TABLES if first_time or t.nightly]
         if dry_run:
             for t in chosen:
+                t0 = time.monotonic()
                 cur.execute(f"SELECT COUNT(*) FROM public.{_q(t.name)} t WHERE {t.where}")
                 report['tables'].append({'table': t.name, 'selected': cur.fetchone()[0]})
+                logger.info(f"site route (count) {t.name}: {report['tables'][-1]['selected']:,} rows, "
+                            f"{time.monotonic() - t0:.0f} s")
             src.rollback()
             return report
 
+        # One transaction PER TABLE on the site database (2026-11-20): the copy used to be one
+        # transaction over every table, holding the site database's tables for hours (the app's
+        # start waited behind it) and losing everything when it was cut short. Each table's upsert
+        # is idempotent, so a rerun completes what a cut left; the verification below still
+        # requires every table.
         dcur = dst.cursor()
         for t in chosen:
+            t0 = time.monotonic()
             report['tables'].append(_copy(cur, dcur, t))
+            dst.commit()
+            r = report['tables'][-1]
+            logger.info(f"site route (copy) {t.name}: {r['selected']:,} selected, {r['copied']:,} copied, "
+                        f"{r['missing']:,} missing, {time.monotonic() - t0:.0f} s")
         if first_time:
             report['tables'].append(_storage_history(cur, dcur, site_id))
         dst.commit()
@@ -308,9 +322,11 @@ def route_site(rh_engine, site_engine, site_id, *, delete=False, dry_run=False, 
 
 def _key_sets(cur, params):
     for name, sql in KEY_SETS:
+        t0 = time.monotonic()
         cur.execute(f"DROP TABLE IF EXISTS {name}")
         cur.execute(f"CREATE TEMP TABLE {name} AS {sql}", params)
         cur.execute(f"ANALYZE {name}")
+        logger.info(f"site route (keys) {name}: {time.monotonic() - t0:.0f} s")
 
 
 # The site's daily storage, computed once from its images on RH before the move deletes
@@ -400,6 +416,7 @@ def _copy(cur, dcur, t):
         cur.copy_expert(out_sql, buf)
         buf.seek(0)
         dcur.copy_expert(f"COPY _stage ({stage_cols}) FROM STDIN", buf)
+    dcur.execute("ANALYZE _stage")          # its size, for the plans below (it had no statistics)
     dcur.execute("SELECT COUNT(*) FROM _stage")
     selected = dcur.fetchone()[0]
 
@@ -419,14 +436,34 @@ def _copy(cur, dcur, t):
                  f"ON CONFLICT ({', '.join(_q(k) for k in t.key)}) {action}")
     copied = dcur.rowcount
 
-    match = ' AND '.join(
-        f"x.{_q(k)} = (SELECT r.id FROM public.hl7_oru_reports r WHERE r.accession_number = s._parent_acc)"
-        if k == t.parent_col else f"x.{_q(k)} IS NOT DISTINCT FROM s.{_q(k)}" for k in t.key)
+    match = _verify_match(t, _not_null(dcur, t.name))
     dcur.execute(f"SELECT COUNT(*) FROM _stage s WHERE NOT EXISTS (SELECT 1 FROM public.{_q(t.name)} x WHERE {match})")
     missing = dcur.fetchone()[0]
     dcur.execute("DROP TABLE _stage")
     return {'table': t.name, 'selected': selected, 'copied': copied, 'missing': missing,
             'deleted': 0, 'after': t.after}
+
+
+def _not_null(cur, table):
+    """The NOT NULL columns of a table."""
+    cur.execute("""SELECT a.attname FROM pg_attribute a
+                   WHERE a.attrelid = to_regclass(%s) AND a.attnum > 0 AND NOT a.attisdropped AND a.attnotnull""",
+                (f'public.{table}',))
+    return {r[0] for r in cur.fetchall()}
+
+
+def _verify_match(t, not_null):
+    """How a staged row finds its copy: = on a key column that cannot be NULL, IS NOT DISTINCT
+    FROM only where it can (2026-11-20). IS NOT DISTINCT FROM can use neither an index nor a hash,
+    so with it on every column the check compared each staged row with the whole table: hours at
+    production size (178,000 studies, millions of series), against seconds with a hash anti-join."""
+    def one(k):
+        if k == t.parent_col:
+            return f"x.{_q(k)} = (SELECT r.id FROM public.hl7_oru_reports r WHERE r.accession_number = s._parent_acc)"
+        if k in not_null:
+            return f"x.{_q(k)} = s.{_q(k)}"
+        return f"x.{_q(k)} IS NOT DISTINCT FROM s.{_q(k)}"
+    return ' AND '.join(one(k) for k in t.key)
 
 
 def _delete(cur, conn, report):
