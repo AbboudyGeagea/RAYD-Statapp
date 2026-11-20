@@ -784,6 +784,9 @@ def _get_physician_intelligence(start, end):
           AND COALESCE(am.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
         GROUP BY 1
     """), {"r0": r0, "r1": r1, "l0": l0, "l1": l1}).fetchall()
+    # The hospital's figures count EVERY study, a named referrer or not ('Unknown' included): it is
+    # the hospital as a whole. The referrers' trends leave 'Unknown' out (it is nobody). Said in
+    # _explain_physician (review of 2026-11-20).
     hosp_recent, hosp_last = sum(r[1] for r in counts), sum(r[2] for r in counts)
     trend = forecasting.referrer_trends({r[0]: r[1] for r in counts if r[0] != 'Unknown'},
                                         {r[0]: r[2] for r in counts if r[0] != 'Unknown'})
@@ -842,8 +845,9 @@ def _explain_physician(d):
     exp = (f"Each referrer's studies in the last 13 weeks ({fmt(w['recent_from'])} to {fmt(w['to'])}) against "
            f"the same 13 weeks a year earlier, so the season and holidays line up. ")
     if h["change_pct"] is not None:
-        exp += (f"The hospital as a whole: {h['recent']:,} studies against {h['last_year']:,} "
-                f"({h['change_pct']:+d}%), so a referrer near {h['change_pct']:+d}% is moving with the hospital. ")
+        exp += (f"The hospital as a whole (every study, with or without a named referrer): {h['recent']:,} studies "
+                f"against {h['last_year']:,} ({h['change_pct']:+d}%), so a referrer near {h['change_pct']:+d}% is "
+                f"moving with the hospital. ")
     exp += (f"{c['declining']} referrers are down 10% or more, {c['stopped']} stopped, {c['growing']} are up 10% "
             f"or more, {c['new']} are new, {c['steady']} are within 10%. ")
     if d["churning"]:
@@ -873,19 +877,19 @@ _SECTION_CONFIG = {
 
 
 def _fetch_section(tab_name, start, end):
-    """Compute one section's data, tolerating failure the same way the old
-    all-sections _safe() wrapper did (log, roll back, return None -> renders
-    the partial's "no data" branch instead of a 500)."""
+    """(data, failed) for one section. A failure is logged and rolled back, and said as such on
+    the page ("could not compute", the partials' section_error branch, an ERROR badge): it used to
+    come back as None, which read exactly like "no data" (review of 2026-11-20)."""
     _, fn, _ = _SECTION_CONFIG[tab_name]
     try:
-        return fn(start, end)
+        return fn(start, end), False
     except Exception as exc:
         logger.error(f"[report_ai] {fn.__name__} failed: {exc}", exc_info=True)
         try:
             db.session.rollback()
         except Exception:
             pass
-        return None
+        return None, True
 
 
 def _resolve_date_range(values):
@@ -922,7 +926,7 @@ def report_ai():
     # user clicks over to them. All 4 used to be computed unconditionally on
     # every load (each with its own DB round-trips + numpy/pandas regression)
     # even though a given visit typically only looks at one or two tabs.
-    active_data = _fetch_section(active_tab, start, end)
+    active_data, section_error = _fetch_section(active_tab, start, end)
     data = {active_data_key: active_data}
 
     # Load current storage capacity setting for the form
@@ -941,6 +945,7 @@ def report_ai():
         display_end=end,
         active_tab=active_tab,
         active_data_key=active_data_key,
+        section_error=section_error,
         storage_capacity_gb=storage_capacity_gb,
         ui_theme=ui_theme,
     )
@@ -960,9 +965,10 @@ def report_ai_panel(section):
     data_key, _, template = _SECTION_CONFIG[section]
 
     start, end = _resolve_date_range(request.args)
-    section_data = _fetch_section(section, start, end)
-    html = render_template(template, data={data_key: section_data})
-    return jsonify({"html": html, "data": section_data})
+    section_data, failed = _fetch_section(section, start, end)
+    # the partials use only data.<key> (and their own macros): checked 2026-11-20
+    html = render_template(template, data={data_key: section_data}, section_error=failed)
+    return jsonify({"html": html, "data": section_data, "error": failed})
 
 
 @report_ai_bp.route("/report/ai/storage-capacity", methods=["POST"])

@@ -22,4 +22,4 @@
 </div>
 {% endif %}
 <div class="card"><div class="card-head">Volume Split by Modality{{ info('ai-volume-mod', 'this chart') }}</div><div class="card-desc">Share of the studies of the dates picked, per modality.</div><div id="chart-volume-mod" style="height:320px;padding:16px;"></div></div>
-{% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No study data available.</div>{% endif %}
+{% elif section_error %}<div class="flex items-center justify-center h-64 text-center" role="alert" style="color:var(--danger);">Could not compute this section: see the server log.</div>{% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No study data available.</div>{% endif %}

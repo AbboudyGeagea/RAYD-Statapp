@@ -145,6 +145,49 @@ def test_status_calls_keep_the_cache_and_a_finished_run_renews_it(client, monkey
     assert report_ai._ai_cache_get('volume', '2026-01-01', '2026-01-31') is None
 
 
+# ── block 2 ───────────────────────────────────────────────────────────────────
+
+def test_a_section_that_fails_says_so_instead_of_no_data(client, monkeypatch):
+    """2.1"""
+    from routes import report_ai
+
+    def boom(start, end):
+        raise RuntimeError('broken query')
+    monkeypatch.setitem(report_ai._SECTION_CONFIG, 'volume', ('volume', boom, '_ai_panel_volume.html'))
+    r = client.get('/report/ai/panel/volume', headers=ADMIN).get_json()
+    assert r['error'] is True and r['data'] is None and 'Could not compute' in r['html']
+    page = client.get('/report/ai?tab=volume', headers=ADMIN).get_data(as_text=True)
+    assert 'Could not compute' in page and '>ERROR</span>' in page and 'broken query' not in page
+
+
+@pytest.mark.parametrize('section', ['storage', 'volume', 'util', 'physician'])
+def test_every_panel_renders_alone_with_or_without_data(client, section):
+    """2.3: the partials use only data.<key>; with no data they say so (no Jinja error)."""
+    r = client.get(f'/report/ai/panel/{section}', headers=ADMIN)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['error'] is False and body['data'] is None
+    assert 'data available' in body['html'] or 'No storage data' in body['html']
+
+
+def test_the_hospital_figure_says_it_counts_every_study():
+    """2.2"""
+    from routes.report_ai import _explain_physician
+    d = {'window': {'recent_from': '2026-08-01', 'to': '2026-10-31', 'last_from': '2025-08-01', 'last_to': '2025-10-31'},
+         'hospital': {'recent': 1000, 'last_year': 900, 'change_pct': 11},
+         'counts': {'declining': 1, 'stopped': 0, 'growing': 2, 'new': 0, 'steady': 5}, 'churning': [], 'growing': []}
+    assert 'every study, with or without a named referrer' in _explain_physician(d)
+
+
+def test_the_page_script_guards_against_double_fetches_and_merged_charts():
+    """2.4, 2.5, 2.6 (the page itself is checked in a browser)"""
+    import os
+    page = open(os.path.join(os.path.dirname(__file__), '..', 'templates', 'report_ai.html'), encoding='utf-8').read()
+    assert 'const inflight = {}' in page and 'inflight[key] = _loadSection' in page
+    assert ".replace(/,/g, '')" in page and 'Number.isFinite(val)' in page
+    assert page.count('}, true);') >= 2
+
+
 # ── 1.9 unusual days ──────────────────────────────────────────────────────────
 
 def test_a_day_is_measured_against_the_other_days():

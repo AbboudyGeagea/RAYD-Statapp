@@ -31,4 +31,4 @@
     <div class="card-desc" id="ae-chart-desc">Click a device above to see its daily utilization, unusual days and 30-day forecast. Use the zoom bar to move through long ranges.</div>
     <div id="chart-ae-detail" style="height:560px;padding:16px;"></div>
 </div>
-{% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No utilization data available.</div>{% endif %}
+{% elif section_error %}<div class="flex items-center justify-center h-64 text-center" role="alert" style="color:var(--danger);">Could not compute this section: see the server log.</div>{% else %}<div class="flex items-center justify-center h-64" style="color:var(--muted);">No utilization data available.</div>{% endif %}

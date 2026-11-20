@@ -111,9 +111,10 @@
             </div>
             <script>
             function saveStorageCap(){
-                const val = parseFloat(document.getElementById('storageCapInput').value);
+                const raw = String(document.getElementById('storageCapInput').value).replace(/,/g, '').trim();
+                const val = Number(raw);                 // "1,024" is 1024; "12abc" is not a number
                 const msg = document.getElementById('storageCapMsg');
-                if(!val || val <= 0){ msg.style.color='#e74c3c'; msg.textContent='Enter a value > 0'; return; }
+                if(!raw || !Number.isFinite(val) || val <= 0){ msg.style.color='#e74c3c'; msg.textContent='Enter a number of GB above 0'; return; }
                 fetch('{{ url_for("report_ai.save_storage_capacity") }}',{
                     method:'POST', headers:{'Content-Type':'application/json'},
                     body:JSON.stringify({capacity_gb: val})
@@ -144,7 +145,7 @@
                     <div class="flex items-center justify-between">
                         <span style="font-size:13px;color:#b0cce8;">{{ lbl }}</span>
                         {% if module == active_data_key %}
-                        <span id="module-badge-{{ module }}" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:4px;background:{{ 'rgba(39,174,96,0.15)' if data[module] else 'rgba(235,87,87,0.15)' }};color:{{ '#27ae60' if data[module] else '#eb5757' }};">{{ 'OK' if data[module] else 'NO DATA' }}</span>
+                        <span id="module-badge-{{ module }}" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:4px;background:{{ 'rgba(39,174,96,0.15)' if data[module] else 'rgba(235,87,87,0.15)' }};color:{{ '#27ae60' if data[module] else '#eb5757' }};"{% if section_error %} title="Could not compute: see the server log"{% endif %}>{{ 'OK' if data[module] else 'ERROR' if section_error else 'NO DATA' }}</span>
                         {% else %}
                         <span id="module-badge-{{ module }}" title="Loads when you open this tab" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:4px;background:rgba(122,156,201,0.12);color:#7a9cc9;">—</span>
                         {% endif %}
@@ -249,7 +250,14 @@
         setTimeout(() => Object.values(charts).forEach(c => c && c.resize()), 50);
     }
 
-    async function loadSection(name, key) {
+    // One fetch per section, however fast the tabs are clicked: a second click while it loads
+    // waits for the same request (review of 2026-11-20).
+    const inflight = {};
+    function loadSection(name, key) {
+        if (!inflight[key]) inflight[key] = _loadSection(name, key).finally(() => { delete inflight[key]; });
+        return inflight[key];
+    }
+    async function _loadSection(name, key) {
         const panel = document.getElementById('panel-' + name);
         if (panel) panel.innerHTML = '<div class="flex items-center justify-center h-64" style="color:var(--muted);">Loading…</div>';
         try {
@@ -261,21 +269,22 @@
             D[key] = payload.data;
             loadedSections.add(key);
             initChartsFor(name, payload.data);
-            updateModuleStatus(key, payload.data);
+            updateModuleStatus(key, payload.data, payload.error);
         } catch (e) {
             if (panel) panel.innerHTML = '<div class="flex items-center justify-center h-64" style="color:var(--danger);">Failed to load this section — try again.</div>';
         }
     }
 
-    function updateModuleStatus(key, sectionData) {
+    function updateModuleStatus(key, sectionData, failed) {
         const badge = document.getElementById('module-badge-' + key);
         if (!badge) return;
         if (sectionData) {
             badge.style.background = 'rgba(39,174,96,0.15)'; badge.style.color = '#27ae60'; badge.textContent = 'OK';
         } else {
-            badge.style.background = 'rgba(235,87,87,0.15)'; badge.style.color = '#eb5757'; badge.textContent = 'NO DATA';
+            badge.style.background = 'rgba(235,87,87,0.15)'; badge.style.color = '#eb5757';
+            badge.textContent = failed ? 'ERROR' : 'NO DATA';      // a failure is not "no data"
         }
-        badge.title = '';
+        badge.title = failed ? 'Could not compute: see the server log' : '';
     }
 
     function initChartsFor(name, sectionData) {
@@ -490,7 +499,7 @@
                   lineStyle: { color: '#eb5757', type: 'dashed', width: 1, opacity: 0.4 },
                   symbol: 'none', itemStyle: { color: '#eb5757' } }
             ]
-        });
+        }, true);           // notMerge: the previous device's zoom and series do not carry over
     }
     let PHYS_DATA = [];
     let physChart = null;
@@ -512,7 +521,7 @@
         document.getElementById('phys-chart-title').textContent = `${doc.name} — last 13 weeks: ${status}`;
         const down = t && (t.status === 'declining' || t.status === 'stopped'), up = t && (t.status === 'growing' || t.status === 'new');
         const color = down ? '#eb5757' : up ? '#27ae60' : '#2f80ed';
-        physChart.setOption({tooltip:{trigger:'axis'},legend:{bottom:0,data:['Monthly referrals','Same month last year'],textStyle:{color:'#3d5278',fontSize:11}},grid:{left:60,right:30,top:20,bottom:56},xAxis:{type:'category',data:doc.chart.months,axisLabel:{...axisLabel,rotate:30}},yAxis:{type:'value',name:'Referrals',nameTextStyle:{color:'#3d5278',fontSize:10},splitLine,axisLabel},series:[{name:'Monthly referrals',type:'bar',data:doc.chart.counts,itemStyle:{color,borderRadius:[3,3,0,0]},barMaxWidth:30},{name:'Same month last year',type:'line',data:doc.chart.last_year || [],connectNulls:false,lineStyle:{color:'#7a9cc9',width:2,type:'dashed'},itemStyle:{color:'#7a9cc9'},symbol:'circle',symbolSize:5}]});
+        physChart.setOption({tooltip:{trigger:'axis'},legend:{bottom:0,data:['Monthly referrals','Same month last year'],textStyle:{color:'#3d5278',fontSize:11}},grid:{left:60,right:30,top:20,bottom:56},xAxis:{type:'category',data:doc.chart.months,axisLabel:{...axisLabel,rotate:30}},yAxis:{type:'value',name:'Referrals',nameTextStyle:{color:'#3d5278',fontSize:10},splitLine,axisLabel},series:[{name:'Monthly referrals',type:'bar',data:doc.chart.counts,itemStyle:{color,borderRadius:[3,3,0,0]},barMaxWidth:30},{name:'Same month last year',type:'line',data:doc.chart.last_year || [],connectNulls:false,lineStyle:{color:'#7a9cc9',width:2,type:'dashed'},itemStyle:{color:'#7a9cc9'},symbol:'circle',symbolSize:5}]}, true);   // notMerge, as selectAE
     }
 
     // ── holidays & closures, retrain ─────────────────────────────────────────

@@ -13,4 +13,4 @@
     <div class="card-desc">Line: GB of images stored each day in the dates picked. Dashed line: the forecast, its likely range shaded.</div>
     <div id="chart-storage" style="height:380px;padding:16px;"></div>
 </div>
-{% else %}<div class="flex items-center justify-center h-64 text-center" style="color:var(--muted);"><div><div style="font-size:32px;margin-bottom:12px;">📦</div><p style="font-size:15px;font-weight:700;color:white;">No storage data found</p></div></div>{% endif %}
+{% elif section_error %}<div class="flex items-center justify-center h-64 text-center" role="alert" style="color:var(--danger);">Could not compute this section: see the server log.</div>{% else %}<div class="flex items-center justify-center h-64 text-center" style="color:var(--muted);"><div><div style="font-size:32px;margin-bottom:12px;">📦</div><p style="font-size:15px;font-weight:700;color:white;">No storage data found</p></div></div>{% endif %}
