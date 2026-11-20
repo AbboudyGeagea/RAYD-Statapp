@@ -1,13 +1,63 @@
 # LAUMC — To do
 
-Updated 2026-11-18. This file holds only what is still open. What was built is in the commit
+Updated 2026-11-20. This file holds only what is still open. What was built is in the commit
 messages, and the July version of this file (history, punch list round 2) is in git history.
 Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 `LAUMC_OPEN_QUESTIONS.md` (vendor questions), `LAUMC_DATA_REQUEST.md` (discovery record).
 
 ---
 
-## Where we stopped (2026-11-19, evening) — START HERE in a new session
+## Where we stopped (2026-11-20, evening) — START HERE in a new session
+
+**Next: the Report Composer revamp** (operator, 20 Nov: "a huge task before this migration"). The
+operator brings the spec in the new session; read it, then come back with a plan before building.
+Today's Report Composer: `/report-composer`, `routes/worklists.py` (489 lines),
+`utils/worklist_engine.py` (compiler), `utils/worklist_catalog.py` (fields; tests fail on an
+undocumented view column), `utils/worklist_email.py` (scheduled .xlsx mails),
+`templates/worklists.html` (~1,000 lines, one template); reads only the 7 `rpt.*` views of
+migration 0136 (exams, studies, series, reports, findings, storage, crn) as the `rpt_<db>` role;
+saved tree, versions, CSV, hand SQL / sharing / schedules for the settings capability; tests
+`test_worklists.py`, `test_worklist_email.py`, `test_report_composer_name.py` (Philips' earlier
+name must appear nowhere). See CLAUDE.md's `worklists.py` entry.
+
+**Production.** The 20 Nov afternoon `update.sh` (the run that hung on locks, then came up once the
+orphaned SJH copy sessions were terminated) should have brought everything up to 5d52a4f3: BRAYN
+0175–0178, floor plan data dropped 0179, Super Report review + 0180, Report AI review, Report 27
+peak hours. **Waiting for the next deploy:** c116e9b0 + 2d9a96e2 (the start gives up on a table
+lock after 10–15 s; update.sh's health check is capped and names what blocks), a3bd60b9 (SJH copy
+fixes; update.sh refuses while a move runs). Confirm with
+`cd /opt/rayd && git log --oneline -1 && sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 4;"`
+(expect 0180 on top).
+
+**Pending table (20 Nov evening)** — show it, kept current, at the end of each reply:
+
+| # | Item | Status |
+|---|------|--------|
+| **New** | **Report Composer revamp** | Waiting for the operator's spec |
+| 1 | HIS vs RIS: 19 Nov MRI on Report 27's HIS tab (query in the 20 Nov morning checklist below) | Waiting on the operator (booked room closed: 1,472 / 1,472) |
+| — | Deploy c116e9b0, 2d9a96e2, a3bd60b9: `cd /opt/rayd && sudo bash update.sh LAUMC`; then open the Super Report (Generate, a preset, comparison dates under the range), Report AI (each tab, calendar, device switch), Report 27 (Peak Hours under Hourly Load) | Ready, any time |
+| 17 | BRAYN: per-modality breakdown (query in item 17, "The breakdown") → mark arrival/start not expected where the RIS never sends them → operator switches on the stall rules (ORPHAN_ORDER suggested off); the 7 approved-without-report accessions to Mirth | Waiting on the operator |
+| **SJH DB preparation** (parked, separate task, after the revamp) | | |
+| 13-1 | Stop Sunday's timer: `sudo systemctl stop rayd-sjh-move.timer` | Now, so it does not start by itself |
+| 13-2 | SJH off: `sudo sed -i '/^POSTGRES_DB_SJH=/d' /opt/rayd/.env && cd /opt/rayd && sudo docker compose up -d rayd-app` | Now |
+| 13-3 | Drop the partial copy: `sudo docker exec rayd_db psql -U etl_user -d etl_db -c "DROP DATABASE IF EXISTS etl_db_sjh WITH (FORCE);"` | Now |
+| 13-4 | Keep only the newest backup: `ls -lh /opt/rayd/backups && df -h /opt/rayd /var/lib/docker` | When the move resumes |
+| 13-5 | Deploy (has the copy fixes) | Same deploy as above |
+| 13-6 | `sudo bash /opt/rayd/scripts/sjh_move.sh check`, then `copy`; send the log (per-table times) | When the move resumes |
+| 13-7 | SJH's reports: Report 22 and the Super Report side by side (account holding both sites) | After 13-6 |
+| 13-8 | `sudo bash /opt/rayd/scripts/sjh_move.sh move` (deletes from RH, 1–2 h), by hand or a Saturday 23:00 timer | After 13-7 |
+| 13-9 | SJH's mail server (SJH in the header → Administration → Email Server) | After 13-8 |
+| 4, 9, 37 | Open items (below) | Later |
+| 21, 33, 35 | Operator checks (below) | Waiting on the operator |
+| 14 | Radiologists TAT revamp, the rest | December |
+
+Closed 20 Nov: floor plan (data dropped by 0179, images removed on the server); item 1's booked
+room; BRAYN unidentified 0 / FUTURE_EVENT 0 / UNREPORTED 32 real. Why the 20 Nov SJH copies
+failed and what changed: item 13, "20 Nov, what happened and the clean restart".
+
+---
+
+## 19 Nov evening state (kept for reference; the current state is the section above)
 
 **Production.** **Everything is deployed, up to 23fa83ff** (`update.sh`, 19 Nov evening; 0172 at
 15:08 and 0173 after it). Check after 0173: BRAYN placed the studies archived since 18 Nov on 20 RIS
