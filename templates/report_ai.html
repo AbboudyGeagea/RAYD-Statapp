@@ -380,8 +380,11 @@
 
     let AE_DATA = [];
     let aeChart = null;
+    let UTIL_HIGH = 85;                 // the "stressed" limit, settings ai_util_high_warn_pct (route)
+    const capName = () => `${UTIL_HIGH}% Cap`;
     function initUtilChart(udata) {
         AE_DATA = udata ? udata.ae_list : [];
+        UTIL_HIGH = (udata && udata.high_pct) || 85;
         aeChart = mkChart('chart-ae-detail');
         _addPdfOverlay('chart-ae-detail', 'AE Utilization Detail', 'ai_ae_detail', '#050d1a');
         if (AE_DATA.length > 0) selectAE(0);
@@ -439,13 +442,13 @@
                     const i = params[0].dataIndex, d = all[i];
                     const hol = (ae.chart.holidays || {})[d];
                     const rows = params
-                        .filter(p => p.value != null && !['Unusual day', '_low', 'Likely range', '85% Cap'].includes(p.seriesName))
+                        .filter(p => p.value != null && !['Unusual day', '_low', 'Likely range', capName()].includes(p.seriesName))
                         .map(p => `${p.marker} ${p.seriesName}: ${p.value}%`);
                     if (i >= histLen && fLo[i - histLen] != null) rows.push(`Likely: ${fLo[i - histLen]} – ${fHi[i - histLen]}%`);
                     return [`<b>${d}</b>${hol ? ' · 🗓 ' + hol : ''}`, ...rows].join('<br>');
                 }
             },
-            legend: { top: 4, data: ['Utilization', 'Theoretical (SPS)', 'Unusual day', 'Forecast', 'Likely range', '85% Cap'], textStyle: { color: '#3d5278', fontSize: 11 } },
+            legend: { top: 4, data: ['Utilization', 'Theoretical (SPS)', 'Unusual day', 'Forecast', 'Likely range', capName()], textStyle: { color: '#3d5278', fontSize: 11 } },
             grid:   { left: 56, right: 24, top: 40, bottom: 78 },
             dataZoom: [
                 { type: 'inside', start: 0, end: 100 },
@@ -482,8 +485,8 @@
                   data: [...new Array(histLen).fill(null), ...ae.chart.forecast_vals],
                   lineStyle: { color: '#f2994a', width: 2, type: 'dashed' },
                   itemStyle: { color: '#f2994a' }, symbol: 'circle', symbolSize: 5 },
-                { name: '85% Cap', type: 'line',
-                  data: all.map(() => 85),
+                { name: capName(), type: 'line',
+                  data: all.map(() => UTIL_HIGH),
                   lineStyle: { color: '#eb5757', type: 'dashed', width: 1, opacity: 0.4 },
                   symbol: 'none', itemStyle: { color: '#eb5757' } }
             ]

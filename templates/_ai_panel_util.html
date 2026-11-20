@@ -1,15 +1,15 @@
 {% macro info(key, what='this figure') %}<i class="bi bi-info-circle chart-info-icon" data-explain="{{ key }}" role="button" tabindex="0" aria-label="About {{ what }}" title="About {{ what }}"></i>{% endmacro %}
-{% if data.utilization %}{% set u = data.utilization %}
+{% if data.utilization %}{% set u = data.utilization %}{% set hi = u.high_pct or 85 %}{% set lo = u.low_pct or 30 %}
 <div class="explain-box"><strong>AI Analysis:</strong> {{ u.explanation }}</div>
 <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);">
     <div class="kpi {{ 'red' if u.anomaly_count > 10 else 'orange' if u.anomaly_count > 0 else 'green' }}"><div class="kpi-label">Unusual Days{{ info('ai-util-anomalies') }}</div><div class="kpi-val">{{ u.anomaly_count }}</div><div class="kpi-sub">far from the device's normal for that weekday</div></div>
-    <div class="kpi red"><div class="kpi-label">Above 85%{{ info('ai-util-high') }}</div><div class="kpi-val">{{ u.high_stress|length }}</div><div class="kpi-sub">devices, average utilization</div></div>
-    <div class="kpi orange"><div class="kpi-label">Below 30%{{ info('ai-util-low') }}</div><div class="kpi-val">{{ u.low_util|length }}</div><div class="kpi-sub">devices, average utilization</div></div>
+    <div class="kpi red"><div class="kpi-label">Above {{ '%g'|format(hi) }}%{{ info('ai-util-high') }}</div><div class="kpi-val">{{ u.high_stress|length }}</div><div class="kpi-sub">devices, average utilization</div></div>
+    <div class="kpi orange"><div class="kpi-label">Below {{ '%g'|format(lo) }}%{{ info('ai-util-low') }}</div><div class="kpi-val">{{ u.low_util|length }}</div><div class="kpi-sub">devices, average utilization</div></div>
 </div>
 <!-- device chip selector -->
 <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin;width:100%;min-width:0;">
     {% for ae in u.ae_list %}
-    {% set util_color = '#7a9cc9' if ae.no_capacity else '#eb5757' if ae.avg_util > 85 else '#f2994a' if ae.avg_util > 60 else '#27ae60' %}
+    {% set util_color = '#7a9cc9' if ae.no_capacity else '#eb5757' if ae.avg_util > hi else '#f2994a' if ae.avg_util > 60 else '#27ae60' %}
     <button id="ae-chip-{{ loop.index0 }}" onclick="selectAE({{ loop.index0 }})"
         style="flex-shrink:0;min-width:130px;max-width:170px;background:var(--surface);border:1px solid var(--border);border-left:3px solid {{ util_color }};border-radius:10px;padding:10px 12px;cursor:pointer;text-align:left;transition:all 0.15s;font-family:'Space Grotesk',sans-serif;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">

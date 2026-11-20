@@ -9,6 +9,7 @@ Referrers get a test instead of a forecast (forecasting.referrer_changes). The c
 here (settings capability) and the Retrain button reruns the forecasts of the site picked.
 """
 import logging
+import math
 from datetime import date, datetime, timedelta
 
 import numpy as np
@@ -34,14 +35,20 @@ _AI_CACHE_REPORT_ID = 9900
 _AI_CACHE_TTL = 3600
 
 
+def _ai_cache_key(section, start, end):
+    """The cache keys on the site too (report_cache), and on the forecasting runs done in this
+    process: a finished run (nightly or Retrain) makes the next page fresh by itself."""
+    return {"section": section, "start": start, "end": end, "runs": forecasting.generation()}
+
+
 def _ai_cache_get(section: str, start: str, end: str):
-    """Look up a cached AI-intelligence section result (the cache keys on the site too)."""
-    return cache_get(_AI_CACHE_REPORT_ID, {"section": section, "start": start, "end": end}, ttl=_AI_CACHE_TTL)
+    """Look up a cached AI-intelligence section result."""
+    return cache_get(_AI_CACHE_REPORT_ID, _ai_cache_key(section, start, end), ttl=_AI_CACHE_TTL)
 
 
 def _ai_cache_put(section: str, start: str, end: str, data) -> None:
     """Store an AI-intelligence section result in the shared cache."""
-    cache_put(_AI_CACHE_REPORT_ID, {"section": section, "start": start, "end": end}, data, ttl=_AI_CACHE_TTL)
+    cache_put(_AI_CACHE_REPORT_ID, _ai_cache_key(section, start, end), data, ttl=_AI_CACHE_TTL)
 
 
 def _clear_ai_cache():
@@ -51,6 +58,11 @@ def _clear_ai_cache():
 # ─────────────────────────────────────────────
 #  HELPERS
 # ─────────────────────────────────────────────
+#
+# Every study query here joins the device map LATERAL ... LIMIT 1 (one row per study): the map's
+# UNIQUE is on the raw aetitle, so 'ct99' and 'CT99' can both be rows, and the plain case-blind
+# join counted a study once per row (found 2026-11-20). The training's queries match
+# (utils/forecasting.VOLUME_SQL ...).
 
 def _calendar_names(start, end):
     """{'YYYY-MM-DD': (name, kind)} for the calendar days between start and end (events too)."""
@@ -72,11 +84,24 @@ def _detect_anomalies(values, threshold=2.0, dates=None, skip=None):
     If dates are provided, uses weekday-aware detection (compares each day
     against its own weekday's mean/std) to avoid flagging normal Mon-vs-Sun
     differences as anomalies. Days in skip (holidays, closures: the calendar
-    explains them) are never anomalies and stay out of the weekday statistics."""
+    explains them) are never anomalies and stay out of the weekday statistics.
+
+    Each day is measured against the OTHER days (leave-one-out, review of 2026-11-20): with five
+    to seven same-weekday samples, counting the day in its own mean and spread pulled the mean
+    towards it and shrank the spread, and real anomalies went unflagged."""
     if len(values) < 4:
         return [False] * len(values)
     arr = np.array(values, dtype=float)
+    idx = np.arange(len(arr))
     skip = skip or set()
+
+    def flag(v, others):
+        if others.sum() < 2:
+            return False
+        mean, std = arr[others].mean(), arr[others].std()
+        if std == 0:                 # the other days all alike: any difference stands out
+            return bool(v != mean)
+        return bool(abs(v - mean) > threshold * std)
 
     if dates is not None and len(dates) == len(values):
         dows = np.array([pd.to_datetime(d).weekday() for d in dates])
@@ -86,19 +111,13 @@ def _detect_anomalies(values, threshold=2.0, dates=None, skip=None):
             if not keep[i]:
                 flags.append(False)
                 continue
-            same_dow = arr[(dows == dows[i]) & keep]
-            if len(same_dow) < 3:
-                # Not enough same-weekday samples — fall back to global
-                mean, std = arr[keep].mean(), arr[keep].std()
-            else:
-                mean, std = same_dow.mean(), same_dow.std()
-            flags.append(bool(std > 0 and abs(v - mean) > threshold * std))
+            same_dow = (dows == dows[i]) & keep & (idx != i)
+            # fewer than two other same-weekday days (three with this one, the old rule): every
+            # other kept day instead
+            flags.append(flag(v, same_dow if same_dow.sum() >= 2 else keep & (idx != i)))
         return flags
 
-    mean, std = arr.mean(), arr.std()
-    if std == 0:
-        return [False] * len(values)
-    return [bool(abs(v - mean) > threshold * std) for v in values]
+    return [flag(v, idx != i) for i, v in enumerate(arr)]
 
 
 def _forecast_run(key):
@@ -175,6 +194,10 @@ def _get_storage_intelligence(start, end):
 
     # total_gb is GB of images ADDED on that study_date (a daily delta, not a running total):
     # how full the archive is now is the sum of every row ever recorded, whatever dates are picked.
+    # Site: summary_storage_daily has no site column, and needs none. Each site has its own
+    # database (CLAUDE.md rule 10) and the rollup writes only the devices of the site its database
+    # serves (ETL_JOBS/etl_analytics_refresh._served_site, rayd_served_site_id()), so the sum here
+    # is this site's archive. The Super Report reads the same table the same way.
     current_gb = float(db.session.execute(text(
         "SELECT COALESCE(SUM(total_gb), 0) FROM summary_storage_daily"
     )).scalar() or 0.0)
@@ -265,11 +288,14 @@ def _get_volume_intelligence(start, end):
     if cached is not None:
         return cached
 
-    # modality from the device first (CLAUDE.md rule 3), as the forecast counts it
+    # modality from the device first (CLAUDE.md rule 3), as the forecast counts it.
+    # Site: etl_didb_studies here is the request's rh view (utils/rh_scope.py, migration 0165),
+    # which keeps the site its database serves; the nightly training reads the same views
+    # (forecasting.run_for_site), so history and forecast count the same studies.
     rows = db.session.execute(text("""
         SELECT s.study_date, COUNT(*) AS cnt
         FROM etl_didb_studies s
-        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+        LEFT JOIN LATERAL (SELECT m0.modality FROM aetitle_modality_map m0 WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) ORDER BY m0.id LIMIT 1) m ON TRUE
         WHERE s.study_date BETWEEN :s AND :e
           AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
         GROUP BY s.study_date
@@ -304,7 +330,7 @@ def _get_volume_intelligence(start, end):
             COUNT(*) as cnt
         FROM etl_didb_studies s
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
-        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+        LEFT JOIN LATERAL (SELECT m0.modality FROM aetitle_modality_map m0 WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) ORDER BY m0.id LIMIT 1) m ON TRUE
         WHERE s.study_date BETWEEN :s AND :e
           AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
         GROUP BY 1 ORDER BY 2 DESC LIMIT 8
@@ -378,10 +404,29 @@ def _explain_volume(d):
     return exp
 
 
+# A device's average utilization above the first is "stressed", below the second (and above 0)
+# "low": settings keys, these values when absent or not a number (review of 2026-11-20; they were
+# literals). Report AI's own keys: sr_* are the Super Report's.
+_UTIL_DEFAULTS = {"ai_util_high_warn_pct": 85.0, "ai_util_low_warn_pct": 30.0}
+
+
+def _util_thresholds():
+    rows = db.session.execute(text("SELECT key, value FROM settings WHERE key = ANY(:k)"),
+                              {"k": list(_UTIL_DEFAULTS)}).fetchall()
+    out = dict(_UTIL_DEFAULTS)
+    for key, value in rows:
+        try:
+            out[key] = float(value)
+        except (TypeError, ValueError):
+            logger.warning("settings %s = %r is not a number; using %s", key, value, out[key])
+    return out["ai_util_high_warn_pct"], out["ai_util_low_warn_pct"]
+
+
 def _get_utilization_intelligence(start, end):
     cached = _ai_cache_get("utilization", start, end)
     if cached is not None:
         return cached
+    high_pct, low_pct = _util_thresholds()
 
     # Pull estimated load per AE per day from procedure_duration_map.
     # COALESCE(pm.duration_minutes, 15) mirrors the sitewide default applied
@@ -405,7 +450,7 @@ def _get_utilization_intelligence(start, end):
             COALESCE(SUM(COALESCE(pm.duration_minutes, 15)), 0) as load_mins
         FROM etl_didb_studies s
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
-        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+        LEFT JOIN LATERAL (SELECT m0.modality FROM aetitle_modality_map m0 WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) ORDER BY m0.id LIMIT 1) m ON TRUE
         WHERE s.study_date BETWEEN :s AND :e
           AND s.storing_ae IS NOT NULL
           AND UPPER(TRIM(s.storing_ae)) != 'SJHCSAPWFMFIR'
@@ -423,7 +468,7 @@ def _get_utilization_intelligence(start, end):
             COUNT(*) AS cnt
         FROM etl_didb_studies s
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
-        LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
+        LEFT JOIN LATERAL (SELECT m0.modality FROM aetitle_modality_map m0 WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) ORDER BY m0.id LIMIT 1) am ON TRUE
         WHERE s.study_date BETWEEN :s AND :e
           AND s.storing_ae IS NOT NULL
           AND UPPER(TRIM(s.storing_ae)) != 'SJHCSAPWFMFIR'
@@ -453,8 +498,18 @@ def _get_utilization_intelligence(start, end):
     # table, is disabled here via RAYD_ETL_LOOKUP_FROM_PACS=false) got day_cap=0 and thus
     # util_pct=0 for every single day — driving from aetitle_modality_map (the master
     # device registry, every AE regardless of source) x 7 weekdays fixes that.
+    #
+    # day_of_week in both tables is RAYD's convention, 0 = Monday .. 6 = Sunday (migration 0108;
+    # the RIS's 0 = Sunday is converted at load, ETL_JOBS/etl_ris_modality_availability.py), the
+    # same as pandas' dayofweek and Python's weekday() used below.
+    #
+    # One row per device and weekday, whatever the case of the AE titles (review of 2026-11-20):
+    # aetitle_modality_map's UNIQUE is on the raw aetitle, so 'ct99' and 'CT99' can both be rows,
+    # and the case-blind joins gave two rows for one device and day; the dict below kept the last,
+    # in no particular order. DISTINCT ON keeps one, by a stated priority: a row with the RIS's
+    # opening minutes first, then the lowest map id.
     sched = db.session.execute(text("""
-        SELECT
+        SELECT DISTINCT ON (UPPER(TRIM(m.aetitle)), d.day_of_week)
             UPPER(TRIM(m.aetitle)) AS ae,
             d.day_of_week,
             COALESCE(dwa.available_minutes, m.daily_capacity_minutes, ws.std_opening_minutes, 480) AS std_opening_minutes
@@ -464,6 +519,8 @@ def _get_utilization_intelligence(start, end):
             ON UPPER(TRIM(dwa.aetitle)) = UPPER(TRIM(m.aetitle)) AND dwa.day_of_week = d.day_of_week
         LEFT JOIN device_weekly_schedule ws
             ON UPPER(TRIM(ws.aetitle)) = UPPER(TRIM(m.aetitle)) AND ws.day_of_week = d.day_of_week
+        ORDER BY UPPER(TRIM(m.aetitle)), d.day_of_week, (dwa.available_minutes IS NULL), m.id,
+                 dwa.aetitle, ws.aetitle
     """)).mappings().all()
     schedule_lookup = {(s['ae'], int(s['day_of_week'])): s['std_opening_minutes'] for s in sched}
 
@@ -485,7 +542,7 @@ def _get_utilization_intelligence(start, end):
                 SUM(EXTRACT(EPOCH FROM (pps.end_datetime - pps.start_datetime)) / 60) AS mins
             FROM std_pps pps
             JOIN etl_didb_studies s ON s.study_db_uid = pps.study_db_uid
-            LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
+            LEFT JOIN LATERAL (SELECT m0.modality FROM aetitle_modality_map m0 WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) ORDER BY m0.id LIMIT 1) am ON TRUE
             WHERE pps.start_datetime::date BETWEEN :s AND :e
               AND pps.end_datetime IS NOT NULL
               AND pps.end_datetime > pps.start_datetime
@@ -553,8 +610,11 @@ def _get_utilization_intelligence(start, end):
 
     # the stored 30-day forecasts of each device's minutes (utils/forecasting.py), turned into
     # utilization with the device's capacity of that weekday; none where the RIS gives none
+    # The training writes the AE upper case (utils/forecasting DEVICE_EST_SQL: UPPER(TRIM(...))),
+    # and the lookups below use UPPER(TRIM(ae)); both sides are put upper case here too, so a
+    # device's forecast is found whatever wrote the key (review of 2026-11-20).
     fc_by_ae = {}
-    runs = {r[0]: r for r in db.session.execute(text("""
+    runs = {"device:" + r[0][len('device:'):].upper(): r for r in db.session.execute(text("""
         SELECT series_key, model, trained_to, run_at, info FROM public.ai_forecast_run
         WHERE series_key LIKE 'device:%'
     """)).fetchall()}
@@ -562,7 +622,7 @@ def _get_utilization_intelligence(start, end):
         SELECT series_key, ds, yhat, yhat_lower, yhat_upper FROM public.ai_forecast
         WHERE series_key LIKE 'device:%' ORDER BY series_key, ds
     """)).fetchall():
-        fc_by_ae.setdefault(k[len('device:'):], []).append((ds, float(yhat), float(lo), float(hi)))
+        fc_by_ae.setdefault(k[len('device:'):].upper(), []).append((ds, float(yhat), float(lo), float(hi)))
     cal = _calendar_names(start, end)
     hol = {d for d, (n, k) in cal.items() if k in ('closure', 'half_day')}
 
@@ -584,9 +644,9 @@ def _get_utilization_intelligence(start, end):
         anom_count = sum(anomalies)
         all_anomalies += anom_count
 
-        if avg_util > 85:
+        if avg_util > high_pct:
             high_stress.append(label)
-        elif 0 < avg_util < 30:
+        elif 0 < avg_util < low_pct:
             low_util.append(label)
 
         ae_up = str(ae).upper().strip()
@@ -638,6 +698,8 @@ def _get_utilization_intelligence(start, end):
 
     data = {
         "anomaly_count": all_anomalies,
+        "high_pct":      high_pct,
+        "low_pct":       low_pct,
         "high_stress":   high_stress,
         "low_util":      low_util,
         "no_capacity":   [a["label"] for a in ae_results if a["no_capacity"]],
@@ -651,10 +713,11 @@ def _get_utilization_intelligence(start, end):
 def _explain_utilization(d):
     exp = (f"{d['anomaly_count']} unusual days across the devices (a day far from that device's normal "
            f"for the same weekday; holidays are not counted). ")
+    hi, lo = d.get("high_pct", 85.0), d.get("low_pct", 30.0)
     if d["high_stress"]:
-        exp += f"Running above 85% on average: {', '.join(d['high_stress'][:3])}. "
+        exp += f"Running above {hi:g}% on average: {', '.join(d['high_stress'][:3])}. "
     if d["low_util"]:
-        exp += f"Below 30%: {', '.join(d['low_util'][:3])}. "
+        exp += f"Below {lo:g}%: {', '.join(d['low_util'][:3])}. "
     if d["no_capacity"]:
         exp += (f"{len(d['no_capacity'])} device(s) have no opening hours on the RIS "
                 f"({', '.join(d['no_capacity'][:4])}), so their utilization cannot be worked out; "
@@ -675,7 +738,7 @@ def _get_physician_intelligence(start, end):
     rows = db.session.execute(text(f"""
         SELECT {_PHYSICIAN} AS physician, TO_CHAR(s.study_date, 'YYYY-MM') AS month, COUNT(*) AS cnt
         FROM etl_didb_studies s
-        LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
+        LEFT JOIN LATERAL (SELECT m0.modality FROM aetitle_modality_map m0 WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) ORDER BY m0.id LIMIT 1) am ON TRUE
         WHERE s.study_date BETWEEN :s AND :e
           AND s.referring_physician_first_name IS NOT NULL
           AND COALESCE(am.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
@@ -696,7 +759,7 @@ def _get_physician_intelligence(start, end):
             COUNT(*) as cnt
         FROM etl_didb_studies s
         LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
-        LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
+        LEFT JOIN LATERAL (SELECT m0.modality FROM aetitle_modality_map m0 WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) ORDER BY m0.id LIMIT 1) am ON TRUE
         WHERE s.study_date BETWEEN :s AND :e
           AND s.referring_physician_first_name IS NOT NULL
           AND COALESCE(am.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
@@ -716,7 +779,7 @@ def _get_physician_intelligence(start, end):
                COUNT(*) FILTER (WHERE s.study_date BETWEEN :r0 AND :r1) AS recent,
                COUNT(*) FILTER (WHERE s.study_date BETWEEN :l0 AND :l1) AS last_year
         FROM etl_didb_studies s
-        LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
+        LEFT JOIN LATERAL (SELECT m0.modality FROM aetitle_modality_map m0 WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) ORDER BY m0.id LIMIT 1) am ON TRUE
         WHERE (s.study_date BETWEEN :r0 AND :r1 OR s.study_date BETWEEN :l0 AND :l1)
           AND COALESCE(am.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
         GROUP BY 1
@@ -826,11 +889,21 @@ def _fetch_section(tab_name, start, end):
 
 
 def _resolve_date_range(values):
+    """start, end as 'YYYY-MM-DD'. Empty or unreadable dates take the defaults (the report start
+    date, today) instead of reaching a query: ?start_date=&end_date= used to give '' (review of
+    2026-11-20). Dates the wrong way round are swapped."""
     go_live = get_report_start_date() or date(2025, 1, 1)
-    today   = date.today()
-    start = values.get("start_date", go_live.strftime('%Y-%m-%d'))
-    end   = values.get("end_date",   today.strftime('%Y-%m-%d'))
-    return start, end
+
+    def day(raw, default):
+        try:
+            return datetime.strptime(str(raw or '').strip(), '%Y-%m-%d').date()
+        except ValueError:
+            return default
+    start = day(values.get("start_date"), go_live)
+    end = day(values.get("end_date"), date.today())
+    if end < start:
+        start, end = end, start
+    return start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')
 
 
 @report_ai_bp.route("/report/ai", methods=["GET", "POST"])
@@ -897,10 +970,16 @@ def report_ai_panel(section):
 def save_storage_capacity():
     if not can(current_user, 'settings'):
         return jsonify({"status": "error", "message": "Admin only"}), 403
+    # A body that is not JSON, or a value that is not a number, is the sender's mistake: 400, not
+    # 500 (review of 2026-11-20). "1,024" reads as 1024.
+    body = request.get_json(silent=True) or {}
     try:
-        val = float(request.get_json(force=True).get("capacity_gb", 0))
-        if val <= 0:
-            return jsonify({"status": "error", "message": "Must be > 0"}), 400
+        val = float(str(body.get("capacity_gb", "")).replace(",", "").strip())
+    except ValueError:
+        return jsonify({"status": "error", "message": "The capacity must be a number of GB"}), 400
+    if not math.isfinite(val) or val <= 0:
+        return jsonify({"status": "error", "message": "Must be > 0"}), 400
+    try:
         exists = db.session.execute(text(
             "SELECT 1 FROM settings WHERE key = 'storage_capacity_gb'"
         )).fetchone()
@@ -1027,8 +1106,9 @@ def forecast_status():
     rows = db.session.execute(text("""
         SELECT series_key, model, trained_to, run_at FROM public.ai_forecast_run ORDER BY series_key
     """)).fetchall()
-    if not forecasting.is_running():
-        _clear_ai_cache()
+    # No cache clearing here: a finished run changes forecasting.generation(), part of the cache
+    # key. Clearing on every call made while idle emptied the cache for good as soon as anything
+    # polled this endpoint (review of 2026-11-20).
     return jsonify({"running": forecasting.is_running(),
                     "series": [{"key": r[0], "model": r[1], "trained_to": str(r[2]),
                                 "run_at": r[3].strftime('%Y-%m-%d %H:%M') if r[3] else None} for r in rows]})

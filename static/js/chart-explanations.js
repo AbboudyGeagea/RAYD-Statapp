@@ -1128,15 +1128,15 @@ const ChartExplanations = {
       interpretation: 'A run of unusual days on one device usually means it was down or overbooked.'
     },
     'ai-util-high': {
-      title: 'Above 85%',
-      purpose: 'Devices whose average utilization in the dates picked is above 85 %.',
+      title: 'Above the high limit',
+      purpose: 'Devices whose average utilization in the dates picked is above the high limit: 85 % unless an administrator has changed it (setting ai_util_high_warn_pct).',
       valueMeaning: 'Utilization = minutes of exams (measured on the RIS where available, else estimated from the procedure durations) ÷ the device’s opening minutes that weekday.',
       interpretation: 'These devices have no slack: delays and overtime follow. Check their 30-day forecast.'
     },
     'ai-util-low': {
-      title: 'Below 30%',
-      purpose: 'Devices whose average utilization in the dates picked is between 0 and 30 %.',
-      valueMeaning: 'Same calculation as Above 85%. Devices with no opening hours on the RIS are not counted here.',
+      title: 'Below the low limit',
+      purpose: 'Devices whose average utilization in the dates picked is between 0 and the low limit: 30 % unless an administrator has changed it (setting ai_util_low_warn_pct).',
+      valueMeaning: 'Same calculation as the high limit. Devices with no opening hours on the RIS are not counted here.',
       interpretation: 'Low use can mean spare capacity, or opening hours on the RIS that are wider than the device really runs.'
     },
     'ai-util-chart': {

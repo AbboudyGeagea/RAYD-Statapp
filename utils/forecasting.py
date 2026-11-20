@@ -309,10 +309,14 @@ def train_from(conn):
         return TRAIN_FROM
 
 
+# The device map is joined LATERAL ... LIMIT 1, one row per study (found 2026-11-20): its UNIQUE is
+# on the raw aetitle, so 'ct99' and 'CT99' can both be rows, and a plain case-blind join counted a
+# study once per row, doubling its volume and minutes. Report AI's queries join it the same way,
+# so history and forecast count alike (the Super Report's _joins() does the same).
 VOLUME_SQL = """
     SELECT s.study_date, COUNT(*)
     FROM etl_didb_studies s
-    LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+    LEFT JOIN LATERAL (SELECT m0.modality FROM aetitle_modality_map m0 WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) ORDER BY m0.id LIMIT 1) m ON TRUE
     WHERE s.study_date >= :f AND s.study_date < :today
       AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'BMD')
     GROUP BY 1
@@ -324,7 +328,7 @@ DEVICE_EST_SQL = """
     SELECT UPPER(TRIM(s.storing_ae)) AS ae, s.study_date, SUM(COALESCE(pm.duration_minutes, 15))
     FROM etl_didb_studies s
     LEFT JOIN procedure_duration_map pm ON pm.procedure_code = s.procedure_code
-    LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
+    LEFT JOIN LATERAL (SELECT m0.modality FROM aetitle_modality_map m0 WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) ORDER BY m0.id LIMIT 1) m ON TRUE
     WHERE s.study_date >= :f AND s.study_date < :today
       AND s.storing_ae IS NOT NULL
       AND UPPER(TRIM(s.storing_ae)) != 'SJHCSAPWFMFIR'
@@ -336,7 +340,7 @@ DEVICE_ACT_SQL = """
            SUM(EXTRACT(EPOCH FROM (pps.end_datetime - pps.start_datetime)) / 60)
     FROM std_pps pps
     JOIN etl_didb_studies s ON s.study_db_uid = pps.study_db_uid
-    LEFT JOIN aetitle_modality_map am ON UPPER(TRIM(am.aetitle)) = UPPER(TRIM(s.storing_ae))
+    LEFT JOIN LATERAL (SELECT m0.modality FROM aetitle_modality_map m0 WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae)) ORDER BY m0.id LIMIT 1) am ON TRUE
     WHERE pps.start_datetime >= :f AND pps.start_datetime < :today
       AND pps.end_datetime > pps.start_datetime
       AND pps.performing_ae_title IS NOT NULL
@@ -444,7 +448,19 @@ def run(engine, today=None):
     summary = {"series": len(results), "failed": len(series) - len(results), "checked_days": checked,
                "models": sorted({info["model"] for _y, (_fc, info) in results.values()})}
     logger.info(f"[AI forecasts] {summary}")
+    global _generation
+    _generation += 1
     return summary
+
+
+# How many runs have stored forecasts in this process (nightly or Retrain). Report AI keys its cache
+# on it, so the pages computed before a run are not served after it (review of 2026-11-20: the
+# status endpoint used to clear the whole cache on every call made while nothing was training).
+_generation = 0
+
+
+def generation():
+    return _generation
 
 
 def _json(obj):
