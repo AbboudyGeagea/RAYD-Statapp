@@ -290,8 +290,15 @@ item 1 checks (booked room, HIS vs RIS 19 Nov MRI); the BRAYN per-modality break
 query in item 17's notes above, "The breakdown") → which steps each modality sends → switch on
 the stall rules.
 
-**Next builds:** the SJH move before Tue 24 (runbook in item 13, "Production runbook", with the 13d
-addition above); item 17 BRAYN enhancements once listed; item 14's December rest.
+**SJH move PARKED (operator, 20 Nov evening): a separate task, after a larger task the operator
+brings next.** The clean restart (item 13, "20 Nov, what happened and the clean restart") waits;
+meanwhile production should be left clean: Sunday's timer stopped (`sudo systemctl stop
+rayd-sjh-move.timer`), SJH switched off (`POSTGRES_DB_SJH` removed from .env, app restarted) and
+the partial `etl_db_sjh` dropped (`DROP DATABASE IF EXISTS etl_db_sjh WITH (FORCE)`, from etl_db).
+
+**Next builds:** the operator's next (large) task; then the SJH move (runbook in item 13,
+"Production runbook", with the 13d addition above); item 17 BRAYN enhancements once listed;
+item 14's December rest.
 Item 1, booked room: **built 19 Nov evening (migration 0172), deploy waiting.** The RIS check
 (`scripts/sql/ris_booked_room_check.sql`, run by the operator 19 Nov): SPS = 842,468 rows, SPS_ID
 its key (one booking per exam), START_DATETIME indexed, no change date; exams never booked
