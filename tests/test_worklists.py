@@ -165,6 +165,41 @@ def test_migrations_applied_through_the_app_runner(app):
         {'rolcanlogin': True, 'rolsuper': False}
 
 
+KEPT_EXAMPLE = 'Studies per modality, by month'
+
+
+def test_one_example_is_left(app):
+    """Migration 0181 (operator, 2026-11-20): of 0136's 14 examples, one stays."""
+    assert [r['name'] for r in sql("SELECT name FROM worklists WHERE folder = 'Examples'")] == \
+        [KEPT_EXAMPLE]
+    assert sql("SELECT COUNT(*) AS n FROM worklist_versions v JOIN worklists w ON w.id = v.worklist_id "
+               "WHERE w.folder = 'Examples'")[0]['n'] == 1
+
+
+def test_the_example_cleanup_spares_owned_and_scheduled_reports(app):
+    """Run 0181 again over a mixed library: another ownerless example goes; a report someone
+    saved into a folder called Examples, and an example a schedule sends, stay."""
+    users()
+    migration = open(os.path.join(ROOT, 'migrations', '0181_report_composer_one_example.sql'),
+                     encoding='utf-8').read()
+    defn = '{"dataset": "studies", "output": {"kind": "list"}}'
+    ids = {name: sql("""INSERT INTO worklists (name, folder, visibility, owner_id, dataset, definition)
+                        VALUES (:n, 'Examples', 'shared', :o, 'studies', CAST(:d AS jsonb))
+                        RETURNING id""", n=name, o=owner, d=defn)[0]['id']
+           for name, owner in (('wl-old-example', None), ('wl-scheduled-example', None),
+                               ('wl-someones-own', ADMIN))}
+    sched = sql("""INSERT INTO worklist_email_schedules (name, recipients, frequency, send_time, next_run_at)
+                   VALUES ('wl-pack', ARRAY['a@laumc.com'], 'daily', '07:00', now()) RETURNING id""")[0]['id']
+    sql("INSERT INTO worklist_email_schedule_items VALUES (:s, :w)", s=sched, w=ids['wl-scheduled-example'])
+    try:
+        sql(migration)
+        left = {r['name'] for r in sql("SELECT name FROM worklists WHERE folder = 'Examples'")}
+        assert left == {KEPT_EXAMPLE, 'wl-scheduled-example', 'wl-someones-own'}
+    finally:
+        sql("DELETE FROM worklist_email_schedules WHERE id = :s", s=sched)
+        sql("DELETE FROM worklists WHERE name LIKE 'wl-%'")
+
+
 def test_custom_reports_is_gone(app):
     for path in ('routes/custom_reports.py', 'routes/report_widgets.py',
                  'templates/custom_reports_list.html', 'templates/custom_reports_view.html',
@@ -228,14 +263,24 @@ def test_every_criterion_compiles_and_runs(app, dataset, fid):
     run_defn({'dataset': dataset, 'criteria': {fid: c}})
 
 
-def test_every_seeded_example_runs(app):
+def test_the_seeded_example_runs(app):
     rows = sql("SELECT name, definition FROM worklists WHERE folder = 'Examples' ORDER BY id")
-    assert len(rows) == 14
-    datasets = set()
-    for r in rows:
-        run_defn(r['definition'])
-        datasets.add(r['definition']['dataset'])
-    assert datasets == set(cat.DATASETS)          # every dataset has an example
+    assert [r['name'] for r in rows] == [KEPT_EXAMPLE]
+    run_defn(rows[0]['definition'])
+
+
+@pytest.mark.parametrize('dataset', list(cat.DATASETS))
+def test_the_panel_shows_fields_of_the_dataset(dataset):
+    """The editor's left panel: the dataset's default date as the date range, then its pinned
+    filters, each a field the dataset has (a dropdown of values, for the usual ones)."""
+    d = cat.DATASETS[dataset]
+    assert dataset in cat.FIELD[d['default_date']]['datasets']
+    assert cat.FIELD[d['default_date']]['type'] == 'date'
+    assert d['pinned'] and len(d['pinned']) == len(set(d['pinned']))
+    for fid in d['pinned']:
+        assert fid in cat.FIELD and dataset in cat.FIELD[fid]['datasets'], (dataset, fid)
+        assert cat.FIELD[fid]['type'] == 'multi', (dataset, fid)
+    assert cat.as_json()['datasets'][dataset]['pinned'] == d['pinned']
 
 
 @pytest.mark.parametrize('i', range(len(cat.SQL_EXAMPLES)))
@@ -760,6 +805,29 @@ def test_options_come_from_the_data(app):
         engine.options('studies', 'finding')
 
 
+def test_options_count_their_rows_most_frequent_first(app):
+    """The dropdown shows each value's rows in the last year, the most frequent first (ties
+    alphabetically); a fixed list keeps its own order and has no count."""
+    ae('CT_1', 'CT')
+    study(1)
+    for uid in (2, 3):
+        study(uid, storing_ae='MR_1', study_modality='MR', accession_number=f'A{uid}')
+    assert engine.options('studies', 'modality') == [{'value': 'MR', 'label': 'MR', 'n': 2},
+                                                     {'value': 'CT', 'label': 'CT', 'n': 1}]
+    assert 'n' not in engine.options('studies', 'shift')[0]
+
+
+def test_options_find_what_was_typed_beyond_the_cap(app):
+    """A field with more values than the dropdown holds: typing asks for the others, case-blind,
+    with % and _ taken literally."""
+    for uid, ae_title in enumerate(('CT_MAIN', 'CT_ER', 'MR_1', 'US%2'), start=1):
+        study(uid, storing_ae=ae_title, accession_number=f'A{uid}')
+    assert [o['value'] for o in engine.options('studies', 'device', limit=1)] == ['CT_ER']
+    assert [o['value'] for o in engine.options('studies', 'device', q='ct_m')] == ['CT_MAIN']
+    assert [o['value'] for o in engine.options('studies', 'device', q='%')] == ['US%2']
+    assert engine.options('studies', 'device', q='nothing like it') == []
+
+
 def test_options_offer_the_last_year_and_the_month_ahead(app):
     study(1, storing_ae='OLD_CT', study_date=TODAY - timedelta(days=engine.OPTIONS_DAYS + 5))
     study(2, storing_ae='NOW_CT', accession_number='A2')
@@ -813,6 +881,8 @@ def test_catalog(client):
     assert 'Morning 6–15 h' in shift['hint']
     assert c['datasets']['storage']['default_measure'] == 'gb'
     assert c['datasets']['exams']['tabs'][:3] == ['primary', 'patient', 'exam']
+    assert c['datasets']['studies']['pinned'][:3] == ['modality', 'room', 'device']
+    assert c['options_cap'] == engine.OPTIONS_CAP
     v = h(client, 'get', '/worklists/api/catalog', uid=VIEWER).get_json()['me']
     assert (v['can_write_sql'], v['can_edit_shared'], v['can_schedule']) == (False, False, False)
 
@@ -887,7 +957,9 @@ def test_run_compile_csv_and_options(client):
     assert csv.status_code == 200 and 'CT,1' in csv.get_data(as_text=True)
     assert 'filename="x_y.csv"' in csv.headers['Content-Disposition']
     opts = h(client, 'get', '/worklists/api/options?dataset=studies&field=device', uid=VIEWER).get_json()
-    assert opts == [{'value': 'CT_1', 'label': 'CT_1'}]
+    assert opts == [{'value': 'CT_1', 'label': 'CT_1', 'n': 1}]
+    typed = h(client, 'get', '/worklists/api/options?dataset=studies&field=device&q=zz', uid=VIEWER)
+    assert typed.get_json() == []
     err = h(client, 'post', '/worklists/api/run', uid=VIEWER, json={'definition': {'dataset': 'x'}})
     assert err.status_code == 400
 
@@ -924,17 +996,23 @@ def test_page_renders_for_a_viewer(client):
     assert 'href="/report-composer"' in html        # the sidebar
 
 
-def test_page_template_parses_and_its_script_is_valid_js():
-    import jinja2
-    path = os.path.join(ROOT, 'templates', 'worklists.html')
-    src = open(path, encoding='utf-8').read()
-    jinja2.Environment().parse(src)
-    assert not re.search(r'\b(alert|confirm|prompt)\(', src.replace('window.confirm(', '')), \
-        'use SweetAlert2 (askYesNo / toast), not the browser dialogs'
-    if not shutil.which('node'):
-        pytest.skip('node not installed')
-    script = re.search(r'<script>\n(.*?)</script>', src, re.S).group(1)
-    script = re.sub(r'\{\{.*?\}\}', 'x', script)
+def test_page_has_the_reports_frame_and_the_sql_behind_a_click(client):
+    """Revamp of 2026-11-20: the reports' left panel (one, with Generate), the result in
+    cards, and the SQL in a drawer that is closed until the SQL button opens it."""
+    users()
+    html = h(client, 'get', '/report-composer', uid=VIEWER).get_data(as_text=True)
+    assert html.count('aria-label="Report filters"') == 1 and 'class="rfp ' in html
+    assert 'select2' in html                         # the reports' dropdowns
+    assert re.search(r'id="btn-run" class="rfp-generate"[^>]*>Generate</button>', html)
+    assert re.search(r'<div id="sql-drawer" hidden>', html)
+    assert 'id="btn-sql"' in html and 'id="sql-view"' in html
+    assert html.index('id="sql-drawer"') > html.index('</main>')     # not part of the page
+    assert 'js/report_composer.js" defer></script>' in html
+    for key in ('rc-report', 'rc-filters', 'rc-show-as', 'rc-kpi-rows', 'rc-kpi-time', 'rc-result'):
+        assert f'data-explain="{key}"' in html, key
+
+
+def _node_check(script):
     tmp = os.path.join(os.path.dirname(__file__), '_worklists_page.js')
     try:
         open(tmp, 'w', encoding='utf-8').write(script)
@@ -942,3 +1020,23 @@ def test_page_template_parses_and_its_script_is_valid_js():
         assert done.returncode == 0, done.stderr
     finally:
         os.remove(tmp)
+
+
+def test_page_template_parses_and_its_script_is_valid_js():
+    import jinja2
+    src = open(os.path.join(ROOT, 'templates', 'worklists.html'), encoding='utf-8').read()
+    js = open(os.path.join(ROOT, 'static', 'js', 'report_composer.js'), encoding='utf-8').read()
+    jinja2.Environment().parse(src)
+    for text_ in (src, js):
+        assert not re.search(r'\b(alert|confirm|prompt)\(', text_.replace('window.confirm(', '')), \
+            'use SweetAlert2 (askYesNo / toast), not the browser dialogs'
+    # every element the script looks up by id is on the page
+    page_ids = set(re.findall(r'\bid="([^"{}]+)"', src))
+    made_by_script = set(re.findall(r'\bid="([^"$]+)"', js))
+    wanted = set(re.findall(r"\$\('([a-z0-9-]+)'\)", js))
+    assert wanted - page_ids - made_by_script == set()
+    if not shutil.which('node'):
+        pytest.skip('node not installed')
+    inline = re.search(r'<script>\n(.*?)</script>', src, re.S).group(1)
+    _node_check(re.sub(r'\{\{.*?\}\}', 'x', inline))
+    _node_check(js)

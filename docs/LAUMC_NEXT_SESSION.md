@@ -9,9 +9,30 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 
 ## Where we stopped (2026-11-20, evening) — START HERE in a new session
 
-**Next: the Report Composer revamp** (operator, 20 Nov: "a huge task before this migration"). The
-operator brings the spec in the new session; read it, then come back with a plan before building.
-Today's Report Composer: `/report-composer`, `routes/worklists.py` (489 lines),
+**Now: the Report Composer revamp** (operator, 20 Nov: "a huge task before this migration").
+**Spec points 1–4 built 20 Nov evening** (operator's spec: "1- UI unification with the rest of the
+app, 2- make the SQL tab inaccessible easily, add a click for it, 3- all the filters (modality,
+room, radiologist ...) need better visualisation, 4- remove the existing templates, keep one only";
+"let's start with these and we will continue from there"):
+1. the reports' frame: the left panel (`.rfp`, `filter_panel_head()`): Report (dropdown of the
+   library, New / Duplicate / Delete), What to count, the dataset's date as the Date range (quick
+   chips, From – to, Previous / next N), Filters, Generate, Download CSV; the main area: the name and
+   description edited in place, Personal / Shared, folder, History, status; cards "Filters applied",
+   "Show as", Rows / Run time tiles, Result; (i) on each (`rc-*` in chart-explanations.js);
+2. the SQL leaves the page: the SQL button opens a drawer (built from the filters, read-only;
+   written by hand for the settings capability; SQL reference);
+3. each dataset's usual filters always shown (catalog `DATASETS[..]['pinned']`: studies = modality,
+   room, device, signing radiologist, technologist, patient type, report stage), as Select2
+   dropdowns whose values carry their row count in the last year, most frequent first
+   (`engine.options` counts; `q` finds a value past the 300 shown); every other field under
+   "Add filter" (grouped as the old tabs, searchable); what is applied as removable tags;
+4. migration **0181**: 13 of the 14 examples deleted, "Studies per modality, by month" kept
+   (production had none in a schedule, operator's query of 20 Nov).
+Page script moved to `static/js/report_composer.js`. The definition format, the engine, the
+sandbox, permissions, versions and schedules are unchanged. **Next:** the operator looks at it on
+the server after the deploy and gives the next points.
+
+Report Composer before the revamp: `/report-composer`, `routes/worklists.py` (489 lines),
 `utils/worklist_engine.py` (compiler), `utils/worklist_catalog.py` (fields; tests fail on an
 undocumented view column), `utils/worklist_email.py` (scheduled .xlsx mails),
 `templates/worklists.html` (~1,000 lines, one template); reads only the 7 `rpt.*` views of
@@ -33,9 +54,9 @@ fixes; update.sh refuses while a move runs). Confirm with
 
 | # | Item | Status |
 |---|------|--------|
-| **New** | **Report Composer revamp** | Waiting for the operator's spec |
+| **New** | **Report Composer revamp**, spec points 1–4 (above), migration 0181 | Built and tested 20 Nov evening; deploy, then the operator looks and gives the next points |
 | 1 | HIS vs RIS: 19 Nov MRI on Report 27's HIS tab (query in the 20 Nov morning checklist below) | Waiting on the operator (booked room closed: 1,472 / 1,472) |
-| — | Deploy c116e9b0, 2d9a96e2, a3bd60b9: `cd /opt/rayd && sudo bash update.sh LAUMC`; then open the Super Report (Generate, a preset, comparison dates under the range), Report AI (each tab, calendar, device switch), Report 27 (Peak Hours under Hourly Load) | Ready, any time |
+| — | Deploy c116e9b0, 2d9a96e2, a3bd60b9 and the Report Composer revamp (0181): `cd /opt/rayd && sudo bash update.sh LAUMC`; then open the Super Report (Generate, a preset, comparison dates under the range), Report AI (each tab, calendar, device switch), Report 27 (Peak Hours under Hourly Load), the Report Composer (a dropdown's counts, Add filter, the SQL button) | Ready, any time |
 | 17 | BRAYN: per-modality breakdown (query in item 17, "The breakdown") → mark arrival/start not expected where the RIS never sends them → operator switches on the stall rules (ORPHAN_ORDER suggested off); the 7 approved-without-report accessions to Mirth | Waiting on the operator |
 | **SJH DB preparation** (parked, separate task, after the revamp) | | |
 | 13-1 | Stop Sunday's timer: `sudo systemctl stop rayd-sjh-move.timer` | Now, so it does not start by itself |

@@ -8,7 +8,11 @@ NLP findings, storage, CRN). Ported 2026-11-02, replacing Custom Reports.
 What people read says Report Composer and "report". The code keeps the word worklist
 (tables, modules, API paths): renaming those would change nothing anyone sees.
 
-    /report-composer           the editor (saved tree · definition · SQL & results)
+    /report-composer           the editor, laid out like every report since the revamp of
+                               2026-11-20: left panel (report, dataset, date range, the
+                               filters as dropdowns with their counts, Generate, CSV),
+                               results in cards; the SQL opens on a click, in a drawer.
+                               Page script: static/js/report_composer.js
     /worklists/api/...         catalog, list, load, save, delete, versions,
                                compile, run, csv, options, sql-reference,
                                schedules (the mail server itself is set in
@@ -153,6 +157,8 @@ def api_catalog():
     from db import get_report_start_date
     start = get_report_start_date()
     out['report_start_date'] = start.isoformat() if start else None
+    # A dropdown holding this many values may have more: what is typed asks the server.
+    out['options_cap'] = engine.OPTIONS_CAP
     return jsonify(out)
 
 
@@ -435,7 +441,8 @@ def api_sql_reference():
 def api_options():
     _require_access()
     try:
-        return jsonify(engine.options(request.args.get('dataset'), request.args.get('field')))
+        return jsonify(engine.options(request.args.get('dataset'), request.args.get('field'),
+                                      q=request.args.get('q')))
     except WorklistError as e:
         return _error(e)
 

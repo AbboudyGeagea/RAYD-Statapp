@@ -465,29 +465,40 @@ def run(compiled=None, hand_sql=None, cap=ROW_CAP):
             'elapsed_ms': round((time.monotonic() - started) * 1000)}
 
 
-def options(dataset, field_id, limit=OPTIONS_CAP, now=None):
+def options(dataset, field_id, limit=OPTIONS_CAP, now=None, q=None):
     """
     The values a 'distinct' picker offers, from the data itself: those of the last
     OPTIONS_DAYS by the dataset's default date, and of the month ahead (appointments).
     Bounded on LAUMC because a view of every RIS exam or PACS study, each with its
     lookups, does not finish inside the statement timeout; the date filter reads a
     year through the date index instead.
+
+    Each value comes with n, its rows in that same year, most frequent first (the
+    dropdown shows "CT · 41,203"): the same rows the DISTINCT read, counted. A field
+    with more values than the cap offers its most frequent ones; q (what was typed in
+    the dropdown) finds the others, as a case-blind "contains". A fixed list keeps its
+    own order and has no count.
     """
     f = cat.FIELD.get(field_id)
     if dataset not in cat.DATASETS or not f or dataset not in f['datasets']:
         raise WorklistError('unknown field')
     if isinstance(f.get('options'), list):
         return [{'value': v, 'label': l} for v, l in f['options']]
-    params, where = {}, [f'{_col(f["col"])} IS NOT NULL']
+    col = _col(f['col'])
+    params, where = {}, [f'{col} IS NOT NULL']
     day = cat.FIELD[cat.DATASETS[dataset]['default_date']]
     today = (now or datetime.now()).date()
     where.append(_criterion(dataset, day, {'mode': 'fixed',
                                            'from': str(today - timedelta(OPTIONS_DAYS)),
                                            'to': str(today + timedelta(31))}, params, now))
-    compiled = {'sql': f'SELECT DISTINCT {_col(f["col"])} AS v FROM {cat.DATASETS[dataset]["view"]} d '
-                       f'WHERE {" AND ".join(where)} ORDER BY 1', 'params': params}
+    q = str(q or '').strip()[:100]
+    if q:
+        params['q'] = '%' + _like_escape(q) + '%'
+        where.append(f"{col}::text ILIKE :q ESCAPE '\\'")
+    compiled = {'sql': f'SELECT {col} AS v, COUNT(*) AS n FROM {cat.DATASETS[dataset]["view"]} d '
+                       f'WHERE {" AND ".join(where)} GROUP BY 1 ORDER BY 2 DESC, 1', 'params': params}
     res = run(compiled, cap=limit)
-    return [{'value': r[0], 'label': str(r[0])} for r in res['rows']]
+    return [{'value': r[0], 'label': str(r[0]), 'n': r[1]} for r in res['rows']]
 
 
 def validate_for_save(defn):

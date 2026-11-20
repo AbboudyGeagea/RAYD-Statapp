@@ -19,6 +19,10 @@ Field types and the filters they take:
     yesno   any | yes | no
     range   from / to, numbers
 
+A dataset's 'pinned' fields are the filters the editor's left panel always shows for it
+(revamp of 2026-11-20: modality, room, device, radiologist ... as dropdowns), under its
+default date as the date range; every other field is one "Add filter" away.
+
 A date field may name, per dataset, an index-backed DATE column holding the same day
 ('date_col'): the compiler then bounds that column as well, so a filter on study_at
 (a computed date and time) still reads etl_didb_studies through its study_date index.
@@ -49,6 +53,8 @@ DATASETS = {
         'default_measure': 'count',
         'list_default': ['scheduled_at', 'accession', 'patient_id', 'modality', 'procedure',
                          'exam_status', 'technologist', 'arrived_at'],
+        'pinned': ['modality', 'room', 'device', 'technologist', 'approved_by', 'patient_type',
+                   'exam_status'],
     },
     ST: {
         'label': 'Studies (PACS)',
@@ -60,6 +66,8 @@ DATASETS = {
         'default_measure': 'count',
         'list_default': ['study_at', 'accession', 'patient_id', 'modality', 'procedure',
                          'device', 'report_stage', 'technologist'],
+        'pinned': ['modality', 'room', 'device', 'signing_radiologist', 'technologist',
+                   'patient_type', 'report_stage'],
     },
     SE: {
         'label': 'Series (PACS)',
@@ -71,6 +79,7 @@ DATASETS = {
         'default_measure': 'count',
         'list_default': ['study_at', 'accession', 'modality', 'protocol', 'series_description',
                          'body_part', 'images', 'device'],
+        'pinned': ['modality', 'device', 'protocol', 'body_part', 'manufacturer'],
     },
     R: {
         'label': 'Reports (ORU)',
@@ -82,6 +91,7 @@ DATASETS = {
         'default_measure': 'count',
         'list_default': ['report_at', 'accession', 'radiologist', 'modality', 'procedure',
                          'critical', 'findings'],
+        'pinned': ['modality', 'radiologist', 'device', 'patient_type'],
     },
     F: {
         'label': 'NLP findings',
@@ -93,6 +103,7 @@ DATASETS = {
         'default_measure': 'count',
         'list_default': ['report_at', 'accession', 'finding', 'modality', 'procedure',
                          'radiologist'],
+        'pinned': ['finding', 'modality', 'radiologist', 'patient_type'],
     },
     SG: {
         'label': 'Storage',
@@ -103,6 +114,7 @@ DATASETS = {
         'default_date': 'study_at',
         'default_measure': 'gb',
         'list_default': ['study_date', 'modality', 'device', 'procedure_code', 'gb', 'studies'],
+        'pinned': ['modality', 'device'],
     },
     C: {
         'label': 'CRN notifications',
@@ -114,6 +126,7 @@ DATASETS = {
         'default_measure': 'count',
         'list_default': ['detected_at', 'ref_code', 'accession', 'doctor', 'radiologist',
                          'status', 'acknowledged_how', 'ack_minutes'],
+        'pinned': ['radiologist', 'doctor', 'crn_status', 'acknowledged_how', 'modality'],
     },
 }
 

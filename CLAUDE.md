@@ -121,6 +121,13 @@ routes/
                                    name, which must appear nowhere, on any branch (see
                                    tests/test_report_composer_name.py). Tables, code and API paths
                                    still say worklist. "Worklist" in a RIS sense stays as it is.
+                                   Revamped 2026-11-20 (operator's spec, points 1-4): the reports'
+                                   frame (left panel .rfp: report, what to count, date range, each
+                                   dataset's `pinned` filters as Select2 dropdowns whose values carry
+                                   their row count in the last year, "Add filter" for the rest,
+                                   Generate, CSV; result in cards), the SQL in a drawer behind the
+                                   SQL button, page script static/js/report_composer.js, one example
+                                   report left (migration 0181).
                                    REPLACED Custom Reports (custom_reports.py,
                                    report_widgets.py and 3 templates removed; same licence key +
                                    page permission `custom_reports`; /reports/custom redirects).

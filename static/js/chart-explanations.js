@@ -564,6 +564,43 @@ const ChartExplanations = {
       valueMeaning: 'Median and 90th percentile in days (and the median in hours), the share booked the same day and a week or more ahead, the share later cancelled on the RIS, and the share that got the Scheduled status more than once (booked again for another time). "Not recorded" = the RIS has no value.',
       interpretation: 'Compare a room or procedure with the others: a high median with many reschedules points at a capacity or scheduling problem there. Long lists show their largest rows; the Excel download has every exam.'
     },
+    // ── Report Composer (/report-composer) ──────────────────────────────────────
+    'rc-report': {
+      title: 'Report Composer',
+      purpose: 'Build your own report on the RIS and PACS data without writing SQL: choose what to count on the left (RIS exams, PACS studies, series, reports, NLP findings, storage or CRN), narrow it with the date range and the filters, choose how to show it, and press Generate.',
+      valueMeaning: 'Every report counts as the numbered reports do: structured reports (SR) are left out, the modality comes from the device mapping, times are hospital time. Save keeps it in the Report list on the left, Personal (only you) or Shared (everyone with access to this page); every save is kept in History.',
+      interpretation: 'Start from the shared example or a colleague’s report with Duplicate. A date range keeps a report fast: a year of studies with many filters can take a few seconds.'
+    },
+    'rc-filters': {
+      title: 'Filters applied',
+      purpose: 'Everything that narrows the report right now, as set in the left panel: the date range and each filter with the values picked.',
+      valueMeaning: 'A filter with several values keeps rows with any of them (CT or MR). Different filters all apply together (CT or MR, and in room CT1). (blank) = rows where the value is missing. A filter marked “asked when run” is asked for each time the report runs, its saved value as the default.',
+      interpretation: 'Click a tag to find its filter in the panel; the × takes it off. No tag means the report reads all the data, which is slow for the large datasets: add a date range.'
+    },
+    'rc-show-as': {
+      title: 'Show as',
+      purpose: 'How the result is laid out: a List of rows, a Table of counts and measures grouped by what you pick, or the same table as a bar Chart.',
+      valueMeaning: 'List: one line per exam, study, report ... with the columns ticked, in the order chosen. Table: one line per value of “Rows by” (and one column per value of “Columns by” when set), each measure ticked as a column, with a Total where the measure can be added up (counts, gigabytes; not medians or averages).',
+      interpretation: 'Use a List to find the cases themselves, a Table or a Chart to compare groups. Months and weeks are offered for every date (“Study date — month”) to see a trend.'
+    },
+    'rc-kpi-rows': {
+      title: 'Rows',
+      purpose: 'How many lines the result has.',
+      valueMeaning: 'For a List, one line per exam, study, report ... that matches the filters; for a Table or a Chart, one line per group. The page shows at most the first 2,000 lines; Download CSV holds up to 100,000.',
+      interpretation: 'A List that reaches 2,000 is capped: narrow the dates or the filters, or download the CSV for every line.'
+    },
+    'rc-kpi-time': {
+      title: 'Run time',
+      purpose: 'How long the database took to answer this report.',
+      valueMeaning: 'Measured on the read-only reporting account the report runs as. A report that would take longer than 20 seconds is stopped.',
+      interpretation: 'Several seconds usually means a long period with filters on times that are not indexed (arrival, start, signatures). Filter on the main date of the dataset, or group (Table) rather than list.'
+    },
+    'rc-result': {
+      title: 'Result',
+      purpose: 'The report as generated with the filters and Show as above, from the data RAYD holds (the nightly ETL from the RIS and PACS, the HL7 reports, CRN).',
+      valueMeaning: 'Counts are rows of the dataset chosen: an exam is one RIS worklist entry, a study one PACS study, a series one PACS series. Times are in hospital time; turnarounds and waits are in the unit their name says (minutes or hours). (blank) = no value recorded.',
+      interpretation: 'Data reach RAYD overnight, so today is incomplete for anything read from the RIS or PACS. The SQL button shows the exact query that ran.'
+    },
     'r32-addendum': {
       title: 'Addendum Rate by Radiologist',
       purpose: 'For each reader with at least 5 reported studies in the period, the share of studies that carry an addendum.',
