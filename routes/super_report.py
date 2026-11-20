@@ -234,12 +234,11 @@ def super_report_filters():
             "signing_physician":   distinct("SELECT DISTINCT TRIM(CONCAT(signing_physician_first_name,' ',signing_physician_last_name)) FROM etl_didb_studies WHERE signing_physician_last_name IS NOT NULL AND signing_physician_last_name != ''"),
             "referring_physician": distinct("SELECT DISTINCT TRIM(CONCAT(referring_physician_first_name,' ',referring_physician_last_name)) FROM etl_didb_studies WHERE referring_physician_last_name IS NOT NULL AND referring_physician_last_name != ''"),
             "sex":                 distinct("SELECT DISTINCT sex FROM etl_patient_view WHERE sex IS NOT NULL"),
-            "age_group":           distinct("SELECT DISTINCT age_group FROM etl_patient_view WHERE age_group IS NOT NULL"),
             "order_control":       distinct("SELECT DISTINCT order_control FROM etl_orders WHERE order_control IS NOT NULL"),
             "order_modality":      distinct("SELECT DISTINCT modality FROM etl_orders WHERE modality IS NOT NULL"),
-            "series_modality":     distinct("SELECT DISTINCT modality FROM etl_didb_serieses WHERE modality IS NOT NULL"),
-            "body_part_series":    distinct("SELECT DISTINCT body_part_examined FROM etl_didb_serieses WHERE body_part_examined IS NOT NULL"),
-            "protocol_name":       distinct("SELECT DISTINCT protocol_name FROM etl_didb_serieses WHERE protocol_name IS NOT NULL LIMIT 100"),
+            # series modality / body part / protocol and age group are no longer lists here: the
+            # query never applied the first three, and nothing on the page offers age group
+            # (_request_filters, 2026-11-20). They were the costliest DISTINCTs of this endpoint.
             "ae_modality_map":     dict(db.session.execute(text(
                 "SELECT aetitle, modality FROM aetitle_modality_map WHERE aetitle IS NOT NULL AND modality IS NOT NULL"
             )).fetchall()),
@@ -333,7 +332,7 @@ def super_report():
         crn_dry_run = (crn_cfg.get('crn_sms_provider') or 'log') == 'log'
 
         current   = _collect_data(start, end, filters, rh_site_id)
-        previous  = _collect_data(cmp_start, cmp_end, filters, rh_site_id)
+        previous  = _collect_data(cmp_start, cmp_end, filters, rh_site_id, include_rollups=False)
         narrative = _generate_narrative(current, previous, start, end, cmp_start, cmp_end, cmp_days)
         result = {
             "current":     current,
@@ -479,7 +478,8 @@ def _build_where(start, end, filters, rh_site_id=None):
         "body_part":           ("s.study_body_part",     "body_part"),
         "procedure_code":      ("s.procedure_code",      "procedure_code"),
         "sex":                 ("p.sex",                 "sex"),
-        "age_group":           ("p.age_group",           "age_group"),
+        # No age_group: the page's age filter is the min / max range below (sr_extra); no
+        # dropdown offers age_group, and the two together ANDed (review of 2026-11-20).
     }
     for fk, (col, pk) in multi.items():
         if filters.get(fk):
@@ -513,6 +513,14 @@ def _build_where(start, end, filters, rh_site_id=None):
     return " AND ".join(clauses), params
 
 
+# Per database (each site's database answers for itself, rule 10): once etl_orders.site_id
+# carries data it always will, so a yes is kept for the life of the process and the probe runs
+# once per process and database, instead of twice per request (both periods). A no is not kept
+# (the ETL may fill the column later; until then the probe runs as before), nor a failure. A
+# restart asks again.
+_ORDERS_SITE_KNOWN = {}
+
+
 def _orders_have_site():
     """True when etl_orders.site_id exists and is actually populated.
 
@@ -520,22 +528,35 @@ def _orders_have_site():
     that column, otherwise the filter matches nothing and the Overview block reports
     zero orders.
     """
+    from utils import site_db
+    key = site_db.current_site_id()
+    if _ORDERS_SITE_KNOWN.get(key):
+        return True
     try:
-        return bool(db.session.execute(text("""
+        known = bool(db.session.execute(text("""
             SELECT EXISTS (SELECT 1 FROM etl_orders WHERE site_id IS NOT NULL)
         """)).scalar())
     except Exception:
         db.session.rollback()
         return False
+    if known:
+        _ORDERS_SITE_KNOWN[key] = True
+        logger.info("etl_orders.site_id carries data on this database (site %s): orders scoped to "
+                    "the site; asked once per process", key)
+    return known
 
 
 def _request_filters():
-    """The filters of /viewer/super-report and /viewer/super-report/sites, as named there."""
+    """The filters of /viewer/super-report and /viewer/super-report/sites, as named there.
+    Only filters a query applies: series_modality, body_part_series and protocol_name were read
+    and never applied, age_group was offered by nothing on the page (review of 2026-11-20);
+    migration 0180 took them out of the saved presets. order_control and order_modality apply
+    to the orders figures."""
     filters = {k: request.args.getlist(k) for k in [
         "modality","storing_ae","study_status","report_status","order_status",
         "patient_class","patient_location","body_part","procedure_code",
-        "signing_physician","referring_physician","sex","age_group",
-        "order_control","order_modality","series_modality","body_part_series","protocol_name"
+        "signing_physician","referring_physician","sex",
+        "order_control","order_modality",
     ]}
     filters["has_report"] = request.args.get("has_report")
     filters["age_min"]    = request.args.get("age_min")
@@ -556,7 +577,12 @@ def _joins():
     return mj, pj
 
 
-def _collect_data(start, end, filters, rh_site_id=None):
+def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
+    """include_rollups=False for the comparison period: of the rollups the page reads only the
+    critical-findings count (the CRN card's change badge: render() pct(c.critical_count,
+    pc_.critical_count)) and the device utilization (its badge: pu.available,
+    pu.avg_utilization); the rest of the CRN summary and the residents' wet reads are never read
+    for it, so they are not computed (review of 2026-11-20)."""
     where, params = _build_where(start, end, filters, rh_site_id)
     # LATERAL ... LIMIT 1, not a plain LEFT JOIN. aetitle_modality_map's UNIQUE is on
     # the RAW aetitle while every consumer matches on UPPER(TRIM(...)), so 'ct99' and
@@ -897,9 +923,11 @@ def _collect_data(start, end, filters, rh_site_id=None):
             "by_procedure": [dict(r) for r in rad_proc_rows],
             "by_month":     [dict(r) for r in rad_month_rows],
         },
-        "crn":         _get_crn_summary(start, end),
-        "utilization": _get_utilization_summary(start, end),
-        "resident_wetreads": _get_resident_wetreads(where, params, mj, pj),
+        "crn":         (_get_crn_summary(start, end) if include_rollups
+                        else {"critical_count": _critical_count(start, end)}),
+        "utilization": _get_utilization_summary(start, end),    # both periods: see the docstring
+        "resident_wetreads": (_get_resident_wetreads(where, params, mj, pj) if include_rollups
+                              else None),
     }
 
 
@@ -971,23 +999,27 @@ def _get_crn_summary(start, end):
     """
     from utils.crn_admin_ops import report as crn_report
 
-    critical = db.session.execute(text("""
-        SELECT COUNT(*) AS critical_count
-        FROM hl7_oru_analysis a
-        JOIN hl7_oru_reports r ON r.id = a.report_id
-        WHERE a.is_critical = TRUE
-          AND COALESCE(r.result_datetime, r.received_at)::date BETWEEN :start AND :end
-    """), {"start": start, "end": end}).mappings().fetchone()
-
     s = crn_report(start, end)['summary']
     return {
-        "critical_count":      int(critical["critical_count"] or 0) if critical else 0,
+        "critical_count":      _critical_count(start, end),
         "total_notifications": s['total'],
         "acknowledged":        s['acknowledged'],
         "overdue":             s['overdue'],
         "open":                s['open'],
         "median_ack_min":      s['median_min'],
     }
+
+
+def _critical_count(start, end):
+    """Reports the NLP worker flagged critical in the period (the CRN card's first line)."""
+    n = db.session.execute(text("""
+        SELECT COUNT(*)
+        FROM hl7_oru_analysis a
+        JOIN hl7_oru_reports r ON r.id = a.report_id
+        WHERE a.is_critical = TRUE
+          AND COALESCE(r.result_datetime, r.received_at)::date BETWEEN :start AND :end
+    """), {"start": start, "end": end}).scalar()
+    return int(n or 0)
 
 
 def _get_utilization_summary(start, end):
@@ -1047,9 +1079,41 @@ def _trend(p):
     return "flat"
 
 
+# The narrative's thresholds, each a settings key; these values when a key is absent or not a
+# number (review of 2026-11-20: they were literals in the code).
+_NARRATIVE_DEFAULTS = {
+    "sr_tat_outpatient_warn_min": 1440,   # 24 h: the outpatient reporting target
+    "sr_tat_inpatient_warn_min":  480,    # 8 h: the inpatient guideline (ACR/ESR)
+    "sr_coverage_warn_pct":       70,     # below: "significant reporting backlog"
+    "sr_coverage_target_pct":     90,     # below: "minor backlog"
+    "sr_storage_gb_day_warn":     2,      # GB a day above which intake is "elevated"
+    "sr_storage_growth_warn_pct": 30,     # storage growth vs the comparison period
+    "sr_volume_drop_warn_pct":    -20,    # study volume change vs the comparison period
+    "sr_gender_skew_warn_pct":    70,     # share of one sex (and 100 minus it the other way)
+}
+
+
+def _narrative_thresholds():
+    rows = db.session.execute(text("SELECT key, value FROM settings WHERE key = ANY(:keys)"),
+                              {"keys": list(_NARRATIVE_DEFAULTS)}).fetchall()
+    out = dict(_NARRATIVE_DEFAULTS)
+    for key, value in rows:
+        try:
+            out[key] = float(value)
+        except (TypeError, ValueError):
+            logger.warning("settings %s = %r is not a number; using %s", key, value, out[key])
+    return out
+
+
+def _num(v):
+    """A threshold as text: 24 not 24.0, 2.5 as it is."""
+    return f"{v:g}"
+
+
 def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, cmp_days):
     """cmp_days: the length of the COMPARISON window, which the user can set to any length;
     "vs prior N-day period" names that window, not the current one."""
+    th = _narrative_thresholds()
     current_kpis      = cur["kpis"]
     prev_kpis         = prev["kpis"]
     current_orders    = cur["orders"]
@@ -1137,12 +1201,11 @@ def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, cmp_days):
     total_st   = int(current_kpis.get("total_studies") or 1)
     if median_tat > 0:
         tat_h = median_tat / 60
-        # 1440 min = 24 h (industry-standard outpatient reporting target)
-        # 480 min  =  8 h (inpatient guideline per ACR/ESR recommendations)
-        if median_tat > 1440:
-            tat_bullets.append(f"Median TAT: {tat_h:.1f} hours — exceeds 24-hour reporting target ⚠")
-        elif median_tat > 480:
-            tat_bullets.append(f"Median TAT: {tat_h:.1f} hours — above the 8-hour inpatient guideline")
+        outp_min, inp_min = th["sr_tat_outpatient_warn_min"], th["sr_tat_inpatient_warn_min"]
+        if median_tat > outp_min:
+            tat_bullets.append(f"Median TAT: {tat_h:.1f} hours — exceeds {_num(outp_min / 60)}-hour reporting target ⚠")
+        elif median_tat > inp_min:
+            tat_bullets.append(f"Median TAT: {tat_h:.1f} hours — above the {_num(inp_min / 60)}-hour inpatient guideline")
         else:
             tat_bullets.append(f"Median TAT: {median_tat:.0f} minutes — within acceptable benchmark")
     if reported > 0:
@@ -1150,10 +1213,11 @@ def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, cmp_days):
         tat_bullets.append(
             f"Reporting coverage: {cov}% ({_fmt(reported)} of {_fmt(total_st)} studies signed)"
         )
-        if cov < 70:
-            tat_bullets.append("Coverage below 70% — significant reporting backlog detected ⚠")
-        elif cov < 90:
-            tat_bullets.append("Coverage below 90% target — minor backlog present")
+        cov_warn, cov_target = th["sr_coverage_warn_pct"], th["sr_coverage_target_pct"]
+        if cov < cov_warn:
+            tat_bullets.append(f"Coverage below {_num(cov_warn)}% — significant reporting backlog detected ⚠")
+        elif cov < cov_target:
+            tat_bullets.append(f"Coverage below {_num(cov_target)}% target — minor backlog present")
     for row in (tat_data.get("by_modality") or [])[:3]:
         m_tat = float(row.get("median_tat_min") or 0)
         if m_tat > 0:
@@ -1195,16 +1259,17 @@ def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, cmp_days):
         alerts.append(f"Order fulfillment critically low at {fulfillment_pct:.1f}% — {_fmt(unfulfilled)} orders not completed")
     elif fulfillment_pct < 85:
         alerts.append(f"Order fulfillment below 85% target — currently at {fulfillment_pct:.1f}%")
-    if avg_gb > 2:
+    if avg_gb > th["sr_storage_gb_day_warn"]:
         alerts.append(f"Storage intake elevated at {avg_gb:.1f} GB/day — review archiving policy")
-    if storage_chg is not None and storage_chg > 30:
+    if storage_chg is not None and storage_chg > th["sr_storage_growth_warn_pct"]:
         alerts.append(f"Storage grew {_fp(storage_chg)} vs prior period — capacity planning recommended")
-    if studies_chg is not None and studies_chg < -20:
+    if studies_chg is not None and studies_chg < th["sr_volume_drop_warn_pct"]:
         alerts.append(f"Study volume fell {_fp(studies_chg)} — investigate scheduling gaps or cancellations")
     if tot_gen > 0:
         mp = round(male / tot_gen * 100)
-        if mp > 70:   alerts.append(f"Notable gender skew: {mp}% male — verify referral population")
-        elif mp < 30: alerts.append(f"Notable gender skew: {100-mp}% female — verify referral population")
+        skew = th["sr_gender_skew_warn_pct"]
+        if mp > skew:         alerts.append(f"Notable gender skew: {mp}% male — verify referral population")
+        elif mp < 100 - skew: alerts.append(f"Notable gender skew: {100-mp}% female — verify referral population")
     if alerts:
         sections.append({"icon": "bi-exclamation-triangle", "color": "#f87171", "title": "Alerts & Anomalies", "bullets": alerts})
     else:

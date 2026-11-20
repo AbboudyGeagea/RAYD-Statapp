@@ -554,15 +554,15 @@
         const isFiltered = chips.length > 0;
         el.className = 'filter-banner' + (isFiltered ? ' filtered' : '');
 
-        // Date row
+        // Date row (every value escaped: the chips carry values from the database)
         let html = `<div class="fb-row">
             <span class="fb-filter-label">Period</span>
-            <span class="fb-date">${start}</span>
+            <span class="fb-date">${escHtml(start)}</span>
             <span class="fb-sep">→</span>
-            <span class="fb-date">${end}</span>`;
+            <span class="fb-date">${escHtml(end)}</span>`;
         if (cmpS && cmpE) {
             html += `<span class="fb-sep" style="margin-left:6px;">vs</span>
-            <span class="fb-cmp">${cmpS} → ${cmpE}</span>`;
+            <span class="fb-cmp">${escHtml(cmpS)} → ${escHtml(cmpE)}</span>`;
         }
         html += `</div>`;
 
@@ -571,7 +571,8 @@
             html += `<div class="fb-row">
                 <span class="fb-filter-label">Filters</span>`;
             chips.forEach(c => {
-                html += `<span class="fb-chip" title="${c.label}: ${c.value}">${c.label}: ${c.value}</span>`;
+                const chip = escHtml(`${c.label}: ${c.value}`);
+                html += `<span class="fb-chip" title="${chip}">${chip}</span>`;
             });
             html += `</div>`;
             html += `<div class="fb-note warn">&#9888; Analysis scoped to the filters above — totals exclude data outside this selection.</div>`;
@@ -689,7 +690,7 @@
         document.getElementById('super-kpis').innerHTML = kpis.map(k => {
             let valHtml, badgeHtml;
             if (k.isText) {
-                valHtml   = `<div class="text-sm font-black text-white truncate mt-1" title="${k.cur||''}">${escHtml(k.cur||'—')}</div>`;
+                valHtml   = `<div class="text-sm font-black text-white truncate mt-1" title="${escHtml(k.cur||'')}">${escHtml(k.cur||'—')}</div>`;
                 badgeHtml = k.sub ? `<span style="font-size:9px;color:#64748b">${k.sub}</span>` : '';
             } else {
                 const p = pct(k.cur, k.prev);

@@ -108,3 +108,129 @@ def test_the_patient_class_lists_are_bound_parameters(app):
     import inspect
     from routes import super_report
     assert "replace(\"'\"" not in inspect.getsource(super_report) and 'chr(39)' not in inspect.getsource(super_report)
+
+
+# ── block 2 ───────────────────────────────────────────────────────────────────
+
+class Statements:
+    """Every SQL statement the engine runs inside the block."""
+    def __enter__(self):
+        from sqlalchemy import event
+        from db import db
+        self.engine, self.seen = db.engine, []
+        self._f = lambda conn, cursor, statement, *a: self.seen.append(statement)
+        event.listen(self.engine, 'before_cursor_execute', self._f)
+        return self
+
+    def __exit__(self, *exc):
+        from sqlalchemy import event
+        event.remove(self.engine, 'before_cursor_execute', self._f)
+
+
+def test_the_dead_filters_are_neither_read_nor_offered(client, app):
+    """2.1: series modality / body part / protocol were read and never applied; age group was
+    offered by nothing (the age filter is the min / max range)."""
+    from routes import super_report
+    with app.test_request_context('/viewer/super-report?series_modality=CT&age_group=0-18&modality=MR'):
+        f = super_report._request_filters()
+    assert 'series_modality' not in f and 'age_group' not in f and f['modality'] == ['MR']
+    lists = client.get('/viewer/super-report/filters', headers=ADMIN).get_json()
+    assert not {'series_modality', 'body_part_series', 'protocol_name', 'age_group'} & set(lists)
+
+
+def test_migration_0180_takes_the_dead_filters_out_of_the_presets(app):
+    import os
+    from db import db
+    with app.app_context():
+        uid = db.session.execute(text("""INSERT INTO users (username, email, password_hash, role, status)
+                                         VALUES ('sr_preset', 'sr@x.test', 'x', 'user', 'active') RETURNING id""")).scalar()
+        db.session.commit()
+        sql("""INSERT INTO saved_reports (name, owner_user_id, base_report_id, filter_json, updated_at)
+               VALUES ('old', :u, NULL, CAST(:f AS jsonb), '2026-01-01 10:00')""", u=uid,
+            f='{"modality": ["CT"], "series_modality": ["MR"], "protocol_name": "X", "age_group": ["0-18"]}')
+        path = os.path.join(os.path.dirname(__file__), '..', 'migrations', '0180_super_report_presets_dead_filters.sql')
+        sql(open(path, encoding='utf-8').read())
+        row = db.session.execute(text("SELECT filter_json, updated_at FROM saved_reports WHERE name = 'old'")).mappings().one()
+        assert row['filter_json'] == {'modality': ['CT']}
+        assert row['updated_at'].replace(tzinfo=None) == datetime(2026, 1, 1, 10, 0)   # order kept
+        sql("DELETE FROM saved_reports WHERE owner_user_id = :u", u=uid)
+        sql("DELETE FROM users WHERE id = :u", u=uid)
+
+
+def test_the_comparison_period_skips_what_the_page_never_reads(app, capsys):
+    """2.2: for the comparison period the page reads the critical count and the utilization
+    (their change badges); the rest of the CRN summary and the wet reads are not computed."""
+    from routes.super_report import _collect_data
+    with app.app_context():
+        with Statements() as full:
+            a = _collect_data('2026-03-01', '2026-03-07', {}, site_id('RH'))
+        with Statements() as light:
+            b = _collect_data('2026-04-01', '2026-04-07', {}, site_id('RH'), include_rollups=False)
+    assert set(b['crn']) == {'critical_count'} and b['resident_wetreads'] is None
+    assert 'available' in b['utilization'] and a['resident_wetreads'] is not None
+    assert len(light.seen) < len(full.seen)
+    with capsys.disabled():
+        print(f"\n  statements per period: current {len(full.seen)}, comparison {len(light.seen)}")
+
+
+def test_the_orders_site_probe_runs_once_per_process_and_database(app):
+    """2.3: a yes is kept; a no is asked again (the ETL may fill the column later)."""
+    from routes import super_report
+    probe = 'FROM etl_orders WHERE site_id IS NOT NULL'
+    with app.app_context():
+        super_report._ORDERS_SITE_KNOWN.clear()
+        with Statements() as s:
+            assert super_report._orders_have_site() is False
+            assert super_report._orders_have_site() is False
+        assert sum(probe in q for q in s.seen) == 2
+        sql("INSERT INTO etl_orders (order_dbid, site_id) VALUES (991, :s)", s=site_id('RH'))
+        with Statements() as s:
+            for _ in range(3):
+                assert super_report._orders_have_site() is True
+        assert sum(probe in q for q in s.seen) == 1
+        super_report._ORDERS_SITE_KNOWN.clear()
+
+
+def test_the_same_choices_in_another_order_hit_the_same_cache_entry(client, app, monkeypatch):
+    """2.5: [CT, MR] and [MR, CT] are one report."""
+    from routes import super_report
+    calls = []
+    real = super_report._collect_data
+    monkeypatch.setattr(super_report, '_collect_data', lambda *a, **k: calls.append(a) or real(*a, **k))
+    base = '/viewer/super-report?start=2026-05-04&end=2026-05-10'
+    client.get(base + '&modality=CT&modality=MR', headers=ADMIN)
+    assert len(calls) == 2                                   # current and comparison period
+    client.get(base + '&modality=MR&modality=CT', headers=ADMIN)
+    assert len(calls) == 2                                   # served from the cache
+
+
+def test_the_narrative_thresholds_are_settings(app):
+    """2.6: each threshold is a settings key, the old literal when absent."""
+    from routes.super_report import _generate_narrative
+    cur = {'kpis': {'total_studies': 100, 'total_patients': 90, 'total_images': 1000, 'active_aes': 3},
+           'orders': {'total': 10, 'fulfilled': 10, 'fulfillment_pct': 100},
+           'storage': {'total_gb': 10, 'avg_gb_per_day': 1.5, 'by_modality': []},
+           'volume': {'avg_per_day': 10, 'top_modalities': []}, 'physicians': [],
+           'demographics': {'male': 50, 'female': 50},
+           'tat': {'median_tat_min': 600, 'reported_count': 80, 'by_modality': []}}
+    prev = {**cur, 'kpis': {**cur['kpis'], 'total_studies': 100}}
+    text_of = lambda: ' | '.join(b for s in _generate_narrative(cur, prev, 'a', 'b', 'c', 'd', 7) for b in s['bullets'])
+    with app.app_context():
+        t = text_of()
+        assert 'above the 8-hour inpatient guideline' in t and 'below 90% target' in t
+        assert 'Storage intake elevated' not in t
+        sql("""INSERT INTO settings (key, value) VALUES ('sr_tat_inpatient_warn_min', '720'),
+               ('sr_coverage_warn_pct', '85'), ('sr_storage_gb_day_warn', '1'), ('sr_volume_drop_warn_pct', 'oops')
+               ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value""")
+        t = text_of()
+        assert 'within acceptable benchmark' in t                       # 600 min < 12 h
+        assert 'Coverage below 85% — significant reporting backlog' in t
+        assert 'Storage intake elevated at 1.5 GB/day' in t
+
+
+def test_the_filter_banner_and_the_cards_escape_what_they_show():
+    """2.4: chip values come from the database."""
+    import os
+    page = open(os.path.join(os.path.dirname(__file__), '..', 'templates', 'super_report.html'), encoding='utf-8').read()
+    assert 'title="${c.label}' not in page and '${c.label}: ${c.value}</span>' not in page
+    assert 'title="${k.cur||' not in page
