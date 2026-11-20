@@ -44,7 +44,10 @@ scripts/sjh_move.sh             — the one-time move on the server, unattended 
 routes/site_controller.py       — POST /site/switch, the header's site dropdown
 routes/
   report_22.py                  — main radiology stats (date/modality/physician filters)
-  super_report.py               — aggregated multi-section report
+  super_report.py               — aggregated multi-section report; page script static/js/super_report.js
+                                   (2026-11-20); narrative thresholds are settings sr_* (fallbacks
+                                   in _NARRATIVE_DEFAULTS); dates validated (400); tests in
+                                   tests/test_super_report.py
   report_25.py                  — shift & device utilization
   report_38.py                  — Report 38, the ER dashboard (until 2026-11-14 the page /er,
                                    routes/er_dashboard.py; /er redirects): TAT, target compliance,

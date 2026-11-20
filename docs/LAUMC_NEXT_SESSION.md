@@ -259,6 +259,18 @@ Sunday 22 Nov 01:00 (`scripts/sjh_move.sh`, item 13)**; item 17 the BRAYN enhanc
 item 33 reload Report 27's RIS tab (blue bars no longer 0); item 35 predicted vs actual after the
 23rd; item 37 CRN workflow with the department. (Floor plan data: dropped, migration 0179.)
 
+**Super Report review (20 Nov, built, deploy waiting; 59b93bcf, b9c34175, 7cc9c9da, 30b151f4,
+f8052c22 black):** dates validated (400), ER-delayed on the page's own selection, the narrative
+names the comparison window, patient-class lists as bound arrays; dead filters out of the route
+and the presets (migration 0180), the comparison period skips what the page never reads, the
+etl_orders site probe cached per database, banner and cards escaped, narrative thresholds in
+settings (sr_tat_outpatient_warn_min ... sr_gender_skew_warn_pct); the page script moved to
+static/js/super_report.js; numbers formatted the same in the narrative and on the cards; CSS hover
+and contrast; a failed filter load shown. Checked in headless Edge (every button, no error). Not
+applicable from the review: 1.1 (the template was whole), 2.5 (the cache key already sorted),
+3.4's premise (no age_group dropdown: the range was kept). After the deploy: open the Super
+Report, Generate, and try a preset.
+
 **End of 19 Nov (session closed ~00:30 on the 20th), next deploy brings:** 4aaacb38 (BRAYN lookup
 limit), a9b028ef (sweep 2 min after a start), 0178 (STALLED_SCHEDULED from the appointment, still
 off), 0179 (floor plan data dropped). Morning of 20 Nov: deploy; remove the floor plan images; the
