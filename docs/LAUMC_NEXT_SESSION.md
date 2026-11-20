@@ -271,6 +271,18 @@ applicable from the review: 1.1 (the template was whole), 2.5 (the cache key alr
 3.4's premise (no age_group dropdown: the range was kept). After the deploy: open the Super
 Report, Generate, and try a preset.
 
+**Report AI review (20 Nov, built, deploy waiting; c0a33bbc, 57de8c9c, 89e90d67):** dates and the
+capacity validated; device forecasts matched upper case; one capacity per device and weekday
+(case variants of an AE in the map); found with it: every Report AI and training query joined the
+map case-blind, counting a study once per case variant: now LATERAL ... LIMIT 1 (the volume and
+device forecasts retrain on the right counts at the next 06:30 run); the cache keys on a run counter
+instead of being cleared by every status call; unusual days leave-one-out; utilization limits in
+settings ai_util_high_warn_pct / ai_util_low_warn_pct; a failed section says so; one fetch per
+tab; charts not merged; tabs as buttons; calendar pickers inside the dialog; capacity read once;
+forward-looking figures only with the forecast shown. Not applicable: 1.4 (both tables 0 =
+Monday), 1.6 / 1.7 (each database is one site), 4.4 (one name expression). Checked in headless
+Edge. After the deploy: open Report AI on each tab, the calendar, a device switch.
+
 **End of 19 Nov (session closed ~00:30 on the 20th), next deploy brings:** 4aaacb38 (BRAYN lookup
 limit), a9b028ef (sweep 2 min after a start), 0178 (STALLED_SCHEDULED from the appointment, still
 off), 0179 (floor plan data dropped). Morning of 20 Nov: deploy; remove the floor plan images; the

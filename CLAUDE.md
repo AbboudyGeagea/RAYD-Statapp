@@ -72,7 +72,9 @@ routes/
                                    utils/forecasting.py (Prophet + a sequential correction on its
                                    own errors, holiday calendar ai_calendar, migration 0169), trained
                                    nightly at 06:30 per site database and stored in ai_forecast; the
-                                   page never fits a model. Calendar editable here (settings
+                                   page never fits a model. Its cache keys on forecasting.generation()
+                                   (a finished run renews it); device map joined LATERAL ... LIMIT 1;
+                                   utilization limits are settings ai_util_*_warn_pct (2026-11-20). Calendar editable here (settings
                                    capability, SHARED_TABLES); referrers by a share test, not a
                                    forecast. What the data showed and why this model: the
                                    docstring of utils/forecasting.py and migration 0169
