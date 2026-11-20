@@ -85,8 +85,8 @@ had a catalogue row, licence entry or grant).
 - **Admin > Floor Plan removed (operator, 19 Nov evening):** page, route, menu entry, licence flag,
   the board's plan mode and the old live API's positions. **Data removed (operator, 20 Nov: "we
   replace them with hardcoded live dashboard"), migration 0179:** the table `floor_plans` and the
-  four `aetitle_modality_map.floor_*` columns. The uploaded images are files on the server, removed
-  by hand: `ls -la /opt/rayd/static/floor_plans` then `sudo rm -rf /opt/rayd/static/floor_plans`.
+  four `aetitle_modality_map.floor_*` columns. The uploaded images on the server removed by hand.
+  **Closed (operator, 20 Nov: "everything is clean").**
 - Noted for the BRAYN enhancements (item 17): the RIS's modality is in OBR-18, which BRAYN does not
   read (it looks at OBR-24, -19, -17).
 
@@ -285,7 +285,7 @@ Edge. After the deploy: open Report AI on each tab, the calendar, a device switc
 
 **End of 19 Nov (session closed ~00:30 on the 20th), next deploy brings:** 4aaacb38 (BRAYN lookup
 limit), a9b028ef (sweep 2 min after a start), 0178 (STALLED_SCHEDULED from the appointment, still
-off), 0179 (floor plan data dropped). Morning of 20 Nov: deploy; remove the floor plan images; the
+off), 0179 (floor plan data dropped). Morning of 20 Nov: deploy; remove the floor plan images (done); the
 item 1 checks (booked room, HIS vs RIS 19 Nov MRI); the BRAYN per-modality breakdown (item 17,
 query in item 17's notes above, "The breakdown") → which steps each modality sends → switch on
 the stall rules.
