@@ -267,6 +267,10 @@ def get_report_data(start, end):
             -- the RIS performed step's start (std_pps.start_datetime, reached through the
             -- order's worklist rows), else the status history's in_progress time
             COALESCE(ps.started_at, st.started_at) AS started_at,
+            -- the modality, for the peak hours (operator, 2026-11-20): the device's (map, rule 3)
+            -- when the order has its PACS study, else the RIS order's own, else the study's
+            UPPER(COALESCE(NULLIF(TRIM(amod.modality), ''), NULLIF(TRIM(o.modality), ''),
+                           NULLIF(TRIM(s.study_modality), ''), 'Unknown')) AS modality,
             s.procedure_code,
             p.birth_date,
             p.gender_code AS sex,
@@ -293,6 +297,12 @@ def get_report_data(start, end):
             LIMIT 1
         ) m ON TRUE
         {ae_label_join_sql('s.storing_ae')}
+        -- one map row per study whatever the case of the AE (the map's UNIQUE is on the raw title)
+        LEFT JOIN LATERAL (
+            SELECT m0.modality FROM aetitle_modality_map m0
+            WHERE UPPER(TRIM(m0.aetitle)) = UPPER(TRIM(s.storing_ae))
+            ORDER BY m0.id LIMIT 1
+        ) amod ON TRUE
         -- The performed step's start (operator, 2026-11-16). worklist_status_history,
         -- the first source, is filled from HL7 orders, and none reach LAUMC: on production
         -- it held no row at all (census of 2026-11-15), so the red line was 0. The step is
@@ -359,6 +369,46 @@ def _hourly_load(df, start, end):
         return [round(float(hours.get(h, 0)) / days, 2) for h in range(24)]
     return {"hours": list(range(24)), "scheduled": per_hour('scheduled_datetime'),
             "started": per_hour('started_at'), "days": days}
+
+
+WEEKDAYS = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+
+
+def _peak_hours(df, start, end):
+    """Operator, 2026-11-20, under the hourly load: each modality's peak hour on each day of the
+    week, on exams STARTED (the hourly load's red line: the RIS performed step's start, else the
+    status history's Started). Per modality and weekday: the hour (starting at h:00) with the most
+    exams started, as an average per such day in the range (a Monday's count / the Mondays in the
+    range), the count, and the next busiest hour. Modalities by volume; None where a modality has
+    no exam started on that weekday."""
+    occurs = pd.Series(pd.date_range(str(start)[:10], str(end)[:10])).dt.dayofweek.value_counts()
+    st = df[['modality', 'started_at']].copy()
+    st['started_at'] = pd.to_datetime(st['started_at'], errors='coerce')
+    st = st.dropna(subset=['started_at'])
+    if st.empty:
+        return None
+    st['wd'] = st['started_at'].dt.dayofweek
+    st['hour'] = st['started_at'].dt.hour
+    counts = st.groupby(['modality', 'wd', 'hour']).size()
+    by_cell = {}
+    for (mod, wd, hour), n in counts.items():
+        by_cell.setdefault((mod, wd), []).append((int(hour), int(n)))
+    rows = []
+    totals = st['modality'].value_counts()
+    for mod in totals.index:
+        cells = []
+        for wd in range(7):
+            hours = sorted(by_cell.get((mod, wd), []), key=lambda hn: (-hn[1], hn[0]))   # tie: earlier
+            days = int(occurs.get(wd, 0))
+            if not hours or not days:
+                cells.append(None)
+                continue
+            (h, n) = hours[0]
+            cells.append({"hour": h, "count": n, "avg": round(n / days, 1),
+                          "next": hours[1][0] if len(hours) > 1 else None})
+        busiest = max((c["avg"] for c in cells if c), default=0)
+        rows.append({"modality": mod, "total": int(totals[mod]), "max_avg": busiest, "cells": cells})
+    return {"weekdays": list(WEEKDAYS), "rows": rows}
 
 
 def _busiest_days(df, start, end):
@@ -466,10 +516,11 @@ def report_27():
                 "avg_duration":              avg_duration,
                 "duration_outliers_removed": duration_outliers_removed,
                 "hourly":                    _hourly_load(df_a, start_a, end_a),
+                "peak_hours":                _peak_hours(df_a, start_a, end_a),
                 "busiest_days":              _busiest_days(df_a, start_a, end_a),
                 "status_mix":                _build_status_mix(df_a),
-                "ae_mix":                    df_a['ae_label'].fillna('Unknown').value_counts().to_dict(),
-                "demo":                      df_a.groupby(['age_group', 'sex'], observed=False).size().unstack(fill_value=0).to_dict('index'),
+                # Modality Distribution (AE) and Demographics removed (operator, 2026-11-20); the
+                # CSV export keeps its age and sex columns
             }
 
             # Busiest days (operator instruction 2026-07-31): "Hourly Load" above is

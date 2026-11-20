@@ -352,23 +352,17 @@ const ChartExplanations = {
       valueMeaning: 'Bar = orders scheduled on that day number. Days 29 to 31 occur in fewer months, so they are naturally lower.',
       interpretation: 'Recurring peaks on the same day numbers usually follow insurance or billing cycles, or recurring clinics.'
     },
-    'r27-demo': {
-      title: 'Demographics (Age & Gender)',
-      purpose: 'Orders by patient age group, split by sex, from the RIS patient record.',
-      valueMeaning: 'Age is the patient’s age today from the RIS birth date, not the age at the exam. Groups: 0–8, 9–18, 19–64, 65+; Unknown = no RIS patient or no birth date.',
-      interpretation: 'Over a range of a few months the difference from age at the exam is small; for older ranges, patients appear in older groups than they were.'
+    'r27-peak-hours': {
+      title: 'Peak Hours per Modality and Day',
+      purpose: 'For each modality and day of the week, the hour when the most exams started.',
+      valueMeaning: 'An exam counts at the hour it started on the RIS (the performed step’s start, else the RIS status Started), the clock of the red line in Hourly Load. The cell shows that hour (12:00 = 12:00 to 13:00), the average number started in it on such a day (its count divided by the number of those weekdays in the range) and the next busiest hour. Modality: the device’s when the exam has a PACS study, else the RIS order’s. Darker = busier for that modality; — = no exam of that modality started on that weekday.',
+      interpretation: 'Use it to staff each modality for its own rush: the busiest hour often differs between modalities and between weekdays and Saturdays.'
     },
     'r27-status-mix': {
       title: 'Order Status Mix',
       purpose: 'Orders by their current RIS status, grouped into lifecycle stages.',
       valueMeaning: 'Each bar groups several RIS statuses; hover to see which and how many. Completed / Reported covers exam done, dictated, signed and approved. Cancelled includes discontinued. Unknown = a RIS status RAYD has no mapping for.',
       interpretation: 'Old dates should be almost all Completed or Cancelled; orders still Scheduled or Arrived weeks later were never closed on the RIS. The Cancelled Exams CSV in the sidebar lists the cancelled ones.'
-    },
-    'r27-ae-mix': {
-      title: 'Modality Distribution (AE)',
-      purpose: 'Orders by the room (device) that stored their PACS study.',
-      valueMeaning: 'Bar = orders whose study is on that room, named by its RIS room name, else the AE title. Unknown = orders with no PACS study (not done yet, cancelled, or not linked).',
-      interpretation: 'A large Unknown bar for an old period means orders that were never done or never linked; see Orphan Orders.'
     },
 
     // ── Report 32 — Radiologist Intelligence ────────────────────────────────────

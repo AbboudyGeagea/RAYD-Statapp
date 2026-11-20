@@ -429,6 +429,51 @@
                 </div>
             </div>
 
+            <!-- Peak hours per modality and day of the week (operator, 2026-11-20) -->
+            {% set ph = data.audit.peak_hours %}
+            <div class="data-card flex flex-col" id="peak-hours-card">
+                <div class="card-header">
+                    <span>Peak Hours per Modality and Day<i class="bi bi-info-circle chart-info-icon" data-explain="r27-peak-hours" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></span>
+                </div>
+                <div class="card-desc">
+                    For each modality and day of the week, the hour when the most exams <b>started</b> (the red line above),
+                    with the average number started in that hour on such a day. Below it, the next busiest hour.
+                    Darker = busier for that modality.
+                </div>
+                {% if ph and ph.rows %}
+                <div style="overflow-x:auto;padding:4px 16px 16px;">
+                    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px;">
+                        <thead><tr>
+                            <th style="text-align:left;padding:6px 8px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;">Modality</th>
+                            {% for wd in ph.weekdays %}<th style="text-align:center;padding:6px 8px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;">{{ wd }}</th>{% endfor %}
+                        </tr></thead>
+                        <tbody>
+                        {% for row in ph.rows %}
+                        <tr style="border-top:1px solid #28332e;">
+                            <td style="padding:6px 8px;font-weight:800;color:#e2e8f0;white-space:nowrap;">{{ row.modality }} <span style="color:#64748b;font-weight:600;font-size:10px;">{{ "{:,}".format(row.total) }}</span></td>
+                            {% for c in row.cells %}
+                            {% if c %}
+                            {% set alpha = 0.08 + 0.42 * (c.avg / row.max_avg if row.max_avg else 0) %}
+                            <td style="padding:6px 8px;text-align:center;background:rgba(96,165,250,{{ '%.2f'|format(alpha) }});"
+                                title="{{ c.count }} exams started at {{ '%02d'|format(c.hour) }}:00-{{ '%02d'|format((c.hour + 1) % 24) }}:00 on these days in the range">
+                                <div style="font-weight:800;color:#fff;font-family:'JetBrains Mono',monospace;">{{ '%02d'|format(c.hour) }}:00</div>
+                                <div style="font-size:10px;color:#cbd5e1;">{{ c.avg }} / day</div>
+                                {% if c.next is not none %}<div style="font-size:9px;color:#94a3b8;">then {{ '%02d'|format(c.next) }}:00</div>{% endif %}
+                            </td>
+                            {% else %}
+                            <td style="padding:6px 8px;text-align:center;color:#475569;">—</td>
+                            {% endif %}
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p style="padding:8px 16px 16px;color:#94a3b8;font-size:12px;">No exam started in this range (the RIS start time is missing).</p>
+                {% endif %}
+            </div>
+
             <!-- Row 1b: Busiest Days -->
             <div class="data-card flex flex-col hidden" id="busiest-matrix-card">
                 <div class="card-header">
@@ -444,36 +489,22 @@
                 <div id="chart_busiest_matrix" class="p-2"></div>
             </div>
 
-            <div class="data-card flex flex-col" style="height:340px;">
-                <div class="card-header">
-                    <span>Busiest Day of Month<i class="bi bi-info-circle chart-info-icon" data-explain="r27-day-of-month" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
-                    <button class="export-pdf-btn" onclick="exportChartPdf('chart_dom','Busiest Day of Month','busiest_day_of_month')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
-                    <button class="export-png-btn" onclick="exportChart('chart_dom', 'busiest_day_of_month')">
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                        PNG
-                    </button>
-                </div>
-                <div class="card-desc">
-                    Number of orders scheduled per calendar day-of-month (1st–31st), summed across every month in the audit period. Recurring spikes (e.g. around the 1st) often track billing/insurance cycles rather than clinical demand.
-                </div>
-                <div id="chart_dom" class="flex-1 p-2"></div>
-            </div>
-
-            <!-- Row 2: Demo + Status + AE -->
+            <!-- Busiest day of month + order status mix (Demographics and Modality Distribution
+                 removed, operator 2026-11-20) -->
             <div class="grid grid-cols-3 gap-6">
-                <div class="data-card flex flex-col" style="height:380px;">
+                <div class="data-card col-span-2 flex flex-col" style="height:380px;">
                     <div class="card-header">
-                        <span>Demographics (Age &amp; Gender)<i class="bi bi-info-circle chart-info-icon" data-explain="r27-demo" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
-                        <button class="export-pdf-btn" onclick="exportChartPdf('chart_demo','Demographics (Age & Gender)','demographics')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
-                        <button class="export-png-btn" onclick="exportChart('chart_demo', 'demographics')">
+                        <span>Busiest Day of Month<i class="bi bi-info-circle chart-info-icon" data-explain="r27-day-of-month" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
+                        <button class="export-pdf-btn" onclick="exportChartPdf('chart_dom','Busiest Day of Month','busiest_day_of_month')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+                        <button class="export-png-btn" onclick="exportChart('chart_dom', 'busiest_day_of_month')">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                             PNG
                         </button>
                     </div>
                     <div class="card-desc">
-                        Order count by patient age group (0–8, 9–18, 19–64, 65+), stacked by gender. Reveals which age and gender segments are driving demand in the selected period.
+                        Number of orders scheduled per calendar day-of-month (1st–31st), summed across every month in the audit period. Recurring spikes (e.g. around the 1st) often track billing/insurance cycles rather than clinical demand.
                     </div>
-                    <div id="chart_demo" class="flex-1 p-2"></div>
+                    <div id="chart_dom" class="flex-1 p-2"></div>
                 </div>
 
                 <div class="data-card flex flex-col" style="height:380px;">
@@ -493,21 +524,6 @@
                         exams behind it, row by row.
                     </div>
                     <div id="chart_status" class="flex-1 p-2"></div>
-                </div>
-
-                <div class="data-card flex flex-col" style="height:380px;">
-                    <div class="card-header">
-                        <span>Modality Distribution (AE)<i class="bi bi-info-circle chart-info-icon" data-explain="r27-ae-mix" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
-                        <button class="export-pdf-btn" onclick="exportChartPdf('chart_ae','Modality Distribution (AE)','ae_distribution')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
-                        <button class="export-png-btn" onclick="exportChart('chart_ae', 'ae_distribution')">
-                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                            PNG
-                        </button>
-                    </div>
-                    <div class="card-desc">
-                        Number of linked PACS studies per storing AE title (imaging device). Shows which physical machines received the most studies in the period — cross-reference with Infrastructure tab for utilization context.
-                    </div>
-                    <div id="chart_ae" class="flex-1 p-2"></div>
                 </div>
             </div>
 
@@ -672,22 +688,6 @@
             }
             registerChart('chart_hourly', cHourly);
 
-            // Demographics stacked bar
-            const ages = ['0-8', '9-18', '19-64', '65+', 'Unknown'];
-            const cDemo = echarts.init(document.getElementById('chart_demo'));
-            cDemo.setOption({
-                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-                legend: { bottom: 0, textStyle: { color: '#94a3b8', fontSize: 12 }, icon: 'circle' },
-                grid: { left: '3%', right: '4%', bottom: '18%', top: '5%', containLabel: true },
-                xAxis: { type: 'category', data: ages, axisLabel },
-                yAxis: { type: 'value', splitLine, axisLabel },
-                series: [
-                    { name: 'M', type: 'bar', stack: 'total', data: ages.map(g => raw.audit.demo[g]?.M || 0), itemStyle: { color: '#3b82f6', borderRadius: [0,0,0,0] } },
-                    { name: 'F', type: 'bar', stack: 'total', data: ages.map(g => raw.audit.demo[g]?.F || 0), itemStyle: { color: '#ec4899', borderRadius: [4,4,0,0] } }
-                ]
-            });
-            registerChart('chart_demo', cDemo);
-
             // Status Mix — bars are lifecycle stages; the RIS statuses each one groups
             // are in the tooltip, because that is what reconciles against the RIS worklist.
             // Reversed: ECharts draws the first category at the BOTTOM, and the server
@@ -731,23 +731,6 @@
                 }]
             });
             registerChart('chart_status', cStatus);
-
-            // AE Distribution
-            const cAE = echarts.init(document.getElementById('chart_ae'));
-            cAE.setOption({
-                tooltip: { trigger: 'axis' },
-                grid: { left: '3%', right: '4%', bottom: '22%', top: '10%', containLabel: true },
-                xAxis: {
-                    type: 'category', data: Object.keys(raw.audit.ae_mix),
-                    axisLabel: { rotate: 45, color: '#94a3b8', fontSize: 11 }
-                },
-                yAxis: { type: 'value', splitLine, axisLabel },
-                series: [{
-                    type: 'bar', data: Object.values(raw.audit.ae_mix),
-                    itemStyle: { color: '#f59e0b', borderRadius: [4, 4, 0, 0] }
-                }]
-            });
-            registerChart('chart_ae', cAE);
 
             // Busiest Day of Month
             if (raw.busiest && raw.busiest.by_day_of_month) {
