@@ -1327,6 +1327,17 @@ read; radiologists approve or finalise (check both).
     schedule `move` directly (every table verified before any delete; the backup is the net),
     starting earlier (Sat 23:00) so it ends before the 05:00 ETL, which skips its run while the
     move holds its lock.
+    **20 Nov, what happened and the clean restart.** The operator ran `sjh_move.sh` twice on
+    20 Nov (09:15, 14:38): dry runs of ~2 h, copies of 3 h+ that never finished, both cut short by
+    deploys that recreated the app container (the route ran inside it); RH untouched ("deleted
+    from RH: False"). The second cut left SJH's database on with a partial copy and an orphaned
+    copy session that blocked the app's start (site down ~30 min, sessions terminated). Causes,
+    fixed (a3bd60b9, c116e9b0, 2d9a96e2): the verification used IS NOT DISTINCT FROM on every key
+    (quadratic: ~13 h for the series; now = on NOT NULL keys, stage analysed); one transaction for
+    the whole copy (now per table, timed); the route inside the app container (now its own
+    one-off container); deploys allowed during the move (update.sh now refuses); the app's start
+    waited for ever on locks (now 10-15 s timeouts). Clean restart: SJH off, drop etl_db_sjh,
+    deploy, `check`, `copy` (timed per table), then `move`.
     **Production runbook (the script's steps), on the server:**
     0. (added 2026-11-20) Before: deploy the latest code; note RH's figures for a fixed period
        (Report 22, 38, Super Report); check the disk
