@@ -20,6 +20,17 @@
         .sidebar-item.active { background: #1d2522; color: var(--accent); border-left: 4px solid var(--accent); }
 
         .card { background: var(--surface); border-radius: 1rem; border: 1px solid var(--border); }
+        /* Export buttons: hover and keyboard focus in CSS (review of 2026-11-20) */
+        .sr-export-btn { display:inline-flex; align-items:center; gap:4px; padding:4px 10px; background:transparent;
+                         border:1px solid #28332e; border-radius:6px; color:#94a3b8; font-size:9px; font-weight:900;
+                         text-transform:uppercase; letter-spacing:0.06em; cursor:pointer; }
+        .sr-export-btn.sm { padding:3px 9px; }
+        .sr-export-btn:hover, .sr-export-btn:focus-visible { border-color:#60a5fa; color:#60a5fa; outline:none; }
+        .sr-export-btn.pdf:hover, .sr-export-btn.pdf:focus-visible { border-color:#f87171; color:#f87171; }
+        body.light .sr-export-btn { color:#475569; border-color:#cbd5e1; }
+        /* Muted text: #94a3b8 on the dark page (6.6:1 on #181f1c; #475569 gave 2.2:1), slate on the light one */
+        .sr-muted { color:#94a3b8; }
+        body.light .sr-muted { color:#475569; }
 
         /* Filter panel */
         .f-label { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 4px; display: block; }
@@ -174,7 +185,7 @@
                     <div style="display:flex;align-items:center;gap:8px;">
                         <i class="bi bi-lightning-charge-fill" style="color:#60a5fa;"></i>
                         <span style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#60a5fa;">Daily Briefing<i class="bi bi-info-circle chart-info-icon" data-explain="sr-briefing" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
-                        <span id="briefing-updated" style="font-size:9px;font-weight:700;color:#475569;margin-left:4px;"></span>
+                        <span id="briefing-updated" class="sr-muted" style="font-size:9px;font-weight:700;margin-left:4px;"></span>
                     </div>
                     <div style="display:flex;gap:4px;" id="briefing-tabs">
                         <button onclick="showBriefing('last_30d')" id="tab-last_30d" class="tab-btn active">
@@ -189,7 +200,7 @@
                     </div>
                 </div>
                 <div id="briefing-body" style="padding:16px 18px;min-height:60px;">
-                    <p style="color:#475569;font-size:11px;font-style:italic;">Loading briefing...</p>
+                    <p class="sr-muted" style="font-size:11px;font-style:italic;">Loading briefing...</p>
                 </div>
             </div>
 
@@ -324,15 +335,11 @@
                                     style="padding:4px 12px;background:transparent;color:#64748b;border:none;cursor:pointer;">By Month</button>
                             </div>
                             <button onclick="srExportCsv()" title="Export modality/AE table as CSV"
-                                style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #28332e;border-radius:6px;color:#64748b;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
-                                onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
-                                onmouseout="this.style.borderColor='#28332e';this.style.color='#64748b';">
+                                class="sr-export-btn">
                                 <i class="bi bi-download"></i> CSV
                             </button>
                             <button onclick="_srExportElemPdf(document.getElementById('sr-rad-xtab'),'Reports per Radiologist','rad_matrix')"
-                                style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #28332e;border-radius:6px;color:#64748b;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
-                                onmouseover="this.style.borderColor='#f87171';this.style.color='#f87171';"
-                                onmouseout="this.style.borderColor='#28332e';this.style.color='#64748b';">
+                                class="sr-export-btn pdf">
                                 <i class="bi bi-file-earmark-pdf"></i> PDF
                             </button>
                         </div>
@@ -354,15 +361,11 @@
                                 <option value="9999">All</option>
                             </select>
                             <button onclick="srExportProcCsv()" title="Export procedure table as CSV"
-                                style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:transparent;border:1px solid #28332e;border-radius:6px;color:#64748b;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
-                                onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
-                                onmouseout="this.style.borderColor='#28332e';this.style.color='#64748b';">
+                                class="sr-export-btn sm">
                                 <i class="bi bi-download"></i> CSV
                             </button>
                             <button onclick="_srExportElemPdf(document.getElementById('sr-proc-table')?.closest('div'),'Procedure Breakdown','rad_procedures')"
-                                style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:transparent;border:1px solid #28332e;border-radius:6px;color:#64748b;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
-                                onmouseover="this.style.borderColor='#f87171';this.style.color='#f87171';"
-                                onmouseout="this.style.borderColor='#28332e';this.style.color='#64748b';">
+                                class="sr-export-btn sm pdf">
                                 <i class="bi bi-file-earmark-pdf"></i> PDF
                             </button>
                         </div>
@@ -372,7 +375,7 @@
                                 <tbody id="sr-proc-tbody"></tbody>
                             </table>
                         </div>
-                        <p id="sr-proc-empty" style="font-size:10px;color:#475569;padding:8px 0;display:none;">No procedure data available for this period.</p>
+                        <p id="sr-proc-empty" class="sr-muted" style="font-size:10px;padding:8px 0;display:none;">No procedure data available for this period.</p>
                     </div>
                 </div>
 

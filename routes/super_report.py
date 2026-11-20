@@ -1062,8 +1062,12 @@ def _get_utilization_summary(start, end):
 # ─────────────────────────────────────────────
 
 def _fp(p):
+    """A change, rounded to one decimal by _pct, written as the page's badges write it (pct() in
+    static/js/super_report.js): +5% not +5.0%, +0% for a zero of either sign."""
     if p is None: return None
-    return f"{'+'if p>=0 else ''}{p}%"
+    if p == 0: p = 0.0
+    s = f"{p:.1f}".rstrip('0').rstrip('.')
+    return f"{'+' if p >= 0 else ''}{s}%"
 
 def _trend(p):
     # Bands derived from Intermedic operational experience: ±5% is day-to-day

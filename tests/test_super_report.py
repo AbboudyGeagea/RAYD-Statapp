@@ -252,6 +252,30 @@ def test_the_page_script_is_a_static_file_loaded_deferred(client):
     assert 'window._fd' not in js and 'function setPicked' in js        # setPicked loads presets
 
 
+def test_the_narrative_writes_numbers_as_the_cards_do():
+    """4.1: Python's _fmt / _pct / _fp and the page's fmt / pct give the same text (the page's
+    side is checked in a browser: '—' for none, en-US separators, an exact half to even)."""
+    from routes.super_report import _fp
+    from utils.stats import _fmt, _pct
+    assert _fp(_pct(109, 80)) == '+36.2%'          # 36.25 exactly: to even, as pct() does now
+    assert _fp(_pct(105, 100)) == '+5%' and _fp(_pct(90, 100)) == '-10%'
+    assert _fp(0.0) == '+0%' and _fp(-0.0) == '+0%' and _fp(-12.5) == '-12.5%' and _fp(None) is None
+    assert _fmt(None) == '—' and _fmt(0) == '0' and _fmt(-1234) == '-1,234' and _fmt(1234.9) == '1,234'
+    js = _page_js()
+    assert "toLocaleString('en-US')" in js and 'toLocaleString()' not in js
+
+
+def test_the_page_buttons_and_muted_text_use_css():
+    """4.3: hover and keyboard focus in CSS, not onmouseover; muted text readable on the dark page."""
+    import os
+    page = open(os.path.join(os.path.dirname(__file__), '..', 'templates', 'super_report.html'), encoding='utf-8').read()
+    assert 'onmouseover' not in page and 'onmouseout' not in page
+    assert '.sr-export-btn:hover, .sr-export-btn:focus-visible' in page
+    import re
+    assert not re.search(r'style="[^"]*color:\s*#475569', page) and '#475569' not in _page_js()
+    assert page.count('data-explain=') == page.count('role="button" tabindex="0"')   # icons take focus
+
+
 def test_the_super_report_reads_the_utilization_through_the_report_34_wrapper():
     """3.3"""
     import inspect

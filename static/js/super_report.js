@@ -64,10 +64,23 @@ function updateCmpDates() {
 }
 
 // ── Load the dropdowns' options ───────────────────────────────────
+// A failure is said on the page, at the top of the saved presets (it was in the console only),
+// and "Clear all" then tries again.
+let _filtersFailed = false;
+function showFiltersNotice() {
+    const old = document.getElementById('sr-filters-error');
+    if (old) old.remove();
+    const list = document.getElementById('presets-list');
+    if (_filtersFailed && list) list.insertAdjacentHTML('afterbegin',
+        '<p id="sr-filters-error" role="alert" class="text-[10px] font-bold mb-1" style="color:#f87171;">' +
+        'Could not load filter options — click Clear all to retry</p>');
+}
+
 async function loadFilters() {
     try {
         const res  = await fetch('/viewer/super-report/filters');
         const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
         const aeMap      = data.ae_modality_map    || {};
         const stationMap = data.ae_station_map     || {};
         const procMap    = data.procedure_name_map || {};
@@ -85,7 +98,12 @@ async function loadFilters() {
             if ($(sel).data('select2')) $(sel).select2('destroy');
             $(sel).select2({ width: '100%' });
         });
-    } catch(e) { console.error('Filter load failed', e); }
+        _filtersFailed = false;
+    } catch(e) {
+        _filtersFailed = true;
+        console.error('Filter load failed', e);
+    }
+    showFiltersNotice();
 }
 
 function clearFilters() {
@@ -93,6 +111,7 @@ function clearFilters() {
     document.getElementById('f-has_report').value = '';
     document.getElementById('age-min').value = '';
     document.getElementById('age-max').value = '';
+    if (_filtersFailed) loadFilters();                       // the notice's "retry"
 }
 
 // ── Build query string ────────────────────────────────────────────
@@ -226,7 +245,7 @@ async function loadSites() {
 }
 
 function renderSites(d) {
-    const fmt = v => (v == null ? '—' : Number(v).toLocaleString());
+    const fmt = v => (v == null ? '—' : Number(v).toLocaleString('en-US'));
     const head1 = d.sites.map(s => `<th colspan="4" style="text-align:center;padding:6px 8px;border-bottom:1px solid #28332e;color:#e2e8f0">${escHtml(s.code)}<span style="color:#64748b;font-weight:600"> · ${escHtml(s.name)}</span></th>`).join('');
     const head2 = d.sites.map(() => ['Studies', 'Patients', 'Median TAT (min)', 'GB']
         .map(h => `<th style="text-align:right;padding:4px 8px;color:#64748b;font-size:9px;text-transform:uppercase">${h}</th>`).join('')).join('');
@@ -245,7 +264,7 @@ function renderSites(d) {
         `<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:520px">` +
         `<thead><tr><th></th>${head1}</tr><tr><th style="text-align:left;padding:4px 8px;color:#64748b;font-size:9px;text-transform:uppercase">Modality</th>${head2}</tr></thead>` +
         `<tbody>${rows || ''}${total}</tbody></table>` +
-        (d.modalities.length ? '' : '<p style="font-size:10px;color:#475569;padding:8px">No study on either site for these dates and filters.</p>');
+        (d.modalities.length ? '' : '<p class="sr-muted" style="font-size:10px;padding:8px">No study on either site for these dates and filters.</p>');
 }
 
 // ── Render ────────────────────────────────────────────────────────
@@ -411,7 +430,7 @@ function srWetReads(w) {
     card.style.display = '';
     const mods = w.modalities || [], rows = w.residents || [];
     document.getElementById('sr-wet-note').textContent = rows.length
-        ? `${w.total.toLocaleString()} studies wet-read by a resident, each counted once for the first resident's wet read. From the PACS audit trail: studies that reached PACS from ${w.coverage.from}.`
+        ? `${w.total.toLocaleString('en-US')} studies wet-read by a resident, each counted once for the first resident's wet read. From the PACS audit trail: studies that reached PACS from ${w.coverage.from}.`
         : `No wet read by a resident in this range (the PACS audit trail covers studies that reached PACS from ${w.coverage.from}).`;
     const th = s => `<th style="padding:6px 8px;text-align:right;color:#64748b;font-size:9px;text-transform:uppercase;letter-spacing:.05em;">${s}</th>`;
     document.getElementById('sr-wet-thead').innerHTML = rows.length
@@ -469,7 +488,7 @@ function _srFmtMonth(ym) {
 function srDrawCrossTab(rows, isMonth) {
     const el = document.getElementById('sr-rad-xtab');
     if (!rows.length) {
-        el.innerHTML = '<p style="font-size:10px;color:#475569;padding:8px 0;">No data for this period.</p>';
+        el.innerHTML = '<p class="sr-muted" style="font-size:10px;padding:8px 0;">No data for this period.</p>';
         return;
     }
     const allRads = [...new Set(rows.map(r => r.radiologist))].sort();
@@ -814,12 +833,24 @@ function renderInsights(sec) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
+// The same text as the narrative's Python helpers (utils/stats.py _fmt and _pct, f"{x:.1f}"), so a
+// number reads the same in the narrative and on a card (review of 2026-11-20): '—' for no value
+// (parseInt(null) printed "NaN"), en-US separators whatever the browser's language, and an exact
+// half rounded to even as Python's round() does (toFixed rounds it up: 36.25 -> 36.3, Python 36.2).
+function _round(x, d) {
+    const m = Math.pow(10, d), v = x * m;
+    if (!Number.isInteger(v) && Number.isInteger(v * 2)) {      // an exact half
+        const f = Math.floor(v);
+        return (f % 2 === 0 ? f : f + 1) / m;
+    }
+    return parseFloat(x.toFixed(d));                           // exact value, like round()
+}
 function pct(a, b) {
     a = parseFloat(a||0); b = parseFloat(b||0);
-    return b ? parseFloat(((a-b)/b*100).toFixed(1)) : null;
+    return (b && Number.isFinite(a) && Number.isFinite(b)) ? _round((a-b)/b*100, 1) : null;
 }
-function fmt(n)  { try { return parseInt(n).toLocaleString(); }  catch(e) { return '—'; } }
-function fmtD(n) { try { return parseFloat(n).toFixed(1); } catch(e) { return '—'; } }
+function fmt(n)  { const v = parseInt(n, 10); return Number.isFinite(v) ? v.toLocaleString('en-US') : '—'; }
+function fmtD(n) { const v = parseFloat(n);   return Number.isFinite(v) ? _round(v, 1).toFixed(1) : '—'; }
 
 function row(label, val, pctVal) {
     const badge = pctVal !== null && pctVal !== undefined
@@ -849,6 +880,7 @@ async function loadPresets() {
     } catch(e) {
         document.getElementById('presets-list').innerHTML =
             '<p class="text-[10px] text-slate-600 italic">Could not load</p>';
+        showFiltersNotice();
     }
 }
 
@@ -856,6 +888,7 @@ function renderPresets(presets) {
     const el = document.getElementById('presets-list');
     if (!presets.length) {
         el.innerHTML = '<p class="text-[10px] text-slate-600 italic">No saved presets</p>';
+        showFiltersNotice();
         return;
     }
     el.innerHTML = presets.map(p => `
@@ -872,6 +905,7 @@ function renderPresets(presets) {
             </button>
         </div>
     `).join('');
+    showFiltersNotice();
 }
 
 async function saveCurrentPreset() {
@@ -988,7 +1022,7 @@ async function loadBriefings() {
         const rows = await fetch('/viewer/super-report/snapshots').then(r => r.json());
         if (rows.error || !Array.isArray(rows) || !rows.length) {
             document.getElementById('briefing-body').innerHTML =
-                '<p style="color:#475569;font-size:11px;font-style:italic;">No briefing available yet — runs nightly at 05:15.</p>';
+                '<p class="sr-muted" style="font-size:11px;font-style:italic;">No briefing available yet — runs nightly at 05:15.</p>';
             return;
         }
         rows.forEach(r => { window._briefings[r.period_label] = r; });
@@ -1015,7 +1049,7 @@ function showBriefing(label) {
     const upd  = document.getElementById('briefing-updated');
 
     if (!snap) {
-        body.innerHTML = '<p style="color:#475569;font-size:11px;font-style:italic;">No snapshot for this period yet.</p>';
+        body.innerHTML = '<p class="sr-muted" style="font-size:11px;font-style:italic;">No snapshot for this period yet.</p>';
         upd.textContent = '';
         return;
     }
@@ -1041,7 +1075,7 @@ function showBriefing(label) {
             html += `<div class="briefing-pre">${escHtml(line)}</div>`;
         }
     });
-    body.innerHTML = html || '<p style="color:#475569;font-size:11px;font-style:italic;">Empty briefing.</p>';
+    body.innerHTML = html || '<p class="sr-muted" style="font-size:11px;font-style:italic;">Empty briefing.</p>';
 }
 
 // ── Init ──────────────────────────────────────────────────────────
@@ -1068,7 +1102,7 @@ fetch('/user/theme').then(r => r.json()).then(d => {
     try {
         const d = await fetch('/patients/conflicts').then(r => r.json());
         if (d.error) throw new Error(d.error);
-        badge.textContent = d.count.toLocaleString() + ' conflict' + (d.count !== 1 ? 's' : '');
+        badge.textContent = d.count.toLocaleString('en-US') + ' conflict' + (d.count !== 1 ? 's' : '');
         badge.style.background  = d.count > 0 ? 'rgba(244,63,94,0.15)'  : 'rgba(34,197,94,0.15)';
         badge.style.color       = d.count > 0 ? '#f43f5e'               : '#22c55e';
         badge.style.borderColor = d.count > 0 ? 'rgba(244,63,94,0.3)'  : 'rgba(34,197,94,0.3)';
