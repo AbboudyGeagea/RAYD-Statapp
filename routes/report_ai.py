@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
-from flask import Blueprint, render_template, request, abort, jsonify, current_app
+from flask import Blueprint, render_template, request, abort, jsonify, current_app, g
 from flask_login import login_required, current_user
 from sqlalchemy import text
 
@@ -166,6 +166,19 @@ def _pct(x):
     return f"{x * 100:+.0f}%"
 
 
+def _storage_capacity_gb():
+    """settings storage_capacity_gb, 10 TB when absent, not a number or not above 0. Read once per
+    request (the storage section and the sidebar's form both need it: review of 2026-11-20)."""
+    if 'ai_storage_capacity_gb' not in g:
+        row = db.session.execute(text("SELECT value FROM settings WHERE key = 'storage_capacity_gb'")).fetchone()
+        try:
+            cap = float(row[0]) if row else 10240.0
+        except (TypeError, ValueError):
+            cap = 10240.0
+        g.ai_storage_capacity_gb = cap if math.isfinite(cap) and cap > 0 else 10240.0
+    return g.ai_storage_capacity_gb
+
+
 DAY_NAMES = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
 
 
@@ -202,11 +215,7 @@ def _get_storage_intelligence(start, end):
         "SELECT COALESCE(SUM(total_gb), 0) FROM summary_storage_daily"
     )).scalar() or 0.0)
 
-    # User-configurable storage capacity (from settings table, default 10 TB)
-    cap_row = db.session.execute(text(
-        "SELECT value FROM settings WHERE key = 'storage_capacity_gb'"
-    )).fetchone()
-    capacity_gb = float(cap_row[0]) if cap_row else 10240.0
+    capacity_gb = _storage_capacity_gb()
 
     run = _forecast_run("storage")
     fc = _forecast_rows("storage") if run else []
@@ -265,7 +274,7 @@ def _get_storage_intelligence(start, end):
 
 
 def _explain_storage(d):
-    gb, cap = d["current_gb"], d["capacity_gb"]
+    gb, cap = d["current_gb"], (d["capacity_gb"] or 10240.0)      # never 0 (a hand-written setting)
     exp = f"The archive holds {gb:,.0f} GB of {cap:,.0f} GB ({gb / cap * 100:.0f}% used). "
     if d["daily_growth_gb"] is None:
         return exp + "No forecast yet: it is trained every night after the ETL, or with Retrain now."
@@ -343,12 +352,16 @@ def _get_volume_intelligence(start, end):
         "weekday_avg": weekday_avg,
         "saturday_avg": sat_avg,
         "sunday_avg": sun_avg,
+        # Two kinds of figures (review of 2026-11-20): what lies ahead (the next days' totals, the
+        # coming holidays, the correction applied to the next days) only when the forecast is shown,
+        # i.e. the end date reaches the latest data; what the model has learnt from the history
+        # (growth per year, the weekday ratios, the holiday effects) whatever the dates picked.
         "totals": info.get("totals") if fc else None,
+        "correction_now": info.get("correction_now") if fc else None,
+        "upcoming": (info.get("upcoming") or []) if fc else [],
         "growth_per_year": info.get("growth_per_year"),
         "weekday_ratio": info.get("weekday"),
         "holiday_effect": info.get("holiday_effect") or {},
-        "correction_now": info.get("correction_now"),
-        "upcoming": info.get("upcoming") or [],
         "meta": _model_meta("volume", run),
         "modality_split": [{"name": r.modality or "UNMAPPED", "value": int(r.cnt)} for r in mod_rows],
         "chart": {
@@ -634,6 +647,12 @@ def _get_utilization_intelligence(start, end):
 
         avg_util        = round(np.mean(daily_utils), 1) if daily_utils else 0
         avg_theoretical = round(np.mean(daily_theoretical), 1) if daily_theoretical else 0
+        # util_pct is 0.0 where a day has no capacity, so no NaN is expected; a NaN would print
+        # "NaN%" and slip past every comparison, so it reads 0 (review of 2026-11-20)
+        if pd.isna(avg_util):
+            avg_util = 0
+        if pd.isna(avg_theoretical):
+            avg_theoretical = 0
         # Positive gap = actual running hotter than the SPS schedule assumes
         # (exams overrunning their scheduled duration -- real demand on this
         # device exceeds what the schedule accounts for). Negative gap = exams
@@ -728,6 +747,10 @@ def _explain_utilization(d):
     else:
         exp += "No forecast yet: it is trained every night after the ETL, or with Retrain now."
     return exp
+
+
+_PHYSICIAN = """COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name,
+                s.referring_physician_last_name)), ''), 'Unknown')"""
 
 
 def _get_physician_intelligence(start, end):
@@ -835,10 +858,6 @@ def _get_physician_intelligence(start, end):
     return data
 
 
-_PHYSICIAN = """COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name,
-                s.referring_physician_last_name)), ''), 'Unknown')"""
-
-
 def _explain_physician(d):
     w, h, c = d["window"], d["hospital"], d["counts"]
     fmt = lambda x: pd.Timestamp(x).strftime('%d %b %Y')
@@ -864,7 +883,8 @@ def _explain_physician(d):
 # ─────────────────────────────────────────────
 
 # Maps the tab name used in the URL/DOM ('util', not 'utilization' -- that
-# mismatch is pre-existing, the data dict has always used 'utilization') to
+# mismatch is pre-existing, the data dict has always used 'utilization'; the same pairing is in
+# report_ai.html's dataKeyFor() and its panels loop, which reads this table) to
 # (data dict key, fetch function, partial template). Single source of truth
 # for both the main route's eager tab and the on-demand panel endpoint below,
 # so the two can never drift out of sync on which function/template a tab maps to.
@@ -929,11 +949,7 @@ def report_ai():
     active_data, section_error = _fetch_section(active_tab, start, end)
     data = {active_data_key: active_data}
 
-    # Load current storage capacity setting for the form
-    cap_row = db.session.execute(text(
-        "SELECT value FROM settings WHERE key = 'storage_capacity_gb'"
-    )).fetchone()
-    storage_capacity_gb = float(cap_row[0]) if cap_row else 10240.0
+    storage_capacity_gb = _storage_capacity_gb()       # the sidebar's form; read once per request
 
     ui_theme = getattr(current_user, "ui_theme", None) or "dark"
 
@@ -945,6 +961,7 @@ def report_ai():
         display_end=end,
         active_tab=active_tab,
         active_data_key=active_data_key,
+        panels=[(tab, cfg[2]) for tab, cfg in _SECTION_CONFIG.items()],    # tab, partial
         section_error=section_error,
         storage_capacity_gb=storage_capacity_gb,
         ui_theme=ui_theme,

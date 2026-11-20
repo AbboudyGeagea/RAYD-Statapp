@@ -87,6 +87,11 @@ def _pages_including(partial):
             if re.search(r"""\{%\s*include\s+['"]""" + re.escape(partial) + r"""['"]""", text) \
                     or f'data-part-template="{partial}"' in text:
                 out.append((name, text))
+    # Report AI's panels: report_ai.html includes them in a loop over the route's _SECTION_CONFIG
+    # (review of 2026-11-20), so their names are in the route, not the page
+    from routes.report_ai import _SECTION_CONFIG
+    if partial in {cfg[2] for cfg in _SECTION_CONFIG.values()}:
+        out.append(('report_ai.html', open(os.path.join(TEMPLATES, 'report_ai.html'), encoding='utf-8').read()))
     return out
 
 

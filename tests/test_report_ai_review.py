@@ -188,6 +188,79 @@ def test_the_page_script_guards_against_double_fetches_and_merged_charts():
     assert page.count('}, true);') >= 2
 
 
+# ── block 3 ───────────────────────────────────────────────────────────────────
+
+def test_the_tabs_and_panels_come_from_one_mapping_and_take_the_keyboard(client):
+    """3.1 one loop over _SECTION_CONFIG, 3.2 D always a dict, 3.3 the delete URL from the registry,
+    3.4 the dialog's date pickers made when it opens, 3.5 tabs as buttons in a tablist."""
+    html = client.get('/report/ai?tab=volume', headers=ADMIN).get_data(as_text=True)
+    assert 'role="tablist"' in html
+    for tab in ('storage', 'volume', 'util', 'physician'):
+        assert f'id="tab-{tab}"' in html and f'aria-controls="panel-{tab}"' in html
+        assert f'id="panel-{tab}"' in html and f'aria-labelledby="tab-{tab}"' in html
+    assert html.count('<button type="button" class="tab') == 4
+    assert 'aria-selected="true" aria-controls="panel-volume"' in html
+    assert 'const D = {' in html and "if data else" not in html
+    assert '/report/ai/calendar/987654321/delete' in html and ".replace('/0/'" not in html
+    assert ':not(#calStart):not(#calEnd)' in html and 'appendTo: dlg' in html
+
+
+def test_the_storage_capacity_is_read_once_per_request(client):
+    """3.7"""
+    from sqlalchemy import event
+    from db import db
+    seen = []
+    f = lambda conn, cursor, statement, *a: seen.append(statement)
+    event.listen(db.engine, 'before_cursor_execute', f)
+    try:
+        assert client.get('/report/ai?tab=storage&start_date=2026-06-01&end_date=2026-06-30', headers=ADMIN).status_code == 200
+    finally:
+        event.remove(db.engine, 'before_cursor_execute', f)
+    assert sum("key = 'storage_capacity_gb'" in q for q in seen) == 1
+
+
+def test_the_referrer_name_expression_is_defined_before_use():
+    """3.6"""
+    import inspect
+    from routes import report_ai
+    src = inspect.getsource(report_ai)
+    assert src.index('_PHYSICIAN = ') < src.index('def _get_physician_intelligence')
+
+
+# ── block 4 ───────────────────────────────────────────────────────────────────
+
+def test_figures_ahead_only_with_the_forecast_shown_what_the_model_learnt_always():
+    """4.1"""
+    from routes.report_ai import _get_volume_intelligence
+    device('CT44')
+    for i in range(6):
+        study(D0 + timedelta(days=i), 'CT44')
+    sql("""INSERT INTO ai_forecast_run (series_key, model, trained_from, trained_to, run_at, info)
+           VALUES ('volume', 'prophet', '2025-01-01', '2026-11-01', now(), CAST(:i AS jsonb))""",
+        i='{"growth_per_year": 0.05, "weekday": [1, 1, 1, 1, 1, 0.35, 0.24], "correction_now": 0.08, '
+          '"totals": {"days": 90, "expected": 100, "low": 90, "high": 110}, '
+          '"upcoming": [{"date": "2026-11-22", "name": "Independence Day", "expected": 40, "kind": "closure"}]}')
+    v = _get_volume_intelligence(D0.isoformat(), (D0 + timedelta(days=5)).isoformat())     # before trained_to
+    assert v['totals'] is None and v['upcoming'] == [] and v['correction_now'] is None
+    assert v['growth_per_year'] == 0.05 and v['weekday_ratio'][5] == 0.35
+
+
+def test_the_storage_explanation_survives_a_zero_capacity():
+    """4.2"""
+    from routes.report_ai import _explain_storage
+    text_ = _explain_storage({'current_gb': 512.0, 'capacity_gb': 0, 'daily_growth_gb': None})
+    assert '512 GB of 10,240 GB' in text_
+
+
+def test_the_theme_is_set_by_the_server():
+    """4.5"""
+    import os
+    page = open(os.path.join(os.path.dirname(__file__), '..', 'templates', 'report_ai.html'), encoding='utf-8').read()
+    assert "{{ ' light' if ui_theme == 'light' else '' }}" in page
+    body_end = page.index("document.addEventListener('DOMContentLoaded'")
+    assert 'applyTheme("{{ ui_theme }}")' in page[body_end:]
+
+
 # ── 1.9 unusual days ──────────────────────────────────────────────────────────
 
 def test_a_day_is_measured_against_the_other_days():
