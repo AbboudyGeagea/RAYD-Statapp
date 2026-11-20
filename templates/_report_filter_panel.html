@@ -27,6 +27,8 @@
   export_url  draws a second button that sends the same filters to that address as a POST,
               with the CSRF token, for the report's Excel download
   extra       HTML placed in the form after the dropdowns, for a report's own controls
+  after_dates HTML placed right under the date range (the Super Report's comparison period,
+              2026-11-20), for controls that belong with the dates
 #}
 
 {% macro filter_panel_head() %}
@@ -62,7 +64,7 @@
 {% endmacro %}
 
 {% macro filter_panel(start, end, filters, button='Generate', hidden=None, export_url=None,
-                      export_label='Download Excel', extra='') %}
+                      export_label='Download Excel', extra='', after_dates='') %}
 <aside class="rfp w-64 p-5 flex flex-col overflow-y-auto flex-shrink-0" aria-label="Report filters">
     <form id="mainForm" method="GET" class="space-y-6">
         {% for name, value in (hidden or {}).items() %}
@@ -73,6 +75,7 @@
             <input type="date" id="rfp-start" name="start_date" value="{{ start }}" class="rfp-input mb-2" aria-label="From">
             <input type="date" id="rfp-end" name="end_date" value="{{ end }}" class="rfp-input" aria-label="To">
         </div>
+        {{ after_dates }}
         {% for f in filters %}
         <div class="rfp-f{% if f.mode == 'exclude' %} rfp-excl{% endif %}">
             {% if f.mode_name %}

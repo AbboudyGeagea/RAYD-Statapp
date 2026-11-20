@@ -133,7 +133,8 @@
     <div class="flex flex-1 overflow-hidden">
 
         <!-- Filter Sidebar -->
-        {% set sr_extra %}
+        {# the comparison period sits right under the date range it is compared with (2026-11-20) #}
+        {% set sr_cmp %}
         <div>
             <label class="rfp-label" for="cmp-start" style="display:flex;justify-content:space-between;">
                 Comparison period <span class="text-[9px] text-slate-600 normal-case font-normal" id="cmp-auto-label">auto</span>
@@ -141,6 +142,8 @@
             <input type="date" id="cmp-start" class="rfp-input mb-2" aria-label="Comparison from">
             <input type="date" id="cmp-end" class="rfp-input" aria-label="Comparison to">
         </div>
+        {% endset %}
+        {% set sr_extra %}
         <div>
             <label class="rfp-label" for="age-min">Age range</label>
             <div class="flex gap-2">
@@ -157,7 +160,7 @@
             </select>
         </div>
         {% endset %}
-        {% call filter_panel(start, end, panel, extra=sr_extra) %}
+        {% call filter_panel(start, end, panel, extra=sr_extra, after_dates=sr_cmp) %}
         <div class="rfp-block" id="presets-section">
             <div class="flex items-center justify-between mb-1">
                 <span class="rfp-label mb-0">Saved presets</span>

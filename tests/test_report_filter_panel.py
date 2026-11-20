@@ -97,6 +97,9 @@ def test_the_super_report_draws_the_shared_panel(client, ctx):
         assert f'name="{name}" multiple' in side and f'name="{name}_on" class="rfp-tick" checked' in side
     for control in ('id="cmp-start"', 'id="age-min"', 'id="f-has_report"', 'id="presets-list"'):
         assert control in side
+    # the comparison period sits right under the date range (operator, 2026-11-20), before the dropdowns
+    assert side.index('id="rfp-end"') < side.index('id="cmp-start"') < side.index('id="cmp-end"') \
+        < side.index(f'name="{_PANEL_FILTERS[0][0]}" multiple')
     assert 'class="rfp-generate">Generate</button>' in side
     # the query never applied these two, so they are no longer offered
     assert 'protocol_name' not in side and 'body_part_series' not in side
