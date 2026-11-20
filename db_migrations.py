@@ -133,8 +133,13 @@ def _refresh_rh_views(engine):
     """A view lists its table's columns as they were when it was made, so the RH-only views
     (migration 0145) have to pick up any column a migration just added. A failure is logged, not
     raised: the old views still filter, and the app should still start."""
+    # A short lock timeout (2026-11-20): dropping and re-creating a view waits for every query using
+    # it, including one the previous container left running in Postgres during a deploy, and the app
+    # did not start until it finished. Past 15 s the refresh is skipped and logged; the views as they
+    # were keep filtering, and the next start refreshes them.
     try:
         with engine.begin() as conn:
+            conn.execute(text("SET LOCAL lock_timeout = '15s'"))
             if conn.execute(text("SELECT to_regproc('rh_refresh_views') IS NOT NULL")).scalar():
                 conn.execute(text("SELECT rh_refresh_views()"))
     except Exception as e:

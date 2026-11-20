@@ -381,9 +381,16 @@ def create_app():
     # A function, so a site's own database gets them too (utils/site_db.py, item 13a):
     # inside use_site(site_id) every db.session statement goes to that database.
     def _startup_schema():
+        # Every transaction here first sets a short lock timeout (2026-11-20): these ALTER TABLE ... IF NOT
+        # EXISTS statements are no-ops on a running install, but they still wait for the table's exclusive
+        # lock. A query the previous container left running (a long report, killed mid-deploy, still
+        # running in Postgres) held them, so the worker never finished starting and update.sh waited on
+        # "Waiting for app to respond". Now a statement that cannot get its lock in 10 s fails, is logged
+        # as before (each block catches its errors), and the app starts.
         # --- MIGRATE: add new columns / tables if missing ---
         with app.app_context():
             try:
+                db.session.execute(text("SET LOCAL lock_timeout = '10s'"))
                 db.session.execute(text(
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_theme VARCHAR DEFAULT 'dark'"
                 ))
@@ -477,6 +484,7 @@ def create_app():
 
         with app.app_context():
             try:
+                db.session.execute(text("SET LOCAL lock_timeout = '10s'"))
                 db.session.execute(text("""
                     CREATE TABLE IF NOT EXISTS hl7_oru_reports (
                         id               SERIAL PRIMARY KEY,
@@ -505,6 +513,7 @@ def create_app():
 
         with app.app_context():
             try:
+                db.session.execute(text("SET LOCAL lock_timeout = '10s'"))
                 db.session.execute(text("""
                     CREATE TABLE IF NOT EXISTS ai_nlp_cache (
                         id              SERIAL PRIMARY KEY,
@@ -535,6 +544,7 @@ def create_app():
         # --- MIGRATION: hl7_scn_studies (real-time completed studies) ---
         with app.app_context():
             try:
+                db.session.execute(text("SET LOCAL lock_timeout = '10s'"))
                 db.session.execute(text("""
                     CREATE TABLE IF NOT EXISTS hl7_scn_studies (
                         id               SERIAL PRIMARY KEY,
@@ -569,6 +579,7 @@ def create_app():
         # --- MIGRATION: pacs_done_at on hl7_orders ---
         with app.app_context():
             try:
+                db.session.execute(text("SET LOCAL lock_timeout = '10s'"))
                 db.session.execute(text(
                     "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS pacs_done_at TIMESTAMP"
                 ))
@@ -583,6 +594,7 @@ def create_app():
         # --- MIGRATION: patient_class + patient_location on hl7_orders ---
         with app.app_context():
             try:
+                db.session.execute(text("SET LOCAL lock_timeout = '10s'"))
                 db.session.execute(text(
                     "ALTER TABLE hl7_orders ADD COLUMN IF NOT EXISTS patient_class VARCHAR(50)"
                 ))
@@ -605,6 +617,7 @@ def create_app():
         # --- MIGRATION: encrypt db_params passwords ---
         with app.app_context():
             try:
+                db.session.execute(text("SET LOCAL lock_timeout = '10s'"))
                 from utils.crypto import encrypt, decrypt
                 from cryptography.fernet import InvalidToken
                 rows = db.session.execute(
@@ -634,6 +647,7 @@ def create_app():
         # --- MIGRATION: permission_groups + user columns ---
         with app.app_context():
             try:
+                db.session.execute(text("SET LOCAL lock_timeout = '10s'"))
                 db.session.execute(text("""
                     CREATE TABLE IF NOT EXISTS permission_groups (
                         id          SERIAL PRIMARY KEY,

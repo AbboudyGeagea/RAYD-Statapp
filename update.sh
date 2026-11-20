@@ -191,13 +191,21 @@ if [ $APPLIED -gt 0 ]; then
 fi
 
 # Health check — curl is installed in the container via Dockerfile
+# Each try is capped at 5 s (--max-time): a worker still starting accepts the connection and answers
+# nothing, and curl without a cap waited there for ever, so this step hung instead of timing out
+# (2026-11-20). When the app does not answer, say why: its last log lines and the database sessions
+# waiting on a lock (usually a query the previous container left running), with who blocks them.
 info "Waiting for app to respond..."
 WAIT=0
-until docker exec rayd_service curl -sf http://localhost:8080/ -o /dev/null 2>/dev/null || [ $WAIT -ge 90 ]; do
+until docker exec rayd_service curl -sf --max-time 5 http://localhost:8080/ -o /dev/null 2>/dev/null || [ $WAIT -ge 90 ]; do
     sleep 3; WAIT=$((WAIT+3))
 done
-if ! docker exec rayd_service curl -sf http://localhost:8080/ -o /dev/null 2>/dev/null; then
-    warn "App did not respond within 90 s — check logs: $COMPOSE logs rayd-app --tail 40"
+if ! docker exec rayd_service curl -sf --max-time 5 http://localhost:8080/ -o /dev/null 2>/dev/null; then
+    warn "App did not respond within 90 s. Its last log lines:"
+    $COMPOSE logs rayd-app --tail 25 2>&1 | sed 's/^/    /'
+    warn "Database sessions waiting on a lock, and the sessions blocking them:"
+    docker exec rayd_db psql -X -U "$PG_USER" -d "$PG_DB" -c "SELECT pid, pg_blocking_pids(pid) AS blocked_by, state, (now() - query_start)::interval(0) AS running, LEFT(regexp_replace(query, '\s+', ' ', 'g'), 90) AS query FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND (cardinality(pg_blocking_pids(pid)) > 0 OR pid IN (SELECT unnest(pg_blocking_pids(a.pid)) FROM pg_stat_activity a)) ORDER BY query_start;" 2>&1 | sed 's/^/    /'
+    warn "A blocker that is an old report query can be stopped: docker exec rayd_db psql -U $PG_USER -d $PG_DB -c \"SELECT pg_terminate_backend(<pid>);\""
 else
     ok "App is responding."
 fi
