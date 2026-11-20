@@ -1289,7 +1289,15 @@ read; radiologists approve or finalise (check both).
     The storage rollup now counts the site its database serves (`rayd_served_site_id()`),
     and the ETL runs SJH's right after the nightly route, on SJH's database. (The local
     sample has no images: covered by the tests only.)
-    **Production runbook (Sat 28), on the server:**
+    **Production runbook (moved to before Tue 24; day to pick, 2-3 hours, not during the 05:00
+    ETL; Mon 23 is a holiday), on the server:**
+    0. (added 2026-11-20) Before: deploy the latest code; note RH's figures for a fixed period
+       (Report 22, 38, Super Report); check the disk
+       (`df -h /var/lib/docker /opt/rayd` and `pg_database_size('etl_db')`); back up RH's database,
+       the move deletes ~182,000 studies from it:
+       `sudo mkdir -p /opt/rayd/backups && sudo docker exec rayd_db pg_dump -U etl_user -Fc etl_db | sudo tee /opt/rayd/backups/etl_db_before_sjh_move_$(date +%F).dump > /dev/null && ls -lh /opt/rayd/backups`.
+       Steps 1-4 on the same day: from step 1 SJH shows (empty) in the header of accounts
+       holding SJH until step 3.
     1. In `/opt/rayd/.env` set `POSTGRES_DB_SJH=etl_db_sjh`, then
        `cd /opt/rayd && sudo docker compose up -d rayd-app`: the app creates, loads and
        migrates SJH's database (`sudo docker logs rayd_service 2>&1 | grep "site SJH"` shows
