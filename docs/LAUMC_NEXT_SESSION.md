@@ -310,7 +310,8 @@ their booked device 30,759 of 30,875 (99.6 %; RF 99.7, CT 99.6, US 99.5, MR 99.7
 every site database (`etl_orders.refresh_booked_rooms`); the tab's room for an order not performed
 yet = the booked room, then the 90-day guess, then the only bookable room. After the first night:
 `sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT COUNT(*) AS open_rows, COUNT(booked_ae_title) AS with_booked_room FROM etl_orders WHERE order_status = 'scheduled' AND scheduled_datetime >= current_date;"`
-(expect nearly all).
+(expect nearly all). **Confirmed 20 Nov: 1,472 open rows, 1,472 with a booked room (100 %).
+Booked room closed.**
 
 **Standing rules from this session:** every new report, chart, table and KPI tile gets an (i)
 next to its name (`static/js/chart-explanations.js`, end-user words); server SQL as a ready
