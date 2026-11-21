@@ -6,6 +6,7 @@ The ETL reads both hospitals into RH's database; this job stores SJH's rows in S
 database, matched on natural keys, verified, and only then deleted from RH. Rows with no
 site stay on RH, flagged; devices, catalogs and RIS patients stay on RH too.
 """
+import re
 from datetime import datetime
 
 import pytest
@@ -421,6 +422,53 @@ def test_the_check_runs_as_a_hash_anti_join_on_a_large_table(dbs):
         plan = '\n'.join(r[0] for r in c.execute(text(
             f"EXPLAIN SELECT COUNT(*) FROM _stage s WHERE NOT EXISTS (SELECT 1 FROM public.etl_didb_studies x WHERE {match})")))
         assert 'Anti Join' in plan and 'Nested Loop' not in plan, plan
+        c.rollback()
+
+
+def test_a_nullable_key_is_checked_with_a_hash_and_null_keys_still_match(dbs):
+    """2026-11-21: std_worklist_arrivals (both key columns nullable) took 817 s to check at
+    LAUMC. Rows whose key has a value in every column now go through a hash anti-join; a row
+    with a NULL key part is still matched (IS NOT DISTINCT FROM) and still counted if absent."""
+    _main, sjh = dbs
+    t = next(t for t in route.TABLES if t.name == 'std_worklist_arrivals')
+    with sjh.connect() as c:
+        c.execute(text("DROP TABLE IF EXISTS _stage"))
+        c.execute(text("""CREATE TEMP TABLE _stage AS
+                          SELECT g::bigint AS site_worklist_key, TIMESTAMP '2026-10-01' + g * INTERVAL '1 minute' AS arrived_at
+                          FROM generate_series(1, 60000) g"""))
+        c.execute(text("INSERT INTO std_worklist_arrivals (site_worklist_key, arrived_at) SELECT * FROM _stage"))
+        c.execute(text("ANALYZE _stage"))
+        c.execute(text("ANALYZE std_worklist_arrivals"))
+        sql = route._missing_sql(t, set())
+        plan = '\n'.join(r[0] for r in c.execute(text('EXPLAIN ' + sql)))
+        assert re.search(r'(Hash|Merge) Anti Join', plan), plan      # the large part: no nested loop
+        assert c.execute(text(sql)).scalar() == 0
+        # a NULL key part: found when the site holds the same row, counted when it does not
+        c.execute(text("INSERT INTO std_worklist_arrivals (site_worklist_key, arrived_at) VALUES (70001, NULL)"))
+        c.execute(text("INSERT INTO _stage VALUES (70001, NULL), (70002, NULL), (70003, TIMESTAMP '2026-12-01')"))
+        assert c.execute(text(sql)).scalar() == 2
+        c.rollback()
+
+
+def test_the_oru_key_set_is_a_hash_join_not_a_subplan(dbs):
+    """2026-11-21: "accession IN (...) OR site_id = ..." took 6,027 s at LAUMC (no hash across
+    an OR: every report compared with every accession). Now a join and a UNION."""
+    main, _sjh = dbs
+    sql = dict(route.KEY_SETS)['_r_oru'].replace('%(site)s', ':site')
+    with main.connect() as c:
+        c.execute(text("DROP TABLE IF EXISTS _r_acc"))        # a pooled session may hold the route's
+        c.execute(text("CREATE TEMP TABLE _r_acc AS SELECT 'ACC' || g AS acc FROM generate_series(1, 60000) g"))
+        c.execute(text("""INSERT INTO hl7_oru_reports (accession_number, report_text, site_id)
+                          SELECT 'ACC' || g, 'x', CASE WHEN g % 3 = 0 THEN 2 END FROM generate_series(1, 90000, 2) g"""))
+        c.execute(text("INSERT INTO hl7_oru_reports (accession_number, report_text, site_id) VALUES ('ONLY-SITE', 'x', 2)"))
+        c.execute(text("ANALYZE _r_acc"))
+        c.execute(text("ANALYZE hl7_oru_reports"))
+        plan = '\n'.join(r[0] for r in c.execute(text('EXPLAIN ' + sql), {'site': SJH}))
+        assert 'SubPlan' not in plan, plan
+        got = c.execute(text(f"SELECT COUNT(*) FROM ({sql}) k"), {'site': SJH}).scalar()
+        # every odd accession up to 60,000 is in _r_acc (30,000), plus the SJH reports beyond it
+        # (odd g in 60,001..89,999 divisible by 3: 5,000), plus the one with only the site
+        assert got == 30000 + 5000 + 1
         c.rollback()
 
 

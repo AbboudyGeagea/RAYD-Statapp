@@ -73,17 +73,13 @@ fixes; update.sh refuses while a move runs). Confirm with
 | **New** | **Report Composer revamp**, spec points 1–4 (above), migration 0181 | Built and tested 20 Nov evening; deploy, then the operator looks and gives the next points |
 | **New** | Report Composer: days and times in the date filter (done) → the customer's after-hours report | Waiting on the operator: what to count and by what; production's PACS times (query above) |
 | 1 | HIS vs RIS: 19 Nov MRI on Report 27's HIS tab (query in the 20 Nov morning checklist below) | Waiting on the operator (booked room closed: 1,472 / 1,472) |
-| — | Deploy c116e9b0, 2d9a96e2, a3bd60b9 and the Report Composer revamp (0181): `cd /opt/rayd && sudo bash update.sh LAUMC`; then open the Super Report (Generate, a preset, comparison dates under the range), Report AI (each tab, calendar, device switch), Report 27 (Peak Hours under Hourly Load), the Report Composer (a dropdown's counts, Add filter, the SQL button) | Ready, any time |
+| — | Deployed 20 Nov ~23:00 (9e5305fd: Composer revamp, days and times, copy fixes). Open the Super Report, Report AI, Report 27 (Peak Hours), the Report Composer | Done; checks when convenient |
 | 17 | BRAYN: per-modality breakdown (query in item 17, "The breakdown") → mark arrival/start not expected where the RIS never sends them → operator switches on the stall rules (ORPHAN_ORDER suggested off); the 7 approved-without-report accessions to Mirth | Waiting on the operator |
 | **SJH DB preparation** (parked, separate task, after the revamp) | | |
-| 13-1 | Stop Sunday's timer: `sudo systemctl stop rayd-sjh-move.timer` | Now, so it does not start by itself |
-| 13-2 | SJH off: `sudo sed -i '/^POSTGRES_DB_SJH=/d' /opt/rayd/.env && cd /opt/rayd && sudo docker compose up -d rayd-app` | Now |
-| 13-3 | Drop the partial copy: `sudo docker exec rayd_db psql -U etl_user -d etl_db -c "DROP DATABASE IF EXISTS etl_db_sjh WITH (FORCE);"` | Now |
-| 13-4 | Keep only the newest backup: `ls -lh /opt/rayd/backups && df -h /opt/rayd /var/lib/docker` | When the move resumes |
-| 13-5 | Deploy (has the copy fixes) | Same deploy as above |
-| 13-6 | `sudo bash /opt/rayd/scripts/sjh_move.sh check`, then `copy` (no dry run any more); send the log (per-table times) | When the move resumes |
-| 13-7 | SJH's reports: Report 22 and the Super Report side by side (account holding both sites) | After 13-6 |
-| 13-8 | `sudo bash /opt/rayd/scripts/sjh_move.sh move` (one `--move`: copies what is new, verifies, deletes from RH, 1–2 h), by hand or a Saturday 23:00 timer | After 13-7 |
+| 13-1…13-6 | Old timer stopped, SJH off, partial copy dropped, deploy, `check`, `copy` | Done 20–21 Nov: copy verified 01:28, 177,949 studies, nothing deleted from RH |
+| 13-7 | SJH's reports on a past period (October): Report 22 and the Super Report side by side (account holding both sites); note RH's figures for the same period | Saturday |
+| 13-8a | Deploy the key-set and check fixes before the move: `cd /opt/rayd && sudo bash update.sh LAUMC` | Saturday, before the move |
+| 13-8 | `sudo bash /opt/rayd/scripts/sjh_move.sh move` (one `--move`: copies what is new, verifies, deletes from RH), by hand or a Saturday 23:00 timer; a fresh backup advised (remove the 20 Nov dump first) | Saturday night |
 | 13-9 | SJH's mail server (SJH in the header → Administration → Email Server) | After 13-8 |
 | 4, 9, 37 | Open items (below) | Later |
 | 21, 33, 35 | Operator checks (below) | Waiting on the operator |
@@ -1443,6 +1439,18 @@ read; radiologists approve or finalise (check both).
     differs (`ON CONFLICT ... DO UPDATE ... WHERE ROW(...) IS DISTINCT FROM ROW(EXCLUDED...)`),
     so the move's pass after a copy writes only what the ETL brought since. A `--move` that
     stops before deleting switches SJH off again as the copy did. `tests/test_site_route.py`.
+    **The copy, 20 Nov 23:10 → 21 Nov 01:28 (2 h 18 min, after deploying 9e5305fd): verified,
+    nothing deleted from RH.** SJH's database holds 177,949 studies (= SJH's on RH), 937,917
+    series, 595,568 images of the last 14 days, 296,142 RIS orders, 337,426 RIS reports, 160,922
+    ORU reports with their NLP, 1,215 HIS orders, 68,923 days of storage history; 0 missing in
+    every table. Left on RH with no site (flagged, by design): 9,245 studies, 20,788 ORU reports.
+    Its slow parts, fixed for the move (one more deploy before it): the `_r_oru` key set, 6,027 s
+    ("IN (...) OR site_id": no hash across the OR; now a join and a UNION), the checks of
+    `std_worklist_arrivals` 817 s and `hl7_oru_reports` 555 s (IS NOT DISTINCT FROM on nullable
+    keys; now = for rows whose key is complete, `_missing_sql`). Expected move: key sets in
+    seconds, a copy pass writing only what came since, then the delete. SJH's database has no
+    rows newer than the 20 Nov ETL until the move (the nightly route waits for it): check SJH's
+    reports on a past period.
     **Production runbook (the script's steps), on the server:**
     0. (added 2026-11-20) Before: deploy the latest code; note RH's figures for a fixed period
        (Report 22, 38, Super Report); check the disk

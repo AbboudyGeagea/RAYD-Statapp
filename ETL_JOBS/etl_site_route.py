@@ -69,9 +69,12 @@ KEY_SETS = (
                   WHERE p.study_db_uid IN (SELECT study_db_uid FROM _r_studies)
                      OR UPPER(TRIM(p.performing_ae_title)) IN
                         (SELECT ae FROM _r_devices WHERE modality <> 'PACS')"""),
-    ('_r_oru', """SELECT id FROM hl7_oru_reports
-                  WHERE accession_number IS NOT NULL
-                    AND (accession_number IN (SELECT acc FROM _r_acc) OR site_id = %(site)s)"""),
+    # A join and a UNION, not "accession IN (...) OR site_id = ...": with the OR, Postgres cannot
+    # hash the 470,000 accessions and compared every report with all of them (6,027 s at
+    # LAUMC, the copy of 20-21 Nov); joined, it takes seconds.
+    ('_r_oru', """SELECT r.id FROM hl7_oru_reports r JOIN _r_acc a ON a.acc = r.accession_number
+                  UNION
+                  SELECT id FROM hl7_oru_reports WHERE site_id = %(site)s AND accession_number IS NOT NULL"""),
     # the HIS's orders (item 13d, 2026-11-19): the hospital the message names (PV1-3.7 =
     # sites.hl7_building), else for SJH a location or entering unit (ORC-17) ending in -J
     ('_r_his', r"""SELECT h.id FROM hl7_orders h JOIN sites si ON si.id = %(site)s
@@ -442,8 +445,7 @@ def _copy(cur, dcur, t):
                  f"ON CONFLICT ({', '.join(_q(k) for k in t.key)}) {action}")
     copied = dcur.rowcount
 
-    match = _verify_match(t, _not_null(dcur, t.name))
-    dcur.execute(f"SELECT COUNT(*) FROM _stage s WHERE NOT EXISTS (SELECT 1 FROM public.{_q(t.name)} x WHERE {match})")
+    dcur.execute(_missing_sql(t, _not_null(dcur, t.name)))
     missing = dcur.fetchone()[0]
     dcur.execute("DROP TABLE _stage")
     return {'table': t.name, 'selected': selected, 'copied': copied, 'missing': missing,
@@ -470,6 +472,25 @@ def _verify_match(t, not_null):
             return f"x.{_q(k)} = s.{_q(k)}"
         return f"x.{_q(k)} IS NOT DISTINCT FROM s.{_q(k)}"
     return ' AND '.join(one(k) for k in t.key)
+
+
+def _missing_sql(t, not_null):
+    """The verification: how many staged rows the site table does not hold. A staged row whose
+    key has a value in every column is matched with = on every key (a hash anti-join); only a
+    row with a NULL key column needs IS NOT DISTINCT FROM, and such rows are rare or impossible
+    (the ORU key set takes reports with an accession only). 2026-11-21: matched with IS NOT
+    DISTINCT FROM on their nullable keys, std_worklist_arrivals took 817 s and hl7_oru_reports
+    555 s in the copy at LAUMC."""
+    target = f'public.{_q(t.name)}'
+    nullable = [k for k in t.key if k != t.parent_col and k not in not_null]
+    every_key = _verify_match(t, set(t.key))
+    if not nullable:
+        return f"SELECT COUNT(*) FROM _stage s WHERE NOT EXISTS (SELECT 1 FROM {target} x WHERE {every_key})"
+    has_null = ' OR '.join(f's.{_q(k)} IS NULL' for k in nullable)
+    return (f"SELECT (SELECT COUNT(*) FROM _stage s WHERE NOT ({has_null}) AND NOT EXISTS "
+            f"(SELECT 1 FROM {target} x WHERE {every_key}))"
+            f" + (SELECT COUNT(*) FROM _stage s WHERE ({has_null}) AND NOT EXISTS "
+            f"(SELECT 1 FROM {target} x WHERE {_verify_match(t, not_null)}))")
 
 
 def _delete(cur, conn, report):
