@@ -38,6 +38,7 @@ import functools
 import logging
 import os
 import threading
+import time
 from contextvars import ContextVar
 
 logger = logging.getLogger("SITE_DB")
@@ -74,7 +75,17 @@ _codes = {}                   # site_id -> site code
 _forced = ContextVar('rayd_site_forced', default=None)
 _ENV_KEY = 'rayd.site_id'
 _RESOLVING = object()
-_BOOT_LOCK_ID = 872951065     # next to db_migrations' lock id
+# Its own number (2026-11-21). It was 872951065, the nightly ETL's lock
+# (ETL_JOBS/etl_runner.py _ETL_SYNC_LOCK_ID), also taken by the site route while it copies:
+# an app starting with a site database waited for as long as either ran, and the SJH move
+# script read the app's start as "the ETL is running".
+_BOOT_LOCK_ID = 872951066
+# How long a start waits for another process setting up the site databases; past it this
+# start goes on without them (logged, with who holds the lock): the app still serves RH.
+_BOOT_WAIT_S = 120
+# A site database's migrations at startup give up on a lock held past this (logged as a failed
+# migration, retried at the next start) instead of holding the app's start indefinitely.
+_BOOT_LOCK_TIMEOUT = '60s'
 _lock = threading.Lock()
 
 
@@ -371,8 +382,10 @@ def _bootstrap(url, code):
     from db import db
     import db_bootstrap
     import db_migrations
+    t0 = time.monotonic()
+    logger.info(f"site {code}: setting up database {url.database}")
     with db.engine.connect() as lock_conn:
-        lock_conn.execute(text("SELECT pg_advisory_lock(:k)"), {'k': _BOOT_LOCK_ID})
+        _take_boot_lock(lock_conn, code)
         try:
             with db.engine.connect().execution_options(isolation_level='AUTOCOMMIT') as ac:
                 exists = ac.execute(text("SELECT 1 FROM pg_database WHERE datname = :n"),
@@ -380,7 +393,8 @@ def _bootstrap(url, code):
                 if not exists:
                     ac.execute(text(f'CREATE DATABASE "{_ident(url.database)}"'))
                     logger.info(f"database {url.database} created")
-            engine = create_engine(url, pool_pre_ping=True)
+            engine = create_engine(url, pool_pre_ping=True,
+                                   connect_args={'options': f'-c lock_timeout={_BOOT_LOCK_TIMEOUT}'})
             try:
                 with engine.connect() as c:
                     empty = c.execute(text("SELECT to_regclass('public.users') IS NULL")).scalar()
@@ -394,6 +408,7 @@ def _bootstrap(url, code):
                     c.execute(text("INSERT INTO settings (key, value) VALUES ('served_site', :c) "
                                    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"), {'c': code})
                 db_migrations.run_migrations_on(engine)
+                logger.info(f"site {code}: migrations checked ({time.monotonic() - t0:.0f} s since the setup began)")
                 with engine.begin() as c:
                     # Access lives on the main database only: the rows the schema and the
                     # migrations seed here would only mislead (and a read that strayed here
@@ -406,6 +421,46 @@ def _bootstrap(url, code):
         finally:
             lock_conn.execute(text("SELECT pg_advisory_unlock(:k)"), {'k': _BOOT_LOCK_ID})
             lock_conn.commit()
+
+
+def _take_boot_lock(conn, code):
+    """The site databases' setup lock on the main database, waited for at most _BOOT_WAIT_S
+    (logging who holds it every 15 s); past that, RuntimeError: init_app logs the site as not
+    set up and the app starts without it."""
+    from sqlalchemy import text
+    waited, step = 0.0, 3.0
+    while True:
+        if conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {'k': _BOOT_LOCK_ID}).scalar():
+            conn.commit()
+            return
+        conn.rollback()
+        holder = _boot_lock_holder(conn)
+        if waited >= _BOOT_WAIT_S:
+            raise RuntimeError(f"the setup lock is still held after {waited:.0f} s ({holder}); "
+                               f"this start goes on without site {code}")
+        if waited % 15 < step:
+            logger.warning(f"site {code}: waiting for the setup lock ({holder})")
+        time.sleep(step)
+        waited += step
+
+
+def _boot_lock_holder(conn):
+    from sqlalchemy import text
+    try:
+        row = conn.execute(text("""
+            SELECT a.pid, a.application_name, a.client_addr, a.state,
+                   date_trunc('second', now() - a.backend_start) AS connected, LEFT(a.query, 80) AS query
+            FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+            WHERE l.locktype = 'advisory' AND l.granted AND l.classid = 0 AND l.objid = :k
+            LIMIT 1"""), {'k': _BOOT_LOCK_ID}).mappings().first()
+        conn.rollback()
+    except Exception:
+        conn.rollback()
+        return 'holder not read'
+    if not row:
+        return 'just released'
+    return (f"held by pid {row['pid']} {row['application_name'] or ''} {row['client_addr'] or ''}, "
+            f"{row['state']}, connected {row['connected']}, last query: {row['query']!r}")
 
 
 def _ident(name):

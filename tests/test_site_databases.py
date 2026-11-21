@@ -636,3 +636,55 @@ def _sjh_id(app):
     from db import db
     with app.app_context():
         return db.session.execute(text("SELECT id FROM sites WHERE code = 'SJH'")).scalar()
+
+
+# ── the setup lock (2026-11-21: the SJH move stopped, "SJH's database not ready") ──
+
+def test_the_setup_lock_is_its_own_not_the_etls():
+    """It was 872951065, the nightly ETL's lock (also the site route's while it copies): an app
+    starting with SJH on waited for as long as either ran."""
+    import db_migrations
+    from ETL_JOBS import etl_runner, etl_site_route
+    from utils import site_db
+    assert site_db._BOOT_LOCK_ID not in (etl_runner._ETL_SYNC_LOCK_ID, etl_site_route._ETL_SYNC_LOCK_ID,
+                                         db_migrations._MIGRATION_LOCK_ID)
+
+
+def test_a_running_etl_does_not_hold_the_setup(app, ids):
+    from db import db
+    from utils import site_db
+    from ETL_JOBS.etl_runner import _ETL_SYNC_LOCK_ID
+    url = site_db.engine_for(ids['SJH']).url
+    with app.app_context(), db.engine.connect() as etl:
+        assert etl.execute(text("SELECT pg_try_advisory_lock(:k)"), {'k': _ETL_SYNC_LOCK_ID}).scalar()
+        try:
+            site_db._bootstrap(url, 'SJH')                      # returns: nothing waits on the ETL
+        finally:
+            etl.execute(text("SELECT pg_advisory_unlock(:k)"), {'k': _ETL_SYNC_LOCK_ID})
+            etl.commit()
+
+
+def test_a_start_gives_up_on_a_held_setup_lock_and_says_who_holds_it(app, ids, monkeypatch, caplog):
+    import logging
+    from db import db
+    from utils import site_db
+    monkeypatch.setattr(site_db, '_BOOT_WAIT_S', 3)
+    url = site_db.engine_for(ids['SJH']).url
+    with app.app_context(), db.engine.connect() as other:
+        other.execute(text("SELECT pg_advisory_lock(:k)"), {'k': site_db._BOOT_LOCK_ID})
+        other.commit()
+        try:
+            with caplog.at_level(logging.WARNING, logger='SITE_DB'):
+                with pytest.raises(RuntimeError, match='still held'):
+                    site_db._bootstrap(url, 'SJH')
+            assert 'held by pid' in caplog.text
+        finally:
+            other.execute(text("SELECT pg_advisory_unlock(:k)"), {'k': site_db._BOOT_LOCK_ID})
+            other.commit()
+
+
+def test_the_move_script_keeps_the_apps_log_when_sjh_is_not_ready():
+    import os
+    src = open(os.path.join(os.path.dirname(__file__), '..', 'scripts', 'sjh_move.sh'), encoding='utf-8').read()
+    assert 'up -d --force-recreate rayd-app' in src
+    assert 'not set up"; then' in src and src.count('app_log; switch_off') == 2

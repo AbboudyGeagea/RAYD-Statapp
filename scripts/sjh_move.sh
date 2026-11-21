@@ -160,10 +160,23 @@ else
 fi
 wait_etl || { cp -p "$ENV_BACKUP" .env; stop "the ETL has been running for 2 hours; .env restored, nothing done"; }
 say "restarting the app with POSTGRES_DB_SJH=$SJH_DB"
-$COMPOSE up -d rayd-app || { switch_off; stop "the app did not restart"; }
+# The app's own log goes into this log before SJH is switched off again: switching off recreates
+# the container, and its log with it (2026-11-21: the reason for a stop was lost that way).
+app_log() {
+    say "the app's log (last 150 lines) and the setup lines of its log file:"
+    docker logs --tail 150 rayd_service 2>&1
+    tail -n 40 "$LOG_DIR/app/SITE_DB.log" 2>/dev/null
+    show "SELECT pid, datname, state, wait_event_type, wait_event, date_trunc('second', now() - xact_start) AS in_transaction, LEFT(query, 80) AS query FROM pg_stat_activity WHERE datname IN ('etl_db', '$SJH_DB') AND pid <> pg_backend_pid() AND (state <> 'idle' OR xact_start IS NOT NULL) ORDER BY xact_start"
+}
+# Recreated even when .env already names SJH's database (a copy left it on): the start must be
+# this one, so its "ready" line is this start's.
+$COMPOSE up -d --force-recreate rayd-app || { switch_off; stop "the app did not restart"; }
 for i in $(seq 1 60); do
     docker logs rayd_service 2>&1 | grep -q "site SJH: database $SJH_DB ready" && break
-    [ "$i" = 60 ] && { switch_off; stop "SJH's database not ready after 15 minutes (sudo docker logs rayd_service)"; }
+    if docker logs rayd_service 2>&1 | grep -q "site SJH: database $SJH_DB not set up"; then
+        app_log; switch_off; stop "the app could not set up SJH's database (its log above); nothing deleted from RH"
+    fi
+    [ "$i" = 60 ] && { app_log; switch_off; stop "SJH's database not ready after 15 minutes (the app's log above)"; }
     sleep 15
 done
 say "SJH's database is ready"
