@@ -286,27 +286,30 @@ def table_for(compiled, res):
     """
     if compiled is None or compiled['kind'] == 'list':
         return ([c['label'] for c in compiled['columns']] if compiled else res['columns']), res['rows'], None
-    dims, measures, raw = compiled['dims'], compiled['measures'], res['rows']
-    split = len(dims) == 2
+    measures, raw = compiled['measures'], res['rows']
+    # one column per grouping in rows (the pivot builder may name several, 2026-11-21)
+    row_dims = compiled.get('rows', compiled['dims'][:1])
+    split = compiled.get('col') is not None if 'col' in compiled else len(compiled['dims']) == 2
+    nr = len(row_dims)
+    labels = [d['label'] for d in row_dims] or ['']
     if split:
-        names = list(dict.fromkeys(r[0] for r in raw))
-        cols = sorted({r[1] for r in raw})
-        cell = {(r[0], r[1]): r[2] for r in raw}
-        data = [[cell.get((n, c), 0) for c in cols] for n in names]
+        keys = list(dict.fromkeys(tuple(r[:nr]) for r in raw))
+        cols = sorted({r[nr] for r in raw}, key=str)
+        cell = {(tuple(r[:nr]), r[nr]): r[nr + 1] for r in raw}
+        data = [[cell.get((k, c), 0) for c in cols] for k in keys]
         series = [(c, measures[0]['additive']) for c in cols]
-        first = f"{dims[0]['label']} · {measures[0]['label']}"
+        labels[-1] = f"{labels[-1]} · {measures[0]['label']}"
     else:
-        names = [r[0] for r in raw] if dims else ['All']
-        data = [r[len(dims):] for r in raw]
+        keys = [tuple(r[:nr]) for r in raw] if nr else [('All',)]
+        data = [r[nr:] for r in raw]
         series = [(m['label'], m['additive']) for m in measures]
-        first = dims[0]['label'] if dims else ''
     across = split and measures[0]['additive']      # a Total column on the right
-    rows = [[n, *d, *([_sum(d)] if across else [])] for n, d in zip(names, data)]
+    rows = [[*k, *d, *([_sum(d)] if across else [])] for k, d in zip(keys, data)]
     total = None
-    if len(names) > 1:
+    if len(keys) > 1:
         downs = [_sum(col) if additive else None for (_, additive), col in zip(series, zip(*data))]
-        total = ['Total', *downs, *([_sum(map(_sum, data))] if across else [])]
-    return [first, *[s[0] for s in series], *(['Total'] if across else [])], rows, total
+        total = ['Total', *[''] * (max(nr, 1) - 1), *downs, *([_sum(map(_sum, data))] if across else [])]
+    return [*labels, *[s[0] for s in series], *(['Total'] if across else [])], rows, total
 
 
 def _cell(v):

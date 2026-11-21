@@ -9,30 +9,31 @@
     <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    {# The reports' left panel: its look (rfp-*), jQuery and Select2, so the dropdowns are the same #}
+    {# The reports' left panel look (rfp-*), jQuery and Select2, so the dropdowns are the same #}
     {{ filter_panel_head() }}
     <style>
-        /* Report Composer, revamp of 2026-11-20: the same frame and colours as the reports
-           (Report 40, the Super Report): left panel, cards, uppercase section titles. */
+        /* Report Composer as a pivot builder (operator, 2026-11-21: "more flexible"): a field list
+           on the left; Filters / Rows / Columns / Values bars; the result, live, below. The
+           reports' colours (Report 40, the Super Report). */
         :root {
             --rc-bg: #181f1c; --rc-card: #232b28; --rc-panel: #1a2420; --rc-line: #28332e; --rc-input: #181f1c;
             --rc-fg: #e2e8f0; --rc-strong: #ffffff; --rc-muted: #94a3b8; --rc-faint: #64748b;
             --rc-accent: #60a5fa; --rc-primary: #2563eb; --rc-soft: rgba(96,165,250,.14); --rc-hover: #2a3530;
-            --rc-warn: #f59e0b; --rc-bad: #f87171; --rc-good: #34d399; --rc-code: #111714;
+            --rc-warn: #f59e0b; --rc-bad: #f87171; --rc-good: #34d399; --rc-code: #111714; --rc-sub: rgba(96,165,250,.06);
             --kw: #93c5fd; --str: #fbbf24; --param: #34d399; --num: #f9a8d4;
             --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
         }
         body.light {
             --rc-bg: #f0f4f8; --rc-card: #ffffff; --rc-panel: #ffffff; --rc-line: #e2e8f0; --rc-input: #ffffff;
             --rc-fg: #1a202c; --rc-strong: #1a202c; --rc-muted: #4a5568; --rc-faint: #718096;
-            --rc-accent: #2563eb; --rc-soft: rgba(37,99,235,.10); --rc-hover: #f1f5f9;
+            --rc-accent: #2563eb; --rc-soft: rgba(37,99,235,.10); --rc-hover: #f1f5f9; --rc-sub: rgba(37,99,235,.05);
             --rc-warn: #b45309; --rc-bad: #b91c1c; --rc-good: #047857; --rc-code: #f3f7f5;
             --kw: #1d4ed8; --str: #b45309; --param: #047857; --num: #be185d;
         }
         /* The body keeps the shell's light ink (the app sidebar stays dark in both themes); the
            page's own areas take the theme's. */
         body { font-family: 'Inter', system-ui, sans-serif; background: var(--rc-bg); color: #e2e8f0; }
-        main, .rc-panel, .rc-drawer, #modal, .rc-toast { color: var(--rc-fg); }
+        main, .rc-panel, .rc-drawer, #modal, #rc-pop, .rc-toast { color: var(--rc-fg); }
         body.light main { background: var(--rc-bg) !important; }
         .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
         .sidebar-item:hover { background: #1d2522; color: #60a5fa !important; }
@@ -40,39 +41,118 @@
         [hidden] { display: none !important; }
         .rc :focus-visible { outline: 2px solid var(--rc-accent); outline-offset: 2px; }
 
-        /* ── The reports' cards ─────────────────────────────────────────────── */
         .card { background: var(--rc-card); border: 1px solid var(--rc-line); border-radius: 1.25rem; }
-        .kpi-card { background: var(--rc-card); border: 1px solid var(--rc-line); border-radius: 1rem; padding: 1.1rem 1.4rem; }
-        .kpi-label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: var(--rc-faint); margin-bottom: .25rem; }
-        .kpi-value { font-size: 1.6rem; font-weight: 900; color: var(--rc-strong); line-height: 1.2; font-variant-numeric: tabular-nums; }
-        .kpi-sub { font-size: 10px; color: var(--rc-faint); margin-top: .25rem; }
         .section-title { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .15em; color: var(--rc-accent); display: flex; align-items: center; gap: 4px; }
+        .rc-hint { font-size: 11px; color: var(--rc-faint); line-height: 1.4; }
+        .rc-link { border: 0; background: none; color: var(--rc-accent); cursor: pointer; padding: 0; font-size: 11px; font-weight: 700; }
+        .rc-icon { border: 0; background: none; color: var(--rc-faint); cursor: pointer; padding: 0 3px; font-size: 12px; line-height: 1; }
+        .rc-icon:hover { color: var(--rc-fg); }
+        .rc-icon.danger:hover { color: var(--rc-bad); }
 
-        /* ── Left panel (the reports' .rfp) ─────────────────────────────────── */
-        .rc-panel { width: 19rem; }
+        /* ── Left: report, what to count, the field list ────────────────────── */
+        .rc-panel { width: 17.5rem; }
         .rc-panel .rfp-label { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-        .rc-panel .rfp-label .sub { font-weight: 700; color: var(--rc-muted); text-transform: none; letter-spacing: 0; font-size: 11px; }
         .rc-panel select.rfp-input { appearance: auto; }
         .rc-panel .rfp-input.missing { border-color: var(--rc-bad) !important; box-shadow: 0 0 0 2px rgba(248,113,113,.18); }
-        .rc-hint { font-size: 11px; color: var(--rc-faint); line-height: 1.4; }
         .rc-mini { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
         .rc-mini button { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 8px; padding: 5px 0; font-size: 11px; font-weight: 700; color: var(--rc-muted); cursor: pointer; }
         .rc-mini button:hover:not(:disabled) { color: var(--rc-fg); border-color: var(--rc-accent); }
         .rc-mini button:disabled { opacity: .4; cursor: not-allowed; }
         .rc-mini button.danger:hover:not(:disabled) { color: var(--rc-bad); border-color: var(--rc-bad); }
-        .rc-sep { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--rc-line); padding-top: 1rem; }
-        .rc-sep .count { background: var(--rc-primary); color: #fff; border-radius: 999px; font-size: 10px; font-weight: 800; padding: 0 7px; }
-        .rc-f { scroll-margin-top: 12px; }
-        .rc-f.flash { animation: rcflash 1.2s ease; border-radius: 10px; }
-        @keyframes rcflash { 0%, 40% { box-shadow: 0 0 0 3px var(--rc-soft); } 100% { box-shadow: 0 0 0 0 transparent; } }
-        .rc-f-head { display: flex; align-items: center; gap: 6px; }
-        .rc-f-head .rfp-label { flex: 1; min-width: 0; margin-bottom: 6px; }
-        .rc-f-tools { display: flex; gap: 2px; margin-bottom: 6px; }
-        .rc-icon { border: 0; background: none; color: var(--rc-faint); cursor: pointer; padding: 0 3px; font-size: 12px; line-height: 1; }
-        .rc-icon:hover { color: var(--rc-fg); }
-        .rc-icon.danger:hover { color: var(--rc-bad); }
-        .rc-link { border: 0; background: none; color: var(--rc-accent); cursor: pointer; padding: 0; font-size: 11px; font-weight: 700; }
-        .rc-ask { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; cursor: pointer; }
+        .rc-fields { flex: 1; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+        .rc-fgroup + .rc-fgroup { margin-top: 2px; }
+        .rc-fhead { width: 100%; display: flex; align-items: center; gap: 6px; border: 0; background: none; cursor: pointer; padding: 7px 2px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: var(--rc-faint); }
+        .rc-fhead:hover { color: var(--rc-fg); }
+        .rc-fhead .n { margin-left: auto; font-weight: 700; letter-spacing: 0; }
+        .rc-fhead i { transition: transform .15s; }
+        .rc-fgroup[data-open="false"] .rc-fhead i { transform: rotate(-90deg); }
+        .rc-fgroup[data-open="false"] .rc-fitems { display: none; }
+        .rc-fitem { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 8px; font-size: 12px; cursor: grab; user-select: none; color: var(--rc-fg); }
+        .rc-fitem:hover { background: var(--rc-hover); }
+        .rc-fitem > i { color: var(--rc-faint); font-size: 12px; width: 14px; text-align: center; flex: none; }
+        .rc-fitem .l { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rc-fitem .tags { display: flex; gap: 3px; flex: none; }
+        .rc-fitem .tag { font-size: 9px; font-weight: 900; text-transform: uppercase; border-radius: 4px; padding: 0 4px; background: var(--rc-soft); color: var(--rc-accent); }
+        .rc-fitem .more { opacity: 0; }
+        .rc-fitem:hover .more, .rc-fitem:focus-within .more { opacity: 1; }
+        .rc-fitem.dragging { opacity: .4; }
+
+        /* ── Header ──────────────────────────────────────────────────────────── */
+        .rc-title { field-sizing: content; min-width: 14ch; max-width: 100%; width: 100%; background: transparent; border: 0; border-bottom: 2px solid transparent; outline: none; font-size: 1.5rem; font-weight: 900; letter-spacing: -.01em; color: var(--rc-strong); padding: 0 0 2px; }
+        @supports (field-sizing: content) { .rc-title { width: auto; } }
+        .rc-title:hover { border-bottom-color: var(--rc-line); }
+        .rc-title:focus { border-bottom-color: var(--rc-accent); }
+        .rc-title::placeholder { color: var(--rc-faint); }
+        .rc-title.missing { border-bottom-color: var(--rc-bad); }
+        .rc-desc { background: transparent; border: 0; border-bottom: 1px solid transparent; outline: none; width: 100%; font-size: 13px; color: var(--rc-muted); padding: 2px 0; }
+        .rc-desc:hover { border-bottom-color: var(--rc-line); }
+        .rc-desc:focus { border-bottom-color: var(--rc-accent); }
+        .rc-desc::placeholder { color: var(--rc-faint); }
+        .rc-meta { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 8px; font-size: 12px; color: var(--rc-faint); }
+        .rc-seg { display: inline-flex; border: 1px solid var(--rc-line); border-radius: 8px; overflow: hidden; background: var(--rc-input); flex-wrap: wrap; }
+        .rc-seg button { border: 0; background: transparent; padding: 6px 12px; cursor: pointer; font-size: 12px; font-weight: 700; color: var(--rc-muted); display: inline-flex; align-items: center; gap: 5px; }
+        .rc-seg button + button { border-left: 1px solid var(--rc-line); }
+        .rc-seg button[aria-pressed="true"] { background: var(--rc-primary); color: #fff; }
+        .rc-seg button:disabled { opacity: .4; cursor: not-allowed; }
+        .rc-meta .rc-seg button { padding: 4px 10px; font-size: 11px; }
+        .rc-folder { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rc-line); border-radius: 8px; padding: 0 8px; background: var(--rc-input); }
+        .rc-folder input { background: transparent; border: 0; outline: none; width: 9rem; padding: 4px 0; font-size: 12px; color: var(--rc-fg); }
+        .rc-meta select { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 8px; padding: 4px 6px; font-size: 12px; color: var(--rc-fg); }
+        .rc-status.dirty { color: var(--rc-warn); font-weight: 700; }
+        .rc-missing { color: var(--rc-bad); font-weight: 700; }
+        .rc-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rc-line); background: var(--rc-card); color: var(--rc-muted); border-radius: 10px; padding: 8px 13px; font-size: 12px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+        .rc-btn:hover:not(:disabled) { color: var(--rc-fg); border-color: var(--rc-accent); }
+        .rc-btn:disabled { opacity: .4; cursor: not-allowed; }
+        .rc-btn.primary { background: var(--rc-primary); border-color: var(--rc-primary); color: #fff; }
+        .rc-btn.primary:hover:not(:disabled) { background: #3b82f6; color: #fff; }
+        .rc-btn.ghost { background: transparent; border-color: transparent; color: var(--rc-faint); padding: 8px 9px; }
+        .rc-btn.ghost:hover:not(:disabled) { border-color: var(--rc-line); color: var(--rc-fg); }
+        .rc-btn.small { padding: 5px 10px; font-size: 11px; }
+        .rc-live { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: var(--rc-faint); cursor: pointer; padding: 0 6px; }
+        .rc-live input { appearance: none; width: 30px; height: 17px; border-radius: 999px; background: var(--rc-line); position: relative; cursor: pointer; transition: background .15s; }
+        .rc-live input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #fff; transition: left .15s; }
+        .rc-live input:checked { background: var(--rc-good); }
+        .rc-live input:checked::after { left: 15px; }
+        .rc-live input:checked + span { color: var(--rc-good); }
+
+        /* ── The builder: Show as, then one bar per zone ─────────────────────── */
+        .rc-zones { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: 8px 12px; align-items: center; }
+        .rc-zlabel { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: var(--rc-faint); display: flex; align-items: center; gap: 4px; }
+        .rc-zone { min-height: 38px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 6px; border: 1px dashed var(--rc-line); border-radius: 10px; transition: border-color .12s, background .12s; }
+        .rc-zone.over { border-color: var(--rc-accent); background: var(--rc-soft); }
+        .rc-zone.refuse { border-color: var(--rc-bad); }
+        .rc-zone .empty { font-size: 11px; color: var(--rc-faint); padding: 0 4px; }
+        .rc-chipz { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(96,165,250,.4); background: var(--rc-soft); color: var(--rc-fg); border-radius: 8px; padding: 4px 6px 4px 9px; font-size: 12px; max-width: 100%; cursor: grab; }
+        .rc-chipz b { color: var(--rc-accent); font-weight: 800; }
+        .rc-chipz .t { border: 0; background: none; color: inherit; cursor: pointer; padding: 0; display: inline-flex; gap: 6px; align-items: baseline; max-width: 30rem; font: inherit; }
+        .rc-chipz .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rc-chipz .x { border: 0; background: none; color: var(--rc-faint); cursor: pointer; width: 18px; height: 18px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; }
+        .rc-chipz .x:hover { color: var(--rc-bad); background: rgba(248,113,113,.12); }
+        .rc-chipz select { background: transparent; border: 0; color: var(--rc-accent); font-size: 11px; font-weight: 800; outline: none; cursor: pointer; }
+        .rc-chipz select option { background: var(--rc-card); color: var(--rc-fg); }
+        .rc-chipz.ghost { border-style: dashed; border-color: var(--rc-line); background: transparent; color: var(--rc-muted); cursor: pointer; padding: 4px 9px; }
+        .rc-chipz.ghost:hover { border-color: var(--rc-accent); color: var(--rc-fg); }
+        .rc-chipz.ask { border-color: rgba(245,158,11,.5); background: rgba(245,158,11,.10); }
+        .rc-chipz.ask b { color: var(--rc-warn); }
+        .rc-chipz.dragging { opacity: .4; }
+        .rc-zadd { border: 1px dashed var(--rc-line); background: transparent; color: var(--rc-accent); border-radius: 8px; padding: 4px 9px; font-size: 11px; font-weight: 800; cursor: pointer; }
+        .rc-zadd:hover { border-color: var(--rc-accent); background: var(--rc-soft); }
+        .rc-zsort { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 11px; color: var(--rc-faint); }
+        .rc-zsort select { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 6px; padding: 3px 6px; font-size: 11px; color: var(--rc-fg); }
+
+        /* ── Popovers: a filter's editor, a field's menu, the column picker ──── */
+        #rc-pop { position: fixed; z-index: 65; width: 360px; max-width: calc(100vw - 24px); max-height: calc(100vh - 40px); overflow-y: auto; background: var(--rc-card); border: 1px solid var(--rc-line); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.45); padding: 14px; }
+        #rc-pop.menu { width: 230px; padding: 6px; }
+        .rc-pophead { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+        .rc-pophead b { font-size: 13px; font-weight: 900; color: var(--rc-strong); flex: 1; }
+        .rc-popfoot { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rc-line); }
+        .rc-menu-item { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--rc-fg); text-align: left; padding: 7px 9px; border-radius: 8px; font-size: 12px; cursor: pointer; }
+        .rc-menu-item:hover { background: var(--rc-hover); }
+        .rc-menu-item i { color: var(--rc-faint); width: 14px; }
+        .rc-menu-item:disabled { opacity: .4; cursor: default; }
+        .rc-menu-sep { height: 1px; background: var(--rc-line); margin: 4px 2px; }
+        .rc-menu-head { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: var(--rc-faint); padding: 6px 9px 4px; }
+        .rc-ask { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
         .rc-ask span { font-size: 10px; font-weight: 900; color: var(--rc-faint); text-transform: uppercase; }
         .rc-ask input:checked + span { color: var(--rc-warn); }
         .rc-chips { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -84,7 +164,6 @@
         .rc-row > * { min-width: 0; flex: 1 1 0; }
         .rc-row > .lbl, .rc-row > .fixed { flex: none; }
         .rc-row .lbl { font-size: 10px; font-weight: 800; color: var(--rc-faint); text-transform: uppercase; }
-        /* Days and times of a date filter: one box per window */
         .rc-win { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
         .rc-win-row { border: 1px solid var(--rc-line); border-radius: 10px; padding: 8px; }
         .rc-win-row .rc-row { margin-top: 6px; }
@@ -96,15 +175,7 @@
         .rc-win-tools .rc-link { font-size: 10px; }
         .rc-win-hint { margin-top: 6px; color: var(--rc-accent); font-weight: 700; }
         .rc-win-hint.bad { color: var(--rc-bad); }
-        .rc-seg { display: inline-flex; border: 1px solid var(--rc-line); border-radius: 8px; overflow: hidden; background: var(--rc-input); }
-        .rc-seg button { border: 0; background: transparent; padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: 700; color: var(--rc-muted); }
-        .rc-seg button + button { border-left: 1px solid var(--rc-line); }
-        .rc-seg button[aria-pressed="true"] { background: var(--rc-primary); color: #fff; }
-        .rc-seg button:disabled { opacity: .4; cursor: not-allowed; }
-        .rc-add { width: 100%; border: 1px dashed var(--rc-line); background: transparent; color: var(--rc-accent); border-radius: 12px; padding: .7rem 0; font-size: 12px; font-weight: 800; cursor: pointer; }
-        .rc-add:hover { border-color: var(--rc-accent); background: var(--rc-soft); }
-        .rc-sql-note { border: 1px solid var(--rc-line); border-radius: 12px; padding: 12px; font-size: 12px; color: var(--rc-muted); background: var(--rc-input); }
-        /* Select2: a value's count on the right, the dropdown in the page's colours */
+        /* Select2 (filter values): a value's count on the right, the page's colours */
         .rc-opt { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
         .rc-opt .cnt { color: #94a3b8; font-size: 11px; font-variant-numeric: tabular-nums; }
         .select2-container--default .select2-results__option--highlighted .rc-opt .cnt { color: inherit; opacity: .8; }
@@ -118,73 +189,51 @@
         .select2-container--default .select2-results__option--highlighted.select2-results__option--selectable { background: #2563eb; color: #fff; }
         .select2-container--default .select2-results > .select2-results__options { max-height: 280px; }
         .select2-container--default .select2-results__option { font-size: 13px; padding: 6px 10px; }
-        .rc-panel .select2-container--default .select2-selection--multiple { font-size: 12px; }
-        .rc-panel .select2-container--default .select2-search--inline .select2-search__field { font-size: 12px; margin-left: 8px; }
+        .select2-results__group { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: #64748b; }
+        #rc-pop .select2-container--default .select2-selection--multiple,
+        .rfp .select2-container--default .select2-selection--multiple { background: var(--rc-input) !important; border: 1px solid var(--rc-line) !important; min-height: 40px !important; border-radius: 10px !important; font-size: 12px; }
+        #rc-pop .select2-container--default .select2-selection--multiple .select2-selection__choice { background: var(--rc-hover); border-color: var(--rc-line); color: var(--rc-fg); }
+        #rc-pop .select2-container--default .select2-search--inline .select2-search__field { font-size: 12px; margin-left: 8px; }
         .rfp .select2-container--default .select2-selection--single { background: #181f1c; border: 1px solid #28332e; border-radius: 10px; height: 38px; }
         .rfp .select2-container--default .select2-selection--single .select2-selection__rendered { color: #e2e8f0; line-height: 36px; font-size: 12px; font-weight: 700; }
         .rfp .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
         body.light .rfp .select2-container--default .select2-selection--single { background: #fff; border-color: #e2e8f0; }
         body.light .rfp .select2-container--default .select2-selection--single .select2-selection__rendered { color: #1a202c; }
-        .select2-results__group { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: #64748b; }
 
-        /* ── Main: title, applied filters, Show as, results ─────────────────── */
-        .rc-title { field-sizing: content; min-width: 14ch; max-width: 100%; background: transparent; border: 0; border-bottom: 2px solid transparent; outline: none; width: 100%; font-size: 1.5rem; font-weight: 900; letter-spacing: -.01em; color: var(--rc-strong); padding: 0 0 2px; }
-        @supports (field-sizing: content) { .rc-title { width: auto; } }   /* the (i) right after the name */
-        .rc-title:hover { border-bottom-color: var(--rc-line); }
-        .rc-title:focus { border-bottom-color: var(--rc-accent); }
-        .rc-title::placeholder { color: var(--rc-faint); }
-        .rc-title.missing { border-bottom-color: var(--rc-bad); }
-        .rc-desc { background: transparent; border: 0; border-bottom: 1px solid transparent; outline: none; width: 100%; font-size: 14px; color: var(--rc-muted); padding: 2px 0; }
-        .rc-desc:hover { border-bottom-color: var(--rc-line); }
-        .rc-desc:focus { border-bottom-color: var(--rc-accent); }
-        .rc-desc::placeholder { color: var(--rc-faint); }
-        .rc-meta { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 10px; font-size: 12px; color: var(--rc-faint); }
-        .rc-meta .rc-seg button { padding: 4px 10px; font-size: 11px; }
-        .rc-folder { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rc-line); border-radius: 8px; padding: 0 8px; background: var(--rc-input); }
-        .rc-folder input { background: transparent; border: 0; outline: none; width: 9rem; padding: 4px 0; font-size: 12px; color: var(--rc-fg); }
-        .rc-meta select { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 8px; padding: 4px 6px; font-size: 12px; color: var(--rc-fg); }
-        .rc-status.dirty { color: var(--rc-warn); font-weight: 700; }
-        .rc-missing { color: var(--rc-bad); font-weight: 700; }
-        .rc-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rc-line); background: var(--rc-card); color: var(--rc-muted); border-radius: 10px; padding: 8px 14px; font-size: 12px; font-weight: 800; cursor: pointer; white-space: nowrap; }
-        .rc-btn:hover:not(:disabled) { color: var(--rc-fg); border-color: var(--rc-accent); }
-        .rc-btn:disabled { opacity: .4; cursor: not-allowed; }
-        .rc-btn.primary { background: var(--rc-primary); border-color: var(--rc-primary); color: #fff; }
-        .rc-btn.primary:hover:not(:disabled) { background: #3b82f6; color: #fff; }
-        .rc-btn.ghost { background: transparent; border-color: transparent; color: var(--rc-faint); padding: 8px 10px; }
-        .rc-btn.ghost:hover:not(:disabled) { border-color: var(--rc-line); color: var(--rc-fg); }
-        .rc-btn.small { padding: 5px 10px; font-size: 11px; }
-        .rc-pills { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-        .rc-pill { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border: 1px solid rgba(96,165,250,.35); background: var(--rc-soft); color: var(--rc-fg); border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 12px; cursor: pointer; }
-        .rc-pill b { color: var(--rc-accent); font-weight: 800; }
-        .rc-pill .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 28rem; }
-        .rc-pill .x { border: 0; background: none; color: var(--rc-faint); cursor: pointer; border-radius: 999px; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; }
-        .rc-pill .x:hover { color: var(--rc-bad); background: rgba(248,113,113,.12); }
-        .rc-pill.ask { border-color: rgba(245,158,11,.45); background: rgba(245,158,11,.10); }
-        .rc-pill.ask b { color: var(--rc-warn); }
-        .rc-out { display: grid; gap: 14px 20px; grid-template-columns: minmax(0, 1fr); }
-        @media (min-width: 900px) { .rc-out { grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); } }
-        .rc-out .wide { grid-column: 1 / -1; }
-        .rc-out .lbl { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: var(--rc-faint); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
-        .rc-out .missing .rc-seg { border-color: var(--rc-bad); box-shadow: 0 0 0 2px rgba(248,113,113,.18); }
-        .rc-select { background: var(--rc-input); border: 1px solid var(--rc-line); color: var(--rc-fg); border-radius: 8px; padding: 7px 9px; font-size: 12px; width: 100%; outline: none; }
-        .rc-select:focus { border-color: var(--rc-accent); }
+        /* ── The result ──────────────────────────────────────────────────────── */
+        .rc-resmeta { font-size: 11px; color: var(--rc-faint); display: flex; align-items: center; gap: 8px; }
+        .rc-resmeta .busy { color: var(--rc-accent); font-weight: 800; }
+        .rc-resmeta .stale { color: var(--rc-warn); font-weight: 800; }
+        #results.busy { opacity: .5; transition: opacity .2s; }
         .rc-empty { color: var(--rc-faint); font-size: 13px; padding: 28px 16px; text-align: center; }
-        .rc-placeholder { font-size: 13px; color: var(--rc-faint); border: 1px dashed var(--rc-line); border-radius: 12px; padding: 14px; text-align: center; }
         .rc-note { font-size: 12px; padding: 8px 12px; border-radius: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         .rc-note.warn { color: var(--rc-warn); background: rgba(245,158,11,.12); }
         .rc-note.bad { color: var(--rc-bad); background: rgba(248,113,113,.12); }
         .rc-note.info { color: var(--rc-muted); background: var(--rc-soft); }
-        .rc-table-wrap { overflow: auto; border: 1px solid var(--rc-line); border-radius: 12px; max-height: 640px; }
+        .rc-table-wrap { overflow: auto; border: 1px solid var(--rc-line); border-radius: 12px; max-height: calc(100vh - 230px); min-height: 120px; }
         .rc-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
-        .rc-table th { position: sticky; top: 0; z-index: 1; background: var(--rc-card); white-space: nowrap; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: var(--rc-faint); padding: .6rem .75rem; text-align: right; border-bottom: 1px solid var(--rc-line); }
-        .rc-table td { padding: .45rem .75rem; font-size: 12px; text-align: right; white-space: nowrap; border-top: 1px solid var(--rc-line); }
-        .rc-table th:first-child, .rc-table td:first-child, .rc-table .txt { text-align: left; }
+        .rc-table th { position: sticky; top: 0; z-index: 1; background: var(--rc-card); white-space: nowrap; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: var(--rc-faint); padding: .55rem .7rem; text-align: right; border-bottom: 1px solid var(--rc-line); cursor: pointer; user-select: none; }
+        .rc-table th:hover { color: var(--rc-fg); }
+        .rc-table th .arr { color: var(--rc-accent); margin-left: 3px; }
+        .rc-table th .tools { display: inline-flex; gap: 1px; margin-left: 6px; opacity: 0; vertical-align: middle; }
+        .rc-table th:hover .tools, .rc-table th:focus-within .tools { opacity: 1; }
+        .rc-table th .tools button { border: 0; background: none; color: var(--rc-faint); cursor: pointer; padding: 0 2px; font-size: 11px; }
+        .rc-table th .tools button:hover { color: var(--rc-fg); }
+        .rc-table th .tools button.danger:hover { color: var(--rc-bad); }
+        .rc-table td { padding: .42rem .7rem; font-size: 12px; text-align: right; white-space: nowrap; border-top: 1px solid var(--rc-line); }
+        .rc-table .txt { text-align: left; }
+        .rc-table td.dim { text-align: left; color: var(--rc-fg); font-weight: 600; }
+        .rc-table td.dim.rep { color: transparent; }
         .rc-table tbody tr:hover td { background: var(--rc-hover); }
+        .rc-table tbody tr:hover td.dim.rep { color: var(--rc-faint); }
+        .rc-table tr.sub td { background: var(--rc-sub); font-weight: 800; color: var(--rc-strong); }
         .rc-table tr.total td { font-weight: 900; border-top: 2px solid var(--rc-line); color: var(--rc-strong); }
-        .rc-chart { width: 100%; height: 420px; }
+        .rc-table td.drill { cursor: pointer; }
+        .rc-table td.drill:hover { color: var(--rc-accent); text-decoration: underline; }
+        .rc-chart { width: 100%; height: calc(100vh - 300px); min-height: 360px; }
         .rc-toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); background: var(--rc-card); border: 1px solid var(--rc-line); color: var(--rc-fg); border-radius: 10px; padding: 10px 16px; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.35); z-index: 90; }
 
-        /* ── The SQL drawer: closed unless asked for (spec point 2) ─────────── */
+        /* ── The SQL drawer: closed unless asked for ─────────────────────────── */
         .rc-drawer-back { position: fixed; inset: 0; background: rgba(4,8,6,.45); z-index: 60; }
         .rc-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 100vw); background: var(--rc-card); border-left: 1px solid var(--rc-line); z-index: 61; display: flex; flex-direction: column; box-shadow: -20px 0 50px rgba(0,0,0,.4); }
         .rc-drawer-head { display: flex; align-items: center; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--rc-line); flex-wrap: wrap; }
@@ -199,10 +248,10 @@
         .params { padding: 10px 12px; background: var(--rc-input); border-top: 1px solid var(--rc-line); font-family: var(--mono); font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
         .params .pk { color: var(--param); } .params .pv { color: var(--rc-muted); word-break: break-word; }
 
-        /* ── Dialogs: ask when run, add a filter, SQL reference, scheduled emails ── */
+        /* ── Dialogs: ask when run, add a filter, drill-down, SQL reference, emails ── */
         .modal-back { position: fixed; inset: 0; background: rgba(4,8,6,.6); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; z-index: 70; }
         .modal { background: var(--rc-card); border: 1px solid var(--rc-line); border-radius: 1.25rem; width: min(640px, 100%); max-height: 86vh; overflow: auto; box-shadow: 0 24px 60px rgba(0,0,0,.5); }
-        .modal.wide { width: min(1120px, 100%); }
+        .modal.wide { width: min(1180px, 100%); }
         .panel-head { display: flex; align-items: center; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--rc-line); flex-wrap: wrap; }
         .panel-head h2 { margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: .15em; color: var(--rc-accent); font-weight: 900; }
         .panel-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -220,7 +269,7 @@
         .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
         .field.wide { grid-column: 1 / -1; }
         .label, .field > label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: var(--rc-faint); }
-        .input { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 8px; padding: 7px 9px; width: 100%; min-width: 0; font-size: 13px; outline: none; }
+        .input { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 8px; padding: 7px 9px; width: 100%; min-width: 0; font-size: 13px; outline: none; color: var(--rc-fg); }
         .input:focus { border-color: var(--rc-accent); }
         .hint { font-size: 12px; color: var(--rc-faint); }
         .inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -229,7 +278,7 @@
         .table-wrap { overflow: auto; border: 1px solid var(--rc-line); border-radius: 12px; max-height: 620px; }
         .modal table { border-collapse: collapse; width: 100%; font-size: 12px; }
         .modal th { position: sticky; top: 0; background: var(--rc-card); font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: var(--rc-faint); padding: .5rem .7rem; text-align: left; border-bottom: 1px solid var(--rc-line); }
-        .modal td { padding: .45rem .7rem; text-align: left; vertical-align: top; border-top: 1px solid var(--rc-line); }
+        .modal td { padding: .45rem .7rem; text-align: left; vertical-align: top; border-top: 1px solid var(--rc-line); white-space: nowrap; }
         .empty { color: var(--rc-faint); font-size: 13px; padding: 16px; text-align: center; }
         .note { font-size: 12px; padding: 8px 12px; border-radius: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         .note.warn { color: var(--rc-warn); background: rgba(245,158,11,.12); }
@@ -237,8 +286,9 @@
         .crit-ask { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--rc-warn); border: 1px solid var(--rc-warn); border-radius: 4px; padding: 0 4px; }
         .ref .ref-rules { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
         @media (min-width: 900px) { .ref .ref-rules { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        .ref .rule, .addf .rule { border: 1px solid var(--rc-line); border-radius: 10px; padding: 8px 10px; font-size: 12.5px; background: var(--rc-input); }
+        .ref .rule { border: 1px solid var(--rc-line); border-radius: 10px; padding: 8px 10px; font-size: 12.5px; background: var(--rc-input); }
         .ref .rule b { display: block; font-size: 12.5px; margin-bottom: 2px; }
+        .ref td { white-space: normal; }
         .ref td.col { font-family: var(--mono); white-space: nowrap; }
         .ref pre.sql { border: 1px solid var(--rc-line); border-radius: 10px; white-space: pre-wrap; }
         .addf-group { display: flex; flex-direction: column; gap: 6px; }
@@ -246,12 +296,13 @@
         .addf-group .src { font-size: 11px; color: var(--rc-faint); }
         .addf-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
         @media (min-width: 640px) { .addf-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        .addf-item { text-align: left; border: 1px solid var(--rc-line); background: var(--rc-input); border-radius: 10px; padding: 8px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+        .addf-item { text-align: left; border: 1px solid var(--rc-line); background: var(--rc-input); border-radius: 10px; padding: 8px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; color: var(--rc-fg); }
         .addf-item:hover:not(:disabled) { border-color: var(--rc-accent); }
         .addf-item:disabled { opacity: .45; cursor: default; }
         .addf-item .t { font-weight: 700; font-size: 13px; display: flex; gap: 8px; align-items: center; }
         .addf-item .ty { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: var(--rc-faint); border: 1px solid var(--rc-line); border-radius: 4px; padding: 0 4px; }
         .addf-item .h { font-size: 11px; color: var(--rc-faint); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .sc td { white-space: normal; }
         .sc .run-failed { color: var(--rc-bad); font-weight: 700; }
         .sc .run-partial { color: var(--rc-warn); font-weight: 700; }
         .sc .run-sent { color: var(--rc-good); font-weight: 700; }
@@ -266,34 +317,32 @@
     <div class="rc flex flex-1 overflow-hidden" id="rc" data-mail-url="{{ url_for('email_server.page') }}">
         {% include '_sidebar.html' %}
 
-        <!-- Left panel: which report, what it counts, the date range, the filters, Generate -->
-        <aside class="rfp rc-panel p-5 flex flex-col overflow-y-auto flex-shrink-0" aria-label="Report filters">
-            <div class="space-y-6">
-                <div>
-                    <label class="rfp-label" for="rc-report">Report</label>
-                    <select id="rc-report" class="rfp-input" aria-label="Open a saved report"></select>
-                    <div class="rc-mini">
-                        <button type="button" id="btn-new" title="Start an empty report">New</button>
-                        <button type="button" id="btn-dup" title="Copy this report into your personal folder">Duplicate</button>
-                        <button type="button" id="btn-del" class="danger" title="Delete this report">Delete</button>
-                    </div>
+        <!-- Left: which report, what it counts, and every field to build it with -->
+        <aside class="rfp rc-panel p-4 flex flex-col gap-4 overflow-hidden flex-shrink-0" aria-label="Report fields">
+            <div>
+                <label class="rfp-label" for="rc-report">Report</label>
+                <select id="rc-report" class="rfp-input" aria-label="Open a saved report"></select>
+                <div class="rc-mini">
+                    <button type="button" id="btn-new" title="Start an empty report">New</button>
+                    <button type="button" id="btn-dup" title="Copy this report into your personal folder">Duplicate</button>
+                    <button type="button" id="btn-del" class="danger" title="Delete this report">Delete</button>
                 </div>
-                <div>
-                    <label class="rfp-label" for="f-ds">What to count</label>
-                    <select id="f-ds" class="rfp-input"></select>
-                    <p class="rc-hint mt-2" id="ds-hint"></p>
-                </div>
-                <div id="rc-filters" class="space-y-6"></div>
-                <div class="space-y-3">
-                    <button type="button" id="btn-run" class="rfp-generate" title="Run the report (Ctrl+Enter)">Generate</button>
-                    <button type="button" id="btn-csv" class="rfp-export" style="margin-top:0"><i class="bi bi-download" aria-hidden="true"></i> Download CSV</button>
-                </div>
+            </div>
+            <div>
+                <label class="rfp-label" for="f-ds">What to count</label>
+                <select id="f-ds" class="rfp-input"></select>
+                <p class="rc-hint mt-2" id="ds-hint"></p>
+            </div>
+            <div class="flex flex-col min-h-0 flex-1">
+                <label class="rfp-label" for="rc-fq">Fields<i class="bi bi-info-circle chart-info-icon" data-explain="rc-fields" role="button" tabindex="0" aria-label="About the fields" title="About the fields"></i></label>
+                <input id="rc-fq" type="search" class="rfp-input mb-2" placeholder="Find a field: room, radiologist, TAT…" autocomplete="off">
+                <div class="rc-fields" id="rc-fields"></div>
+                <p class="rc-hint mt-2">Drag a field onto Filters, Rows, Columns or Values, or click it for its menu.</p>
             </div>
         </aside>
 
-        <main class="flex-1 overflow-y-auto bg-[#181f1c] p-8 min-w-0">
-            <!-- The report: its name and description, edited where they are read -->
-            <div class="flex items-start gap-4 mb-5 flex-wrap">
+        <main class="flex-1 overflow-y-auto bg-[#181f1c] p-6 min-w-0">
+            <div class="flex items-start gap-4 mb-4 flex-wrap">
                 <div class="flex-1 min-w-[18rem]">
                     <div class="flex items-center gap-1">
                         <input id="f-name" class="rc-title" placeholder="Name this report" aria-label="Report name" autocomplete="off">
@@ -312,6 +361,9 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-2 flex-wrap">
+                    <label class="rc-live" title="Update the result as you build"><input type="checkbox" id="rc-live"><span>Live</span></label>
+                    <button type="button" class="rc-btn primary" id="btn-run" title="Run the report (Ctrl+Enter)"><i class="bi bi-play-fill" aria-hidden="true"></i> Generate</button>
+                    <button type="button" class="rc-btn ghost" id="btn-csv" title="Download the result as CSV"><i class="bi bi-download" aria-hidden="true"></i> CSV</button>
                     <button type="button" class="rc-btn ghost" id="btn-sql" title="The SQL this report runs"><i class="bi bi-code-slash" aria-hidden="true"></i> SQL</button>
                     <button class="rc-btn" id="btn-sched" type="button" hidden><i class="bi bi-envelope" aria-hidden="true"></i> Scheduled emails</button>
                     <button type="button" class="rc-btn primary" id="btn-save" title="Save (Ctrl+S)"><i class="bi bi-check2" aria-hidden="true"></i> Save</button>
@@ -320,29 +372,31 @@
 
             <div id="rc-handnote" class="mb-4" hidden></div>
 
-            <!-- What is applied, at a glance -->
-            <div class="card p-5 mb-5" id="rc-applied">
-                <p class="section-title mb-3">Filters applied<i class="bi bi-info-circle chart-info-icon" data-explain="rc-filters" role="button" tabindex="0" aria-label="About the filters" title="About the filters"></i></p>
-                <div class="rc-pills" id="rc-pills"></div>
-            </div>
-
-            <!-- How to show it -->
-            <div class="card p-5 mb-5" id="rc-show">
-                <p class="section-title mb-4">Show as<i class="bi bi-info-circle chart-info-icon" data-explain="rc-show-as" role="button" tabindex="0" aria-label="About Show as" title="About Show as"></i></p>
-                <div class="rc-out" id="out"></div>
+            <!-- The builder: how to show it, and what goes where -->
+            <div class="card p-4 mb-4" id="rc-builder">
+                <div class="rc-zones">
+                    <span class="rc-zlabel">Show as<i class="bi bi-info-circle chart-info-icon" data-explain="rc-show-as" role="button" tabindex="0" aria-label="About the builder" title="About the builder"></i></span>
+                    <div><div class="rc-seg" id="rc-show" role="group" aria-label="Show as"></div></div>
+                    <span class="rc-zlabel">Filters<i class="bi bi-info-circle chart-info-icon" data-explain="rc-filters" role="button" tabindex="0" aria-label="About the filters" title="About the filters"></i></span>
+                    <div class="rc-zone" id="z-filters" data-zone="filters"></div>
+                    <span class="rc-zlabel" data-for="rows">Rows</span>
+                    <div class="rc-zone" id="z-rows" data-zone="rows"></div>
+                    <span class="rc-zlabel" data-for="cols">Columns</span>
+                    <div class="rc-zone" id="z-cols" data-zone="cols"></div>
+                    <span class="rc-zlabel" data-for="values">Values</span>
+                    <div class="rc-zone" id="z-values" data-zone="values"></div>
+                    <span class="rc-zlabel" data-for="listcols">Columns</span>
+                    <div class="rc-zone" id="z-listcols" data-zone="listcols"></div>
+                </div>
             </div>
 
             <!-- The result -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5" id="rc-kpis" hidden>
-                <div class="kpi-card"><p class="kpi-label">Rows<i class="bi bi-info-circle chart-info-icon" data-explain="rc-kpi-rows" role="button" tabindex="0" aria-label="About Rows" title="About Rows"></i></p><p class="kpi-value" id="kpi-rows">–</p><p class="kpi-sub" id="kpi-rows-sub"></p></div>
-                <div class="kpi-card"><p class="kpi-label">Run time<i class="bi bi-info-circle chart-info-icon" data-explain="rc-kpi-time" role="button" tabindex="0" aria-label="About Run time" title="About Run time"></i></p><p class="kpi-value" id="kpi-time">–</p><p class="kpi-sub">on the reporting account</p></div>
-            </div>
-            <div class="card p-5" id="rc-result-card">
-                <div class="flex items-center gap-3 mb-4 flex-wrap">
-                    <p class="section-title" id="res-title-wrap"><span id="res-title">Result</span><i class="bi bi-info-circle chart-info-icon" data-explain="rc-result" role="button" tabindex="0" aria-label="About the result" title="About the result"></i></p>
-                    <span class="rc-hint" id="res-meta"></span>
+            <div class="card p-4" id="rc-result-card">
+                <div class="flex items-center gap-3 mb-3 flex-wrap">
+                    <p class="section-title"><span id="res-title">Result</span><i class="bi bi-info-circle chart-info-icon" data-explain="rc-result" role="button" tabindex="0" aria-label="About the result" title="About the result"></i></p>
+                    <span class="rc-resmeta" id="res-meta"></span>
                 </div>
-                <div id="results"><div class="rc-empty">Choose what to count and the filters on the left, then press <strong>Generate</strong>.</div></div>
+                <div id="results"><div class="rc-empty">Choose what to count on the left.</div></div>
             </div>
         </main>
     </div>
@@ -354,7 +408,7 @@
             <div class="rc-drawer-head">
                 <p class="section-title">SQL</p>
                 <div class="rc-seg" id="sql-seg" role="group" aria-label="How this report gets its data" hidden>
-                    <button type="button" data-mode="gen" aria-pressed="true">Built from the filters</button>
+                    <button type="button" data-mode="gen" aria-pressed="true">Built from the builder</button>
                     <button type="button" data-mode="hand" aria-pressed="false">Written by hand</button>
                 </div>
                 <span class="flex-1"></span>
@@ -367,7 +421,7 @@
                 <div class="sql-wrap" id="sql-wrap">
                     <div class="sql-bar">
                         <span class="grow" id="sql-caption"></span>
-                        <button class="rc-btn small" id="btn-start-gen" type="button" hidden>Start from the filters' SQL</button>
+                        <button class="rc-btn small" id="btn-start-gen" type="button" hidden>Start from the builder's SQL</button>
                         <button class="rc-btn small" id="btn-copy-sql" type="button"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy</button>
                     </div>
                     <pre class="sql" id="sql-view"></pre>
@@ -378,6 +432,7 @@
         </section>
     </div>
 
+    <div id="rc-pop" class="rc" hidden></div>
     <div class="rc" id="modal"></div>
     <div class="rc-toast" id="toast" hidden></div>
 

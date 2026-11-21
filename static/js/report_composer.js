@@ -1,18 +1,22 @@
 /*
  * static/js/report_composer.js — the Report Composer page (templates/worklists.html,
- * routes/worklists.py). Revamp of 2026-11-20 (operator's spec):
+ * routes/worklists.py), a pivot builder since 2026-11-21 (operator: "more flexible"; asked
+ * for: more than 2 groupings, more chart types, a live result, work in the result table).
  *
- *   1. the same frame as every report: the left panel (report, what to count, the date
- *      range, the filters, Generate, CSV) and the result in cards;
- *   2. the SQL is not on the page: the SQL button opens it in a drawer, where the
- *      settings capability may also write it by hand;
- *   3. the filters are visible: the dataset's usual ones (catalog 'pinned') as the
- *      reports' searchable dropdowns, each value with how many rows it had in the last
- *      year, the rest one "Add filter" away, and what is applied as tags above the result;
- *   4. one example report left in the library (migration 0181).
+ *   left        the report, what to count, every field (searchable, grouped), the measures
+ *               (or, for a list, its columns); drag one onto a bar, or click it for its menu
+ *   builder     Show as (table, list, bar, stacked, line, pie, heatmap); Filters (chips: the
+ *               dataset's date and usual filters always there, each opens its editor);
+ *               Rows (up to 4 groupings), Columns (one split), Values (measures); a list's
+ *               Columns and sort
+ *   result      live (re-run as you build, the switch at the top) or on Generate; a table
+ *               sorts on a header click, moves or hides columns from the header, and opens
+ *               the rows behind any number (drill-down, /worklists/api/drill); charts too
+ *   SQL         a drawer, on the SQL button (hand-written SQL for the settings capability)
  *
- * What a report is (its definition: dataset, criteria, ask, output, sql) did not change,
- * so every saved report, version and scheduled email reads as before.
+ * A report's definition: {dataset, criteria, ask, output: {kind: list|table|chart, chart,
+ * rows: [grouping, ...], cols, measures, columns, sort, desc}, sql}. Reports saved with one
+ * "rows" grouping open as before.
  */
 (function () {
 'use strict';
@@ -23,17 +27,26 @@ const clone = o => JSON.parse(JSON.stringify(o));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[ch]);
 const enc = encodeURIComponent;
 const BLANK = '(blank)';
+const MAX_ROWS = 4;
 const MAIL_SERVER_URL = $('rc').dataset.mailUrl;
 const TYPE_WORDS = {date: 'date', multi: 'choice', text: 'text', yesno: 'yes / no', range: 'number'};
+const TYPE_ICONS = {date: 'bi-calendar3', multi: 'bi-ui-checks', text: 'bi-fonts', yesno: 'bi-toggle-on', range: 'bi-123'};
+const SHOW_AS = [['table', 'Table', 'bi-table'], ['list', 'List', 'bi-list-ul'], ['bar', 'Bar', 'bi-bar-chart'],
+                 ['stacked', 'Stacked', 'bi-bar-chart-steps'], ['line', 'Line', 'bi-graph-up'],
+                 ['pie', 'Pie', 'bi-pie-chart'], ['heatmap', 'Heatmap', 'bi-grid-3x3']];
 // Where the fields of a group come from, when it is not PACS.
 const TAB_NOTES = {
   exam: 'From the RIS (the nightly Oracle ETL): its status history, performed steps and reports, read as Report 35 reads them.',
   nlp: 'From the NLP worker\'s reading of the ORU reports: negations and history removed, benign findings left out.',
   crn: 'From Critical Result Notification (Admin > CRN), matched by accession.',
 };
-let CAT, FIELD = {}, LIB = [], S = null, extra = [], sqlInfo = null, dirty = false,
-    compileTimer = null, chart = null, lastResult = null, quietLib = false;
+let CAT, FIELD = {}, LIB = [], S = null, extra = [], sqlInfo = null, dirty = false, compileTimer = null,
+    runTimer = null, runSeq = 0, chart = null, lastResult = null, model = null, quietLib = false,
+    LIVE = true, stale = false, pivotSort = null, DRAG = null;
+let popKind = null, popFid = null, popAnchor = null;
+const openGroups = new Set(['_meas', '_cols', 'primary']);
 const optionPromise = {}, optionList = {};
+const pop = $('rc-pop');
 
 async function api(url, body) {
   const opt = body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)};
@@ -42,7 +55,7 @@ async function api(url, body) {
   if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
   return d;
 }
-// Confirmations use SweetAlert2, like the rest of RAYD. The browser's own dialog only if the
+// Confirmations use SweetAlert2, like the rest of RAYD; the browser's own dialog only if the
 // library could not load, so a question is never skipped.
 async function askYesNo(title, text, {yes = 'Yes', danger = false, icon = 'warning'} = {}) {
   if (!window.Swal) return window.confirm(title + (text ? '\n\n' + text : ''));
@@ -63,22 +76,46 @@ let toastTimer;
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 3600); }
 function markDirty(on = true) { dirty = on; renderStatus(); }
 function isoToday() { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+function storeGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function storeSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* not needed */ } }
 
 // ── State ────────────────────────────────────────────────────────────────────
 const D = () => S.definition;
 const ds = () => CAT.datasets[D().dataset] || null;
 const inDataset = f => !!f && f.datasets.includes(D().dataset);
 const handMode = () => D().sql != null;
-// A new report starts EMPTY (operator, 2026-10-25): no dataset, no criteria, no output kind.
+const showValue = () => { const o = D().output || {}; return o.kind === 'chart' ? (o.chart || 'bar') : (o.kind || 'table'); };
+// A new report starts EMPTY (operator, 2026-10-25): what to count is chosen first.
 function emptyDefinition() {
-  return {dataset: null, criteria: {}, ask: [], output: {kind: null, rows: null, cols: null, measures: [], columns: [], sort: null, desc: true}, sql: null};
+  return {dataset: null, criteria: {}, ask: [], output: {kind: 'table', chart: 'bar', rows: [], cols: null, measures: [], columns: [], sort: null, desc: true}, sql: null};
 }
-// What a dataset starts with: a count (gigabytes for Storage) and its usual list columns.
-function blankDefinition(dataset, kind = null) {
+// What a dataset starts with: a count (gigabytes for Storage) grouped by modality, its usual
+// list columns, and the last 30 days (set by the dataset change), so the first live result is quick.
+function blankDefinition(dataset, out = {}) {
   const d = CAT.datasets[dataset];
-  return {dataset, criteria: {}, ask: [], output: {kind, rows: null, cols: null, measures: [d.default_measure], columns: d.list_default.slice(), sort: d.default_date, desc: true}, sql: null};
+  const rows = d.dimensions.some(x => x.id === 'modality') ? ['modality'] : [];
+  return {dataset, criteria: {}, ask: [], sql: null,
+          output: {kind: out.kind || 'table', chart: out.chart || 'bar', rows, cols: null, measures: [d.default_measure],
+                   columns: d.list_default.slice(), sort: d.default_date, desc: true}};
 }
-// The panel: the dataset's date (as the date range), its pinned filters, then those added.
+// Rows, columns, measures and list columns the dataset offers (a saved report may name a
+// grouping its dataset no longer has); a report saved with one grouping gets a list.
+function normalizeOutput() {
+  const o = D().output = D().output || {}, d = ds();
+  o.rows = Array.isArray(o.rows) ? o.rows : (o.rows ? [o.rows] : []);
+  if (!o.kind) o.kind = 'table';
+  if (!o.chart) o.chart = 'bar';
+  if (!d) return;
+  const dims = new Set(d.dimensions.map(x => x.id));
+  o.rows = [...new Set(o.rows.filter(x => dims.has(x)))].slice(0, MAX_ROWS);
+  if (o.cols && (!dims.has(o.cols) || o.rows.includes(o.cols))) o.cols = null;
+  o.measures = (o.measures || []).filter(m => d.measures.some(x => x.id === m));
+  if (!o.measures.length) o.measures = [d.default_measure];
+  o.columns = (o.columns || []).filter(c => d.columns.some(x => x.id === c));
+  if (!o.columns.length) o.columns = d.list_default.slice();
+  if (!d.columns.some(x => x.id === o.sort)) o.sort = d.default_date;
+}
+// The Filters bar: the dataset's date (the date range) and its usual filters, then those added.
 function baseFields() {
   const d = ds(); if (!d) return [];
   return [d.default_date, ...(d.pinned || [])].map(id => FIELD[id]).filter(inDataset);
@@ -87,21 +124,21 @@ function shownFields() {
   const base = baseFields(), ids = new Set(base.map(f => f.id));
   return base.concat(extra.filter(id => !ids.has(id)).map(id => FIELD[id]).filter(inDataset));
 }
-// A saved report's criteria on fields outside the base appear as added filters.
 function initialExtra() {
   if (!ds()) return [];
   const base = new Set(baseFields().map(f => f.id)), used = new Set([...Object.keys(D().criteria || {}), ...D().ask]);
   return CAT.fields.filter(f => inDataset(f) && !base.has(f.id) && used.has(f.id)).map(f => f.id);
 }
 function load(w) {
+  closePop();
   S = clone(w);
   S.definition.ask = S.definition.ask || [];
   S.definition.criteria = S.definition.criteria || {};
-  const d0 = CAT.datasets[S.definition.dataset];
-  S.definition.output = Object.assign({kind: S.definition.dataset ? 'list' : null, measures: d0 ? [d0.default_measure] : []}, S.definition.output || {});
-  extra = initialExtra();
+  normalizeOutput();
+  extra = initialExtra(); pivotSort = null;
   markDirty(false); lastResult = null; resetResults();
   renderAll(); scheduleCompile(0); syncUrl();
+  if (LIVE) scheduleRun(0);
 }
 function blank() {
   load({id: null, name: '', description: '', folder: '', visibility: 'personal',
@@ -112,14 +149,12 @@ function syncUrl() {
 }
 
 // ── Required fields and the status line ──────────────────────────────────────
-// Building: a name, a dataset and how to show it. Written in SQL: a name and the SQL.
 function missingFields() {
   if (!S) return [];
   const out = [];
   if (!String(S.name || '').trim()) out.push(['name', 'Name']);
   if (handMode()) { if (!String(D().sql || '').trim()) out.push(['sql', 'SQL']); return out; }
   if (!D().dataset) out.push(['ds', 'What to count']);
-  if (!(D().output || {}).kind) out.push(['kind', 'Show as']);
   return out;
 }
 function renderStatus() {
@@ -127,20 +162,24 @@ function renderStatus() {
   const miss = missingFields(), keys = miss.map(m => m[0]);
   $('f-name').classList.toggle('missing', keys.includes('name'));
   $('f-ds').classList.toggle('missing', keys.includes('ds'));
-  const kind = $('fw-kind'); if (kind) kind.classList.toggle('missing', keys.includes('kind'));
   $('sql-wrap').classList.toggle('missing', keys.includes('sql'));
   const st = $('bar-status');
   st.textContent = dirty ? 'Unsaved changes' : (S.id ? `Saved · version ${S.version}` : 'New report · not saved yet');
   st.classList.toggle('dirty', dirty);
   $('bar-missing').textContent = miss.length ? 'Still to fill: ' + miss.map(m => m[1]).join(', ') : '';
 }
+// Scroll the panel or the main area, never the page (a fixed-height shell).
+function scrollWithin(el) {
+  const box = el && el.closest('aside .rc-fields, main'); if (!box) return;
+  const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top;
+  box.scrollTo({top: box.scrollTop + top - box.clientHeight / 3, behavior: 'smooth'});
+}
 function focusMissing(key) {
   if (key === 'sql') { openDrawer(); $('sql-edit').focus(); return; }
-  const el = {name: $('f-name'), ds: $('f-ds'), kind: document.querySelector('#fw-kind button')}[key];
+  const el = {name: $('f-name'), ds: $('f-ds')}[key];
   if (el) { scrollWithin(el); el.focus({preventScroll: true}); }
 }
-// What stops a run: everything required except the name.
-function runBlockers() { return missingFields().filter(m => m[0] !== 'name'); }
+const runBlockers = () => missingFields().filter(m => m[0] !== 'name');
 
 // ── Library: the Report dropdown ─────────────────────────────────────────────
 async function loadLibrary(selectId) {
@@ -169,14 +208,14 @@ async function onLibraryPick() {
   if (quietLib) return;
   const id = +$('rc-report').value;
   if (!id || (S && S.id === id)) return;
-  if (!(await open(id))) renderLibrary();  // kept the current one: put the dropdown back
+  if (!(await open(id))) renderLibrary();
 }
 async function open(id) {
   if (dirty && !(await askYesNo('Discard your changes?', 'This report has changes that are not saved.', {yes: 'Discard changes'}))) return false;
   try { load(await api('/worklists/api/' + id)); return true; } catch (e) { toast(e.message); return false; }
 }
 
-// ── Header: name, description, who sees it, folder, history ──────────────────
+// ── Header: name, description, who sees it, folder, history, what to count ───
 function renderHeader() {
   if (document.activeElement !== $('f-name')) $('f-name').value = S.name;
   if (document.activeElement !== $('f-desc')) $('f-desc').value = S.description || '';
@@ -197,10 +236,7 @@ function renderHeader() {
     : ds() ? ds().hint : 'What one row is: an exam, a study, a series, a report, an NLP finding, a storage day or a CRN.';
 }
 
-// ── Criteria: what each one says ─────────────────────────────────────────────
-// Days and times of a date filter: windows of days, each with an optional from → to time that
-// may run through midnight (engine._windows_sql). {Sat, 13:00, 07:00} = Saturday 13:00 to
-// Sunday 07:00.
+// ── Criteria: what each filter says (days and times included) ────────────────
 const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_SETS = [['1,2,3,4,5', 'Mon–Fri'], ['6,7', 'Weekend'], ['1,2,3,4,5,6,7', 'Every day']];
 const windowsOf = c => (c && Array.isArray(c.windows)) ? c.windows : [];
@@ -245,7 +281,7 @@ function summary(f, c) {
   }
   if (f.type === 'multi') {
     const names = c.values.map(v => optLabel(f, v));
-    return names.length > 4 ? names.slice(0, 3).join(', ') + ` +${names.length - 3} more` : names.join(', ');
+    return names.length > 3 ? names.slice(0, 2).join(', ') + ` +${names.length - 2}` : names.join(', ');
   }
   if (f.type === 'text') return `${c.op || 'contains'} “${c.value}”`;
   if (f.type === 'yesno') return c.value === 'yes' ? 'Yes' : 'No';
@@ -253,7 +289,7 @@ function summary(f, c) {
   return '';
 }
 
-// ── The values a dropdown offers: from the data, with their counts ───────────
+// ── The values a filter offers: from the data, with their counts ─────────────
 function cachedOptions(f) {
   const key = D().dataset + '|' + f.id;
   if (!optionPromise[key]) {
@@ -262,8 +298,8 @@ function cachedOptions(f) {
   }
   return optionPromise[key];
 }
-// What a dropdown shows for what was typed. The first OPTIONS_CAP values (most frequent first)
-// are kept; a field with more asks the server for the typed text.
+// The first OPTIONS_CAP values (most frequent first) are kept; a field with more asks the
+// server for the typed text.
 async function loadOptions(f, term) {
   const q = String(term || '').trim().toLowerCase();
   let list = Array.isArray(f.options) ? f.options : await cachedOptions(f);
@@ -278,7 +314,7 @@ async function loadOptions(f, term) {
   return list;
 }
 
-// ── The controls, the same in the panel and in the "before it runs" dialog ────
+// ── A filter's controls, in its editor and in the "before it runs" dialog ────
 function control(f, c, where) {
   const a = `data-f="${f.id}"`;
   if (f.type === 'date') {
@@ -305,7 +341,8 @@ function control(f, c, where) {
     const sel = c.values || [];
     if (where === 'panel') {
       return `<select multiple class="rc-s2 w-full" id="rc-sel-${f.id}" ${a} aria-label="${esc(f.label)}">${
-        sel.map(v => `<option value="${esc(JSON.stringify(v))}" selected>${esc(optLabel(f, v))}</option>`).join('')}</select>`;
+        sel.map(v => `<option value="${esc(JSON.stringify(v))}" selected>${esc(optLabel(f, v))}</option>`).join('')}</select>
+        <p class="rc-hint mt-2">Each value shows its rows in the last year; type to find one.</p>`;
     }
     const opts = optionsNow(f);
     if (!opts) return '<span class="hint">The values could not be loaded.</span>';
@@ -377,52 +414,7 @@ function applyInput(criteria, t) {
   return true;
 }
 
-// ── The left panel ───────────────────────────────────────────────────────────
-function blockTools(f) {
-  const c = D().criteria[f.id], on = isActive(f, c);
-  return (f.hint ? `<button type="button" class="rc-icon" data-act="hint" data-f="${f.id}" title="${esc(f.hint)}" aria-label="About ${esc(f.label)}"><i class="bi bi-question-circle"></i></button>` : '')
-    + (on ? `<button type="button" class="rc-icon" data-act="clear" data-f="${f.id}" title="Clear this filter" aria-label="Clear ${esc(f.label)}"><i class="bi bi-eraser"></i></button>` : '')
-    + (extra.includes(f.id) ? `<button type="button" class="rc-icon danger" data-act="remove" data-f="${f.id}" title="Take this filter out of the panel" aria-label="Remove ${esc(f.label)}"><i class="bi bi-x-lg"></i></button>` : '');
-}
-function block(f) {
-  const c = D().criteria[f.id] || {}, ask = D().ask.includes(f.id), isRange = f.id === ds().default_date;
-  const label = isRange ? `Date range <span class="sub">· ${esc(f.label)}</span>` : esc(f.label);
-  return `<div class="rc-f" data-fid="${f.id}">
-    <div class="rc-f-head"><label class="rfp-label"${f.type === 'multi' ? ` for="rc-sel-${f.id}"` : ''}>${label}</label><span class="rc-f-tools">${blockTools(f)}</span></div>
-    ${control(f, c, 'panel')}
-    <label class="rc-ask" title="Ask for this filter each time the report is run"><input type="checkbox" class="rfp-tick" data-ask="${f.id}"${ask ? ' checked' : ''}><span>Ask when run</span></label>
-  </div>`;
-}
-function renderPanel() {
-  const box = $('rc-filters');
-  destroySelects(box);
-  if (handMode()) {
-    box.innerHTML = '<div class="rc-sql-note"><b>Written in SQL.</b> The filters are not used: the SQL names its own views and values. <button type="button" class="rc-link" data-act="open-sql">Open the SQL</button></div>';
-    return;
-  }
-  if (!ds()) { box.innerHTML = '<p class="rc-hint">Choose what to count first: the date range and the filters depend on it.</p>'; return; }
-  const [date, ...rest] = shownFields();
-  box.innerHTML = (date ? block(date) : '')
-    + `<div class="rc-sep"><span class="rfp-label" style="margin:0;flex:1">Filters</span><span id="rc-count"></span></div>`
-    + rest.map(block).join('')
-    + '<button type="button" class="rc-add" data-act="add-filter"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add filter</button>';
-  initSelects(box);
-  renderCount();
-}
-function renderCount() {
-  const el = $('rc-count'); if (!el || !ds()) return;
-  const n = shownFields().filter(f => isActive(f, D().criteria[f.id])).length;
-  el.className = n ? 'count' : ''; el.textContent = n ? `${n} applied` : '';
-}
-function blockEl(fid) { return document.querySelector(`#rc-filters .rc-f[data-fid="${fid}"]`); }
-function renderBlock(fid) {
-  const el = blockEl(fid);
-  if (!el) return renderPanel();
-  destroySelects(el);
-  el.outerHTML = block(FIELD[fid]);
-  initSelects(blockEl(fid));
-}
-function refreshTools(fid) { const el = blockEl(fid); if (el) el.querySelector('.rc-f-tools').innerHTML = blockTools(FIELD[fid]); }
+// ── Select2 dropdowns of values ──────────────────────────────────────────────
 function destroySelects(root) {
   if (!root || !hasS2()) return;
   root.querySelectorAll('select.rc-s2').forEach(sel => { if (jq(sel).data('select2')) jq(sel).select2('destroy'); });
@@ -436,7 +428,7 @@ function initSelects(root) {
   root.querySelectorAll('select.rc-s2').forEach(sel => {
     const f = FIELD[sel.dataset.f];
     sel.onchange = () => onMultiChange(sel, f);        // jQuery's trigger calls it too (Select2)
-    if (!hasS2()) { sel.size = 6; fillNative(sel, f); return; }
+    if (!hasS2()) { sel.size = 8; fillNative(sel, f); return; }
     jq(sel).select2({
       width: '100%', placeholder: 'All', closeOnSelect: false, templateResult: optTemplate,
       ajax: {
@@ -464,66 +456,430 @@ async function fillNative(sel, f) {
     });
   } catch (e) { toast(e.message); }
 }
+const crit = id => (D().criteria[id] = D().criteria[id] || {});
 function onMultiChange(sel, f) {
   const vals = [...sel.selectedOptions].map(o => { try { return JSON.parse(o.value); } catch (e) { return o.value; } });
   const c = crit(f.id);
   if (JSON.stringify(vals) === JSON.stringify(c.values || [])) return;
   c.values = vals;
-  changedSoft(f.id);
+  criteriaChanged();
 }
-const crit = id => (D().criteria[id] = D().criteria[id] || {});
-function changedSoft(fid) {
-  markDirty(); if (fid) refreshTools(fid); renderCount(); renderPills(); scheduleCompile();
+// A filter changed: its chip, the field list's tags, the SQL, the live result.
+function criteriaChanged() {
+  markDirty(); renderFilterZone(); renderFields(); scheduleCompile(); scheduleRun();
 }
-// Scroll the panel or the main area, never the page: the page is a fixed-height shell, and
-// scrollIntoView would also scroll it (hiding the header).
-function scrollWithin(el) {
-  const box = el && el.closest('aside, main'); if (!box) return;
-  const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top;
-  box.scrollTo({top: box.scrollTop + top - box.clientHeight / 3, behavior: 'smooth'});
-}
-function gotoFilter(fid, openIt) {
-  const el = blockEl(fid); if (!el) return;
-  scrollWithin(el);
-  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
-  const sel = el.querySelector('select.rc-s2');
-  if (openIt && sel && hasS2()) setTimeout(() => jq(sel).select2('open'), 250);
-  else { const inp = el.querySelector('input:not([type=checkbox]), select, button.rc-chip, .rc-seg button'); if (inp) inp.focus({preventScroll: true}); }
-}
-function unset(fid) {
-  delete D().criteria[fid]; D().ask = D().ask.filter(x => x !== fid);
-  renderBlock(fid); changedSoft(null);
+// The groupings, measures or kind changed: the whole builder, the field tags, the result.
+function outputChanged() {
+  pivotSort = null;
+  markDirty(); normalizeOutput(); renderZones(); renderFields(); scheduleCompile(0); scheduleRun();
 }
 
-$('rc-filters').addEventListener('click', e => {
-  const b = e.target.closest('[data-act]'); if (!b) return;
-  const act = b.dataset.act, fid = b.dataset.f;
-  if (act === 'open-sql') return openDrawer();
-  if (act === 'add-filter') return openAddFilter();
-  if (act === 'hint') return explain(FIELD[fid].label, FIELD[fid].hint);
-  if (act === 'clear') return unset(fid);
-  if (act === 'remove') {
-    delete D().criteria[fid]; D().ask = D().ask.filter(x => x !== fid); extra = extra.filter(x => x !== fid);
-    markDirty(); renderPanel(); renderPills(); scheduleCompile(); return;
+// ── What a field can become ──────────────────────────────────────────────────
+const dimIds = () => new Set(ds().dimensions.map(d => d.id));
+function dimFor(f) {
+  if (!f || !ds()) return null;
+  const ids = dimIds();
+  if (f.type === 'date') return ids.has(f.id + ':month') ? f.id + ':month' : null;
+  return ids.has(f.id) ? f.id : null;
+}
+const colFor = f => (f && ds() && ds().columns.some(c => c.id === f.col)) ? f.col : null;
+const dimField = id => FIELD[String(id).split(':')[0]];
+function dimLabel(id) { const d = ds() && ds().dimensions.find(x => x.id === id); return d ? d.label : id; }
+const measureLabel = id => ((ds().measures.find(m => m.id === id) || {}).label || id);
+const columnLabel = id => ((ds().columns.find(c => c.id === id) || {}).label || id);
+function inGrouping(f) {
+  const o = D().output, mine = id => !!id && dimField(id) === f;
+  return {row: o.rows.some(mine), col: mine(o.cols)};
+}
+
+// ── Left: the field list ─────────────────────────────────────────────────────
+function fieldItem(it) {
+  return `<div class="rc-fitem" draggable="true" tabindex="0" role="button" data-fkind="${it.kind}" data-fid="${esc(it.id)}" title="${esc(it.title || it.label)}">
+    <i class="bi ${it.icon}" aria-hidden="true"></i><span class="l">${esc(it.label)}</span>
+    <span class="tags">${it.tags.map(t => `<span class="tag">${t}</span>`).join('')}</span><i class="bi bi-three-dots-vertical more" aria-hidden="true"></i></div>`;
+}
+function renderFields() {
+  const box = $('rc-fields');
+  if (!S || !ds() || handMode()) {
+    box.innerHTML = `<p class="rc-hint">${S && handMode() ? 'Written in SQL: the fields are not used.' : 'Choose what to count first.'}</p>`;
+    return;
   }
-  if (applyClick(D().criteria, b)) { renderBlock(fid); changedSoft(fid); }
+  const q = $('rc-fq').value.trim().toLowerCase(), o = D().output, list = o.kind === 'list';
+  const groups = [];
+  if (list) groups.push({id: '_cols', label: 'List columns', items: ds().columns.map(c => ({kind: 'column', id: c.id, label: c.label,
+    icon: 'bi-layout-three-columns', tags: o.columns.includes(c.id) ? ['shown'] : []}))});
+  else groups.push({id: '_meas', label: 'Measures', items: ds().measures.map(m => ({kind: 'measure', id: m.id, label: m.label,
+    icon: 'bi-hash', tags: o.measures.includes(m.id) ? ['value'] : []}))});
+  CAT.tabs.forEach(t => {
+    const items = CAT.fields.filter(f => f.tab === t.id && inDataset(f)).map(f => {
+      const tags = [], g = inGrouping(f);
+      if (isActive(f, D().criteria[f.id])) tags.push('filter');
+      if (!list && g.row) tags.push('row');
+      if (!list && g.col) tags.push('col');
+      return {kind: 'field', id: f.id, label: f.label, title: f.hint ? `${f.label}: ${f.hint}` : f.label, icon: TYPE_ICONS[f.type] || 'bi-dot', tags};
+    });
+    if (items.length) groups.push({id: t.id, label: t.label, items});
+  });
+  box.innerHTML = groups.map(g => {
+    const items = q ? g.items.filter(it => (it.label + ' ' + (it.title || '')).toLowerCase().includes(q)) : g.items;
+    if (!items.length) return '';
+    const isOpen = q ? true : openGroups.has(g.id);
+    return `<div class="rc-fgroup" data-open="${isOpen}"><button type="button" class="rc-fhead" data-fgroup="${g.id}" aria-expanded="${isOpen}"><i class="bi bi-chevron-down" aria-hidden="true"></i>${esc(g.label)}<span class="n">${items.length}</span></button>
+      <div class="rc-fitems">${items.map(fieldItem).join('')}</div></div>`;
+  }).join('') || '<p class="rc-hint">No field matches.</p>';
+}
+$('rc-fq').addEventListener('input', renderFields);
+$('rc-fields').addEventListener('click', e => {
+  const head = e.target.closest('[data-fgroup]');
+  if (head) { const g = head.dataset.fgroup; if (openGroups.has(g)) openGroups.delete(g); else openGroups.add(g); renderFields(); return; }
+  const item = e.target.closest('.rc-fitem'); if (item) openFieldMenu(item);
 });
-$('rc-filters').addEventListener('change', e => {
+$('rc-fields').addEventListener('keydown', e => {
+  const item = e.target.closest('.rc-fitem');
+  if (item && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openFieldMenu(item); }
+});
+$('rc-fields').addEventListener('dragstart', e => {
+  const item = e.target.closest('.rc-fitem'); if (!item) return;
+  DRAG = {src: item.dataset.fkind, id: item.dataset.fid};
+  e.dataTransfer.setData('text/plain', item.dataset.fid); e.dataTransfer.effectAllowed = 'copyMove';
+  item.classList.add('dragging'); closePop();
+});
+document.addEventListener('dragend', () => {
+  DRAG = null;
+  document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
+  document.querySelectorAll('.rc-zone.over, .rc-zone.refuse').forEach(z => z.classList.remove('over', 'refuse'));
+});
+function openFieldMenu(el) {
+  const kind = el.dataset.fkind, id = el.dataset.fid, o = D().output, list = o.kind === 'list';
+  const items = [];
+  if (kind === 'measure') {
+    const on = o.measures.includes(id);
+    items.push({act: 'values', icon: 'bi-plus-lg', label: on ? 'In Values' : 'Add to Values', disabled: on});
+  } else if (kind === 'column') {
+    const on = o.columns.includes(id);
+    items.push({act: 'listcol', icon: 'bi-plus-lg', label: on ? 'Shown in the list' : 'Add to the list', disabled: on});
+  } else {
+    const f = FIELD[id];
+    items.push({act: 'filter', icon: 'bi-funnel', label: 'Filter by…'});
+    if (!list && dimFor(f)) {
+      items.push({act: 'rows', icon: 'bi-list-nested', label: 'Add to Rows', disabled: o.rows.length >= MAX_ROWS && !inGrouping(f).row});
+      if (showValue() !== 'pie') items.push({act: 'cols', icon: 'bi-layout-three-columns', label: 'Split Columns by'});
+    }
+    if (list && colFor(f)) { const on = o.columns.includes(colFor(f)); items.push({act: 'listcol', icon: 'bi-plus-lg', label: on ? 'Shown in the list' : 'Add to the list', disabled: on}); }
+    if (f.hint) items.push({sep: true}, {act: 'about', icon: 'bi-question-circle', label: 'What it holds'});
+  }
+  const label = kind === 'measure' ? measureLabel(id) : kind === 'column' ? columnLabel(id) : FIELD[id].label;
+  openMenu(el, label, items, act => {
+    if (act === 'filter') return addFilterField(id);
+    if (act === 'about') return explain(FIELD[id].label, FIELD[id].hint);
+    if (act === 'rows' || act === 'cols') return handleDrop(act, {src: 'field', id});
+    if (act === 'values') return handleDrop('values', {src: 'measure', id});
+    if (act === 'listcol') return handleDrop('listcols', {src: kind === 'column' ? 'column' : 'field', id});
+  });
+}
+
+// ── The builder: Show as and the bars ────────────────────────────────────────
+function renderZones() {
+  if (!S) return;
+  const hand = handMode();
+  $('rc-builder').hidden = hand;
+  if (hand) return;
+  const v = showValue(), list = v === 'list', pie = v === 'pie', has = !!ds();
+  $('rc-show').innerHTML = SHOW_AS.map(([k, l, i]) =>
+    `<button type="button" data-show="${k}" aria-pressed="${v === k}"${has ? '' : ' disabled'}><i class="bi ${i}" aria-hidden="true"></i> ${l}</button>`).join('');
+  const shown = {rows: !list, cols: !list && !pie, values: !list, listcols: list};
+  Object.entries(shown).forEach(([z, on]) => {
+    $('z-' + z).hidden = !on;
+    const lab = document.querySelector(`.rc-zlabel[data-for="${z}"]`); if (lab) lab.hidden = !on;
+  });
+  renderFilterZone();
+  if (!has) { ['rows', 'cols', 'values', 'listcols'].forEach(z => { $('z-' + z).innerHTML = ''; }); return; }
+  if (list) renderListZone(); else { renderRowsZone(); if (!pie) renderColsZone(); renderValuesZone(); }
+}
+function renderFilterZone() {
+  const box = $('z-filters');
+  if (!S || !ds()) { box.innerHTML = '<span class="empty">Choose what to count on the left first.</span>'; return; }
+  const base = new Set(baseFields().map(f => f.id));
+  box.innerHTML = shownFields().map(f => {
+    const c = D().criteria[f.id], on = isActive(f, c), ask = D().ask.includes(f.id);
+    if (!on && !ask && base.has(f.id)) {
+      return `<button type="button" class="rc-chipz ghost" data-filter="${f.id}" title="Filter by ${esc(f.label)}">${esc(f.label)} <i class="bi bi-chevron-down" aria-hidden="true"></i></button>`;
+    }
+    const val = on ? summary(f, c) : 'any';
+    return `<span class="rc-chipz${ask ? ' ask' : ''}" style="cursor:default" title="${esc(f.label + ': ' + val + (ask ? ' (asked when run)' : ''))}">
+      <button type="button" class="t" data-filter="${f.id}"><b>${esc(f.label)}</b><span class="v">${esc(val)}</span>${ask ? '<span class="crit-ask">asked</span>' : ''}</button>
+      <button type="button" class="x" data-unfilter="${f.id}" aria-label="${base.has(f.id) ? 'Clear' : 'Remove'} the ${esc(f.label)} filter"><i class="bi bi-x"></i></button></span>`;
+  }).join('') + '<button type="button" class="rc-zadd" data-act="add-filter" title="Filter by another field"><i class="bi bi-plus-lg" aria-hidden="true"></i> Filter</button>';
+}
+function dimChip(zone, i, id) {
+  const f = dimField(id), bucket = String(id).includes(':') ? id.split(':')[1] : null;
+  const buckets = bucket ? ds().dimensions.filter(d => d.id.startsWith(f.id + ':')).map(d => d.id.split(':')[1]) : [];
+  return `<span class="rc-chipz" draggable="true" data-zone="${zone}" data-i="${i}" title="Drag to reorder or move"><b>${esc(f ? f.label : dimLabel(id))}</b>${
+    bucket ? `<select data-bucket="${zone}" data-i="${i}" aria-label="Group ${esc(f.label)} by">${buckets.map(b => `<option value="${b}"${b === bucket ? ' selected' : ''}>by ${b}</option>`).join('')}</select>` : ''}
+    <button type="button" class="x" data-rm="${zone}" data-i="${i}" aria-label="Remove ${esc(f ? f.label : id)}"><i class="bi bi-x"></i></button></span>`;
+}
+function renderRowsZone() {
+  const o = D().output;
+  $('z-rows').innerHTML = (o.rows.length ? o.rows.map((id, i) => dimChip('rows', i, id)).join('') : '<span class="empty">Drop fields here to group the rows (up to 4): modality, then room…</span>')
+    + (o.rows.length < MAX_ROWS ? '<button type="button" class="rc-zadd" data-add="rows" title="Group the rows by"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>' : '');
+}
+function renderColsZone() {
+  const o = D().output, heat = showValue() === 'heatmap';
+  $('z-cols').innerHTML = o.cols ? dimChip('cols', 0, o.cols)
+    : `<span class="empty">${heat ? 'A heatmap needs a field here (e.g. hour, with weekday in Rows)' : 'Drop a field here to split the values into columns (e.g. month)'}</span>`
+      + '<button type="button" class="rc-zadd" data-add="cols" title="Split the columns by"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>';
+}
+function renderValuesZone() {
+  const o = D().output, one = !!o.cols || ['pie', 'heatmap'].includes(showValue());
+  $('z-values').innerHTML = o.measures.map((id, i) => `<span class="rc-chipz" draggable="true" data-zone="values" data-i="${i}"${one && i ? ' style="opacity:.5"' : ''} title="${one && i ? 'Not shown: with columns split, a pie or a heatmap, only the first value is shown' : 'Drag to reorder'}"><b>${esc(measureLabel(id))}</b>
+      <button type="button" class="x" data-rm="values" data-i="${i}" aria-label="Remove ${esc(measureLabel(id))}"><i class="bi bi-x"></i></button></span>`).join('')
+    + '<button type="button" class="rc-zadd" data-add="values" title="Add a measure"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>'
+    + (one && o.measures.length > 1 ? '<span class="empty">only the first is shown</span>' : '');
+}
+function renderListZone() {
+  const o = D().output, d = ds();
+  $('z-listcols').innerHTML = o.columns.map((id, i) => `<span class="rc-chipz" draggable="true" data-zone="listcols" data-i="${i}" title="Drag to reorder"><b>${esc(columnLabel(id))}</b>
+      <button type="button" class="x" data-rm="listcols" data-i="${i}" aria-label="Remove ${esc(columnLabel(id))}"><i class="bi bi-x"></i></button></span>`).join('')
+    + '<button type="button" class="rc-zadd" data-add="listcols" title="Add a column"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>'
+    + `<span class="rc-zsort">Sort <select id="o-sort" aria-label="Sort by">${d.columns.map(c => `<option value="${c.id}"${c.id === o.sort ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
+       <select id="o-dir" aria-label="Order"><option value="desc"${o.desc !== false ? ' selected' : ''}>newest / largest first</option><option value="asc"${o.desc === false ? ' selected' : ''}>oldest / smallest first</option></select></span>`;
+}
+function setShow(v) {
+  const o = D().output;
+  if (v === 'table' || v === 'list') o.kind = v; else { o.kind = 'chart'; o.chart = v; }
+  if (v === 'pie' && o.cols) { o.cols = null; toast('A pie shows one value per row: the column split was taken off.'); }
+  outputChanged();
+}
+// Dropped, or picked from a menu: a field, a measure, a list column, or a chip moved.
+function handleDrop(zone, p, at = Infinity) {
+  const o = D().output;
+  if (zone === 'filters') { if (p.src === 'field') addFilterField(p.id); return; }
+  const move = (arr, id) => { const a = arr.slice(), from = a.indexOf(id); if (from >= 0) { a.splice(from, 1); if (from < at) at--; } a.splice(Math.min(at, a.length), 0, id); return a; };
+  if (zone === 'rows' || zone === 'cols') {
+    let dim = p.src === 'field' ? dimFor(FIELD[p.id]) : p.src === 'chip' ? (p.zone === 'rows' ? o.rows[p.i] : p.zone === 'cols' ? o.cols : null) : null;
+    if (!dim) return toast(p.src === 'field' ? `${FIELD[p.id].label} cannot be grouped: filter by it instead.` : 'Only a grouping goes here.');
+    if (p.src === 'field' && FIELD[p.id].type === 'date') {      // a date already grouped keeps its period
+      const have = [...o.rows, o.cols].find(x => x && dimField(x) === FIELD[p.id]); if (have) dim = have;
+    }
+    const wasCol = o.cols === dim;
+    if (wasCol) o.cols = null;
+    if (zone === 'rows') {
+      if (!o.rows.includes(dim) && o.rows.length >= MAX_ROWS) { if (wasCol) o.cols = dim; return toast(`Rows take up to ${MAX_ROWS} groupings.`); }
+      o.rows = move(o.rows, dim);
+    } else {
+      if (showValue() === 'pie') return toast('A pie has no columns: choose Bar or Table to split by columns.');
+      o.rows = o.rows.filter(x => x !== dim); o.cols = dim;
+    }
+  } else if (zone === 'values') {
+    const id = p.src === 'measure' ? p.id : (p.src === 'chip' && p.zone === 'values') ? o.measures[p.i] : null;
+    if (!id) return toast('Only a measure goes in Values.');
+    o.measures = move(o.measures, id);
+  } else if (zone === 'listcols') {
+    const id = p.src === 'column' ? p.id : p.src === 'field' ? colFor(FIELD[p.id]) : (p.src === 'chip' && p.zone === 'listcols') ? o.columns[p.i] : null;
+    if (!id) return toast('Only a list column goes here.');
+    o.columns = move(o.columns, id);
+  }
+  outputChanged();
+}
+function accepts(zone, p) {
+  if (!p || !ds()) return false;
+  if (zone === 'filters') return p.src === 'field';
+  if (zone === 'rows' || zone === 'cols') return (p.src === 'field' && !!dimFor(FIELD[p.id])) || (p.src === 'chip' && (p.zone === 'rows' || p.zone === 'cols'));
+  if (zone === 'values') return p.src === 'measure' || (p.src === 'chip' && p.zone === 'values');
+  if (zone === 'listcols') return p.src === 'column' || (p.src === 'field' && !!colFor(FIELD[p.id])) || (p.src === 'chip' && p.zone === 'listcols');
+  return false;
+}
+const builder = $('rc-builder');
+builder.addEventListener('dragstart', e => {
+  const chip = e.target.closest && e.target.closest('.rc-chipz[data-zone]'); if (!chip) return;
+  DRAG = {src: 'chip', zone: chip.dataset.zone, i: +chip.dataset.i};
+  e.dataTransfer.setData('text/plain', chip.dataset.zone); e.dataTransfer.effectAllowed = 'move';
+  chip.classList.add('dragging'); closePop();
+});
+builder.addEventListener('dragover', e => {
+  const zone = e.target.closest('.rc-zone'); if (!zone || !DRAG) return;
+  const ok = accepts(zone.dataset.zone, DRAG);
+  zone.classList.toggle('over', ok); zone.classList.toggle('refuse', !ok);
+  if (ok) { e.preventDefault(); e.dataTransfer.dropEffect = DRAG.src === 'chip' ? 'move' : 'copy'; }
+});
+builder.addEventListener('dragleave', e => {
+  const zone = e.target.closest('.rc-zone');
+  if (zone && !zone.contains(e.relatedTarget)) zone.classList.remove('over', 'refuse');
+});
+builder.addEventListener('drop', e => {
+  const zone = e.target.closest('.rc-zone'); if (!zone || !DRAG) return;
+  e.preventDefault(); zone.classList.remove('over', 'refuse');
+  const before = e.target.closest('.rc-chipz[data-i]');
+  const at = before && before.dataset.zone === zone.dataset.zone ? +before.dataset.i : Infinity;
+  const p = DRAG; DRAG = null;
+  if (accepts(zone.dataset.zone, p)) handleDrop(zone.dataset.zone, p, at);
+});
+builder.addEventListener('click', e => {
+  const t = e.target, o = D().output;
+  const show = t.closest('[data-show]'); if (show && !show.disabled) return setShow(show.dataset.show);
+  const unf = t.closest('[data-unfilter]');
+  if (unf) {
+    const fid = unf.dataset.unfilter;
+    delete D().criteria[fid]; D().ask = D().ask.filter(x => x !== fid); extra = extra.filter(x => x !== fid);
+    if (popFid === fid) closePop();
+    return criteriaChanged();
+  }
+  const filt = t.closest('[data-filter]'); if (filt) return openFilter(filt.dataset.filter, filt.closest('.rc-chipz') || filt);
+  if (t.closest('[data-act="add-filter"]')) return openAddFilter();
+  const rm = t.closest('[data-rm]');
+  if (rm) {
+    const z = rm.dataset.rm, i = +rm.dataset.i;
+    if (z === 'rows') o.rows.splice(i, 1);
+    else if (z === 'cols') o.cols = null;
+    else if (z === 'values') { if (o.measures.length === 1) return toast('Values need at least one measure.'); o.measures.splice(i, 1); }
+    else if (z === 'listcols') { if (o.columns.length === 1) return toast('A list needs at least one column.'); o.columns.splice(i, 1); }
+    return outputChanged();
+  }
+  const add = t.closest('[data-add]'); if (add) return openZonePicker(add.dataset.add, add);
+});
+builder.addEventListener('change', e => {
+  const t = e.target, o = D().output;
+  if (t.dataset.bucket) {
+    const f = dimField(t.dataset.bucket === 'rows' ? o.rows[+t.dataset.i] : o.cols), id = `${f.id}:${t.value}`;
+    if (t.dataset.bucket === 'rows') o.rows[+t.dataset.i] = id; else o.cols = id;
+    return outputChanged();
+  }
+  if (t.id === 'o-sort') { o.sort = t.value; return outputChanged(); }
+  if (t.id === 'o-dir') { o.desc = t.value !== 'asc'; return outputChanged(); }
+});
+// The + of a bar: the groupings, measures or columns it can take, searchable.
+function openZonePicker(zone, anchor) {
+  const o = D().output, d = ds();
+  let items = [], title = '';
+  if (zone === 'rows' || zone === 'cols') {
+    title = zone === 'rows' ? 'Group the rows by' : 'Split the columns by';
+    const used = new Set([...o.rows, o.cols].filter(Boolean).map(x => dimField(x) && dimField(x).id));
+    items = CAT.fields.filter(f => inDataset(f) && dimFor(f) && !used.has(f.id))
+      .map(f => ({id: f.id, label: f.label, group: (CAT.tabs.find(t => t.id === f.tab) || {}).label}));
+  } else if (zone === 'values') {
+    title = 'Add a measure';
+    items = d.measures.filter(m => !o.measures.includes(m.id)).map(m => ({id: m.id, label: m.label}));
+  } else {
+    title = 'Add a column';
+    items = d.columns.filter(c => !o.columns.includes(c.id)).map(c => ({id: c.id, label: c.label}));
+  }
+  openPicker(anchor, title, items, id => {
+    if (zone === 'rows' || zone === 'cols') handleDrop(zone, {src: 'field', id});
+    else if (zone === 'values') handleDrop('values', {src: 'measure', id});
+    else handleDrop('listcols', {src: 'column', id});
+  });
+}
+
+// ── Popovers: a filter's editor, a field's menu, a picker ────────────────────
+function placePop(anchor) {
+  pop.hidden = false;
+  const r = anchor.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+  const left = Math.min(r.left, window.innerWidth - w - 12);
+  let top = r.bottom + 6;
+  if (top + h > window.innerHeight - 12) top = Math.max(12, r.top - h - 6);
+  pop.style.left = Math.max(12, left) + 'px'; pop.style.top = top + 'px';
+}
+function closePop() {
+  if (!popKind) return;
+  destroySelects(pop);
+  pop.hidden = true; pop.innerHTML = ''; pop.className = 'rc';
+  popKind = null; popFid = null; popAnchor = null;
+}
+function openMenu(anchor, title, items, onPick) {
+  closePop();
+  popKind = 'menu'; popAnchor = anchor; pop.className = 'rc menu';
+  pop.innerHTML = `<div class="rc-menu-head">${esc(title)}</div>` + items.map(it => it.sep ? '<div class="rc-menu-sep"></div>'
+    : `<button type="button" class="rc-menu-item" data-menu="${it.act}"${it.disabled ? ' disabled' : ''}><i class="bi ${it.icon}" aria-hidden="true"></i>${esc(it.label)}</button>`).join('');
+  pop._pick = onPick;
+  placePop(anchor);
+  const first = pop.querySelector('.rc-menu-item:not(:disabled)'); if (first) first.focus();
+}
+function openPicker(anchor, title, items, onPick) {
+  closePop();
+  popKind = 'picker'; popAnchor = anchor; pop.className = 'rc menu';
+  pop.innerHTML = `<div class="rc-menu-head">${esc(title)}</div><input type="search" class="rfp-input" data-pickq placeholder="Find…" style="margin:0 0 4px">
+    <div class="rc-pick-list" style="max-height:300px;overflow-y:auto"></div>`;
+  const draw = q => {
+    const hit = items.filter(it => !q || it.label.toLowerCase().includes(q));
+    let last = null;
+    pop.querySelector('.rc-pick-list').innerHTML = hit.map(it => {
+      const head = it.group && it.group !== last ? `<div class="rc-menu-head">${esc(it.group)}</div>` : '';
+      last = it.group;
+      return head + `<button type="button" class="rc-menu-item" data-pick="${esc(it.id)}">${esc(it.label)}</button>`;
+    }).join('') || '<p class="rc-hint" style="padding:8px">Nothing left to add.</p>';
+  };
+  pop._pick = onPick; pop._draw = draw;
+  draw('');
+  placePop(anchor);
+  pop.querySelector('[data-pickq]').focus();
+}
+function openFilter(fid, anchor) {
+  if (popKind === 'filter' && popFid === fid) return closePop();
+  closePop();
+  popKind = 'filter'; popFid = fid; popAnchor = anchor; pop.className = 'rc';
+  renderFilterPop();
+  placePop(anchor);
+}
+function renderFilterPop() {
+  const f = FIELD[popFid], c = D().criteria[f.id] || {}, ask = D().ask.includes(f.id), isExtra = extra.includes(f.id);
+  destroySelects(pop);
+  pop.innerHTML = `<div class="rc-pophead"><b>${esc(f.label)}${f.id === ds().default_date ? ' <span class="rc-hint">· the date range</span>' : ''}</b>
+      ${f.hint ? `<button type="button" class="rc-icon" data-act="hint" data-f="${f.id}" title="${esc(f.hint)}" aria-label="About ${esc(f.label)}"><i class="bi bi-question-circle"></i></button>` : ''}
+      <button type="button" class="rc-icon" data-act="pop-close" aria-label="Close"><i class="bi bi-x-lg"></i></button></div>
+    ${control(f, c, 'panel')}
+    <div class="rc-popfoot"><label class="rc-ask" title="Ask for this filter each time the report is generated"><input type="checkbox" class="rfp-tick" data-ask="${f.id}"${ask ? ' checked' : ''}><span>Ask when run</span></label>
+      <span class="flex-1"></span>
+      ${isActive(f, c) ? `<button type="button" class="rc-link" data-act="clear" data-f="${f.id}">Clear</button>` : ''}
+      ${isExtra ? `<button type="button" class="rc-link" style="color:var(--rc-bad)" data-act="remove" data-f="${f.id}">Remove</button>` : ''}
+      <button type="button" class="rc-btn small primary" data-act="pop-close">Done</button></div>`;
+  initSelects(pop);
+}
+pop.addEventListener('click', e => {
   const t = e.target;
+  const m = t.closest('[data-menu]'); if (m) { const pick = pop._pick; closePop(); return pick(m.dataset.menu); }
+  const pk = t.closest('[data-pick]'); if (pk) { const pick = pop._pick; closePop(); return pick(pk.dataset.pick); }
+  const b = t.closest('[data-act]'); if (!b || popKind !== 'filter') return;
+  const act = b.dataset.act, fid = popFid;
+  if (act === 'pop-close') return closePop();
+  if (act === 'hint') return explain(FIELD[fid].label, FIELD[fid].hint);
+  if (act === 'clear') { delete D().criteria[fid]; renderFilterPop(); return criteriaChanged(); }
+  if (act === 'remove') { delete D().criteria[fid]; D().ask = D().ask.filter(x => x !== fid); extra = extra.filter(x => x !== fid); closePop(); return criteriaChanged(); }
+  if (applyClick(D().criteria, b)) { renderFilterPop(); criteriaChanged(); }
+});
+pop.addEventListener('change', e => {
+  const t = e.target;
+  if (popKind !== 'filter') return;
   if (t.dataset.ask) {
     D().ask = t.checked ? [...new Set([...D().ask, t.dataset.ask])] : D().ask.filter(x => x !== t.dataset.ask);
-    markDirty(); renderPills(); return;
+    markDirty(); renderFilterZone(); return;
   }
-  if (applyInput(D().criteria, t)) changedSoft(t.dataset.f);
+  if (applyInput(D().criteria, t)) criteriaChanged();
 });
-$('rc-filters').addEventListener('input', e => {
+pop.addEventListener('input', e => {
   const t = e.target;
-  if (t.tagName === 'INPUT' && t.type !== 'checkbox' && applyInput(D().criteria, t)) changedSoft(t.dataset.f);
+  if (t.hasAttribute('data-pickq')) return pop._draw(t.value.trim().toLowerCase());
+  if (popKind === 'filter' && t.tagName === 'INPUT' && t.type !== 'checkbox' && applyInput(D().criteria, t)) criteriaChanged();
 });
+document.addEventListener('mousedown', e => {
+  if (!popKind) return;
+  const t = e.target;
+  if (pop.contains(t) || t.closest('.select2-container, .swal2-container') || (popAnchor && popAnchor.isConnected && popAnchor.contains(t))) return;
+  closePop();
+}, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && popKind && !document.querySelector('.swal2-container')) closePop(); });
+window.addEventListener('resize', closePop);
+$('rc-fields').addEventListener('scroll', () => { if (popKind === 'menu') closePop(); });
+function addFilterField(fid) {
+  if (!shownFields().some(f => f.id === fid)) extra.push(fid);
+  renderFilterZone(); renderFields();
+  const chip = document.querySelector(`#z-filters [data-filter="${fid}"]`);
+  if (chip) openFilter(fid, chip.closest('.rc-chipz') || chip);
+}
 
-// ── Add a filter: every other field of the dataset, by group ─────────────────
+// ── Filter by another field: every field of the dataset, by group ────────────
 function openAddFilter() {
   if (!ds()) return;
+  closePop();
   const shown = new Set(shownFields().map(f => f.id));
   const draw = q => {
     const html = CAT.tabs.map(t => {
@@ -531,15 +887,15 @@ function openAddFilter() {
         && (!q || (f.label + ' ' + (f.hint || '')).toLowerCase().includes(q)));
       if (!items.length) return '';
       return `<div class="addf-group"><h3>${esc(t.label)}</h3>${TAB_NOTES[t.id] ? `<span class="src">${esc(TAB_NOTES[t.id])}</span>` : ''}<div class="addf-list">${
-        items.map(f => `<button type="button" class="addf-item" data-addf="${f.id}"${shown.has(f.id) ? ' disabled' : ''}>
-          <span class="t">${esc(f.label)}<span class="ty">${TYPE_WORDS[f.type] || f.type}</span>${shown.has(f.id) ? '<span class="ty">in the panel</span>' : ''}</span>
+        items.map(f => `<button type="button" class="addf-item" data-addf="${f.id}">
+          <span class="t">${esc(f.label)}<span class="ty">${TYPE_WORDS[f.type] || f.type}</span>${shown.has(f.id) ? '<span class="ty">in the bar</span>' : ''}</span>
           ${f.hint ? `<span class="h">${esc(f.hint)}</span>` : ''}</button>`).join('')}</div></div>`;
     }).join('');
     $('addf-list').innerHTML = html || '<div class="empty">No filter matches.</div>';
   };
-  $('modal').innerHTML = `<div class="modal-back" id="addf-back"><div class="modal wide addf" role="dialog" aria-modal="true" aria-label="Add a filter">
-    <div class="panel-head"><h2>Add a filter · ${esc(ds().label)}</h2><button class="btn small" id="addf-close" type="button" style="margin-left:auto">Close</button></div>
-    <div class="panel-body"><input class="input" id="addf-q" type="search" placeholder="Find a filter: radiologist, protocol, turnaround, age…" aria-label="Find a filter">
+  $('modal').innerHTML = `<div class="modal-back" id="addf-back"><div class="modal wide addf" role="dialog" aria-modal="true" aria-label="Filter by">
+    <div class="panel-head"><h2>Filter by · ${esc(ds().label)}</h2><button class="btn small" id="addf-close" type="button" style="margin-left:auto">Close</button></div>
+    <div class="panel-body"><input class="input" id="addf-q" type="search" placeholder="Find a field: radiologist, protocol, turnaround, age…" aria-label="Find a field">
       <div id="addf-list" class="flex flex-col gap-4"></div></div></div></div>`;
   draw('');
   const close = () => { closeModal(); document.removeEventListener('keydown', onKey); };
@@ -549,117 +905,27 @@ function openAddFilter() {
   $('addf-close').onclick = close;
   $('addf-back').addEventListener('click', e => {
     if (e.target.id === 'addf-back') return close();
-    const b = e.target.closest('[data-addf]'); if (!b || b.disabled) return;
-    const fid = b.dataset.addf;
-    if (!extra.includes(fid)) extra.push(fid);
-    close(); renderPanel(); gotoFilter(fid, true);
+    const b = e.target.closest('[data-addf]'); if (!b) return;
+    close(); addFilterField(b.dataset.addf);
   });
   $('addf-q').focus();
 }
 function closeModal() { $('modal').innerHTML = ''; }
 
-// ── What is applied: tags above the result ───────────────────────────────────
-function renderPills() {
-  if (!S) return;
-  if (handMode() || !ds()) {
-    $('rc-pills').innerHTML = `<span class="rc-hint">${handMode() ? 'Written in SQL: the filters are not used.' : 'Choose what to count on the left.'}</span>`;
-    return;
-  }
-  const pills = shownFields().filter(f => isActive(f, D().criteria[f.id]) || D().ask.includes(f.id)).map(f => {
-    const c = D().criteria[f.id] || {}, ask = D().ask.includes(f.id), val = isActive(f, c) ? summary(f, c) : 'any';
-    return `<span class="rc-pill${ask ? ' ask' : ''}" role="button" tabindex="0" data-goto="${f.id}" title="${esc(f.label + ': ' + val + (ask ? ' (asked when run)' : ''))}">
-      <b>${esc(f.label)}</b><span class="v">${esc(val)}</span>${ask ? '<span class="crit-ask">asked when run</span>' : ''}
-      <button type="button" class="x" data-unset="${f.id}" aria-label="Remove the ${esc(f.label)} filter"><i class="bi bi-x"></i></button></span>`;
-  });
-  $('rc-pills').innerHTML = pills.join('') || '<span class="rc-hint">None yet: the report covers all the data. A date range on the left keeps it fast.</span>';
-}
-$('rc-pills').addEventListener('click', e => {
-  const x = e.target.closest('[data-unset]'); if (x) { e.stopPropagation(); return unset(x.dataset.unset); }
-  const p = e.target.closest('[data-goto]'); if (p) gotoFilter(p.dataset.goto, true);
-});
-$('rc-pills').addEventListener('keydown', e => {
-  const p = e.target.closest('[data-goto]');
-  if (p && (e.key === 'Enter' || e.key === ' ') && !e.target.closest('[data-unset]')) { e.preventDefault(); gotoFilter(p.dataset.goto, true); }
-});
-
-// ── Show as ──────────────────────────────────────────────────────────────────
-function renderOutput() {
-  if (handMode()) { $('out').innerHTML = '<div class="rc-placeholder wide">Written in SQL: the result is shown as a list, exactly as the query returns it.</div>'; return; }
-  const o = D().output, d = ds();
-  const kind = `<div id="fw-kind"${o.kind ? '' : ' class="missing"'}><p class="lbl">Show as</p><div class="rc-seg" role="group" aria-label="Show as">${
-    [['list', 'List', 'bi-list-ul'], ['table', 'Table', 'bi-table'], ['chart', 'Chart', 'bi-bar-chart']].map(([k, l, i]) =>
-      `<button type="button" data-kind="${k}" aria-pressed="${o.kind === k}"><i class="bi ${i}" aria-hidden="true"></i> ${l}</button>`).join('')}</div></div>`;
-  if (!d || !o.kind) {
-    $('out').innerHTML = kind + `<div class="rc-placeholder" style="grid-column: span 2">${!d ? 'Choose what to count on the left, then how to show it.'
-      : 'List: one row per ' + esc(d.count_label.toLowerCase().replace(/s$/, '')) + ', with the columns you pick. Table: counts and measures grouped by what you choose. Chart: the table as bars.'}</div>`;
-    return;
-  }
-  if (o.rows && !d.dimensions.some(x => x.id === o.rows)) o.rows = null;
-  if (o.cols && !d.dimensions.some(x => x.id === o.cols)) o.cols = null;
-  o.measures = (o.measures || []).filter(m => d.measures.some(x => x.id === m));
-  if (!o.measures.length) o.measures = [d.default_measure];
-  o.columns = (o.columns || []).filter(c => d.columns.some(x => x.id === c));
-  if (!o.columns.length) o.columns = d.list_default.slice();
-  if (!d.columns.some(x => x.id === o.sort)) o.sort = d.default_date;
-  const toggle = (attr, id, label, on) => `<button type="button" class="rc-chip" data-${attr}="${id}" aria-pressed="${on}">${esc(label)}</button>`;
-  const dimOpts = sel => '<option value="">(nothing)</option>' + d.dimensions.map(x => `<option value="${x.id}"${x.id === sel ? ' selected' : ''}>${esc(x.label)}</option>`).join('');
-  if (o.kind === 'list') {
-    $('out').innerHTML = kind
-      + `<div><label class="lbl" for="o-sort">Sort by</label><select class="rc-select" id="o-sort">${d.columns.map(c => `<option value="${c.id}"${c.id === o.sort ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></div>
-         <div><label class="lbl" for="o-dir">Order</label><select class="rc-select" id="o-dir"><option value="desc"${o.desc !== false ? ' selected' : ''}>Newest / largest first</option><option value="asc"${o.desc === false ? ' selected' : ''}>Oldest / smallest first</option></select></div>
-         <div class="wide"><p class="lbl">Columns <span class="rc-hint" style="text-transform:none;letter-spacing:0">${o.columns.length} of ${d.columns.length}</span>
-           <button type="button" class="rc-link" data-cols="all">All</button><button type="button" class="rc-link" data-cols="default">Usual</button></p>
-           <div class="rc-chips">${d.columns.map(c => toggle('col', c.id, c.label, o.columns.includes(c.id))).join('')}</div></div>`;
-  } else {
-    $('out').innerHTML = kind
-      + `<div><label class="lbl" for="o-rows">${o.kind === 'chart' ? 'Bars by' : 'Rows by'}</label><select class="rc-select" id="o-rows">${dimOpts(o.rows)}</select></div>
-         <div><label class="lbl" for="o-colsplit">${o.kind === 'chart' ? 'Stacked by' : 'Columns by'}</label><select class="rc-select" id="o-colsplit">${dimOpts(o.cols)}</select></div>
-         <div class="wide"><p class="lbl">Measures${o.cols ? ' <span class="rc-hint" style="text-transform:none;letter-spacing:0">split by columns shows the first one</span>' : ''}</p>
-           <div class="rc-chips">${d.measures.map(m => toggle('m', m.id, m.label, o.measures.includes(m.id))).join('')}</div></div>`;
-  }
-}
-$('out').addEventListener('click', e => {
-  const o = D().output, d = ds();
-  const k = e.target.closest('[data-kind]');
-  if (k) { o.kind = k.dataset.kind; markDirty(); renderOutput(); renderStatus(); scheduleCompile(0); return; }
-  const col = e.target.closest('[data-col]'), m = e.target.closest('[data-m]'), all = e.target.closest('[data-cols]');
-  if (col) {
-    const id = col.dataset.col, order = d.columns.map(c => c.id);
-    if (o.columns.includes(id) && o.columns.length === 1) return toast('A list needs at least one column.');
-    o.columns = (o.columns.includes(id) ? o.columns.filter(x => x !== id) : [...o.columns, id]).sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  } else if (m) {
-    const id = m.dataset.m;
-    if (o.measures.includes(id) && o.measures.length === 1) return toast('A table needs at least one measure.');
-    o.measures = o.measures.includes(id) ? o.measures.filter(x => x !== id) : [...o.measures, id];
-  } else if (all) {
-    o.columns = all.dataset.cols === 'all' ? d.columns.map(c => c.id) : d.list_default.slice();
-  } else return;
-  markDirty(); renderOutput(); scheduleCompile(0);
-});
-$('out').addEventListener('change', e => {
-  const o = D().output, t = e.target;
-  if (t.id === 'o-rows') o.rows = t.value || null;
-  else if (t.id === 'o-colsplit') o.cols = t.value || null;
-  else if (t.id === 'o-sort') o.sort = t.value;
-  else if (t.id === 'o-dir') o.desc = t.value !== 'asc';
-  else return;
-  markDirty(); renderOutput(); scheduleCompile(0);
-});
-
 // ── SQL: in a drawer, on a click ─────────────────────────────────────────────
-function openDrawer() { $('sql-drawer').hidden = false; renderSQL(); }
+function openDrawer() { closePop(); $('sql-drawer').hidden = false; renderSQL(); }
 function closeDrawer() { $('sql-drawer').hidden = true; }
 $('btn-sql').onclick = openDrawer;
 $('sql-close').onclick = closeDrawer;
 $('sql-back').onclick = closeDrawer;
-$('btn-sql-run').onclick = () => { closeDrawer(); startRun(); };
+$('btn-sql-run').onclick = () => { closeDrawer(); runNow(true); };
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !$('sql-drawer').hidden && !$('modal').innerHTML && !document.querySelector('.swal2-container')) closeDrawer();
 });
 function scheduleCompile(ms = 250) { clearTimeout(compileTimer); compileTimer = setTimeout(compile, ms); }
 async function compile() {
   if (handMode()) return renderSQL();
-  if (!D().dataset || !(D().output || {}).kind) { sqlInfo = {pending: true}; return renderSQL(); }
+  if (!D().dataset) { sqlInfo = {pending: true}; return renderSQL(); }
   try { sqlInfo = await api('/worklists/api/compile', {definition: D()}); }
   catch (e) { sqlInfo = {error: e.message}; }
   renderSQL();
@@ -667,11 +933,11 @@ async function compile() {
 function highlight(sql) {
   return esc(sql)
     .replace(/(&#39;[^&]*?&#39;)/g, '<span class="s">$1</span>')
-    .replace(/(:[a-z_]+)/g, '<span class="p">$1</span>')
-    .replace(/\b(SELECT|FROM|WHERE|AND|OR|NOT|GROUP BY|ORDER BY|LIMIT|AS|COUNT|SUM|AVG|DISTINCT|FILTER|WITHIN GROUP|ANY|ILIKE|ESCAPE|IS|NULL|TRUE|DESC|ASC|NULLS LAST|COALESCE|CAST|LEFT JOIN|JOIN|ON|lower|round|percentile_cont|to_char|date_trunc|lpad)\b/g, '<span class="k">$1</span>');
+    .replace(/(:[a-z_0-9]+)/g, '<span class="p">$1</span>')
+    .replace(/\b(SELECT|FROM|WHERE|AND|OR|NOT|GROUP BY|ORDER BY|LIMIT|AS|COUNT|SUM|AVG|DISTINCT|FILTER|WITHIN GROUP|ANY|ILIKE|ESCAPE|IS|NULL|TRUE|DESC|ASC|NULLS LAST|COALESCE|CAST|LEFT JOIN|JOIN|ON|lower|round|percentile_cont|to_char|date_trunc|lpad|extract)\b/g, '<span class="k">$1</span>');
 }
-// Two separate things: the SQL built from the filters, only ever SHOWN (read-only, for
-// everyone), and SQL written by hand (settings capability), documented by the SQL reference.
+// Two separate things: the SQL built from the builder, only ever SHOWN (read-only), and SQL
+// written by hand (settings capability), documented by the SQL reference.
 function renderSQL() {
   if (!S) return;
   const hand = handMode(), canSQL = CAT.me.can_write_sql;
@@ -688,9 +954,9 @@ function renderSQL() {
     $('sql-note').innerHTML = canSQL ? '' : '<div class="rc-note warn">Read-only: only an administrator can change this SQL.</div>';
     return;
   }
-  $('sql-caption').textContent = 'Read-only: built from the filters and Show as. Values are bound as parameters, never pasted into the SQL.';
+  $('sql-caption').textContent = 'Read-only: built from the builder. Values are bound as parameters, never pasted into the SQL.';
   $('sql-note').innerHTML = '';
-  if (!sqlInfo || sqlInfo.pending) { $('sql-view').innerHTML = '<span class="hint">The SQL appears here once “What to count” and “Show as” are chosen.</span>'; $('params').innerHTML = ''; return; }
+  if (!sqlInfo || sqlInfo.pending) { $('sql-view').innerHTML = '<span class="hint">The SQL appears here once “What to count” is chosen.</span>'; $('params').innerHTML = ''; return; }
   if (sqlInfo.error) { $('sql-note').innerHTML = `<div class="rc-note bad">${esc(sqlInfo.error)}</div>`; $('sql-view').innerHTML = ''; $('params').innerHTML = ''; return; }
   $('sql-view').innerHTML = highlight(sqlInfo.sql);
   const p = Object.entries(sqlInfo.params || {});
@@ -699,8 +965,7 @@ function renderSQL() {
 function renderHandNote() {
   const hand = handMode();
   $('rc-handnote').hidden = !hand;
-  $('rc-handnote').innerHTML = hand ? '<div class="rc-note info"><i class="bi bi-code-slash" aria-hidden="true"></i> This report is written in SQL: the filters and “Show as” are not used, the result is the query’s own. <button type="button" class="rc-link" data-act="open-sql">Open the SQL</button></div>' : '';
-  $('rc-applied').hidden = hand; $('rc-show').hidden = hand;
+  $('rc-handnote').innerHTML = hand ? '<div class="rc-note info"><i class="bi bi-code-slash" aria-hidden="true"></i> This report is written in SQL: the builder is not used, the result is the query’s own. <button type="button" class="rc-link" data-act="open-sql">Open the SQL</button></div>' : '';
 }
 $('rc-handnote').addEventListener('click', e => { if (e.target.closest('[data-act="open-sql"]')) openDrawer(); });
 $('btn-copy-sql').onclick = () => {
@@ -710,25 +975,23 @@ $('btn-copy-sql').onclick = () => {
 async function setMode(hand, sql) {
   if (hand === handMode() && sql === undefined) return;
   if (!hand) {
-    if (String(D().sql || '').trim() && !(await askYesNo('Go back to the filters?', 'The SQL you wrote is dropped; the report is built from its filters again.', {yes: 'Use the filters'}))) return;
+    if (String(D().sql || '').trim() && !(await askYesNo('Go back to the builder?', 'The SQL you wrote is dropped; the report is built from the builder again.', {yes: 'Use the builder'}))) return;
     D().sql = null;
   } else {
     D().sql = sql !== undefined ? sql : ((sqlInfo && sqlInfo.editable_sql) || '');
   }
   markDirty(); renderAll();
-  // renderSQL leaves a focused editor alone (typing is never overwritten); text put in from
-  // outside (the generated SQL, an example) is written here.
-  if (hand) { $('sql-edit').value = D().sql; $('sql-edit').focus(); } else scheduleCompile(0);
+  if (hand) { $('sql-edit').value = D().sql; $('sql-edit').focus(); } else { scheduleCompile(0); scheduleRun(); }
 }
 $('sql-seg').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode === 'hand'); });
 $('btn-start-gen').onclick = async () => {
-  if (!sqlInfo || !sqlInfo.editable_sql) return toast('There is no SQL from the filters yet: switch to “Built from the filters” and choose what to count first.');
-  if (String(D().sql || '').trim() && !(await askYesNo('Replace your SQL?', 'The editor gets the SQL built from the filters instead.', {yes: 'Replace'}))) return;
+  if (!sqlInfo || !sqlInfo.editable_sql) return toast('There is no SQL from the builder yet: switch to “Built from the builder” and choose what to count first.');
+  if (String(D().sql || '').trim() && !(await askYesNo('Replace your SQL?', 'The editor gets the SQL built from the builder instead.', {yes: 'Replace'}))) return;
   D().sql = sqlInfo.editable_sql; markDirty(); renderSQL(); $('sql-edit').value = D().sql; $('sql-edit').focus();
 };
 $('sql-edit').addEventListener('input', e => { D().sql = e.target.value; markDirty(); });
 
-// ── SQL reference: every view, column and rule SQL written by hand may use ───
+// ── SQL reference ────────────────────────────────────────────────────────────
 let REF = null;
 async function openReference() {
   if (!REF) { try { REF = await api('/worklists/api/sql-reference'); } catch (e) { return toast(e.message); } }
@@ -762,31 +1025,47 @@ async function openReference() {
     });
     $('ref-q').addEventListener('input', e => { $('ref-rows').innerHTML = rows(v, e.target.value.trim().toLowerCase()); });
   };
-  const close = () => { closeModal(); document.removeEventListener('keydown', onKey); };
+  const close = () => { closeModal(); document.removeEventListener('keydown', onKey, true); };
   const onKey = e => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); } };
   document.addEventListener('keydown', onKey, true);
   draw();
 }
 $('btn-ref').onclick = openReference;
 
-// ── Generate and the result ──────────────────────────────────────────────────
+// ── Running: live (as you build) or on Generate ──────────────────────────────
+function setMeta(extraHtml = '') {
+  const r = lastResult, parts = [];
+  if (r) {
+    parts.push(`${r.rows.length.toLocaleString()} row${r.rows.length === 1 ? '' : 's'}${r.truncated ? ` (the first ${r.cap.toLocaleString()}: CSV holds up to 100,000)` : ''}`);
+    parts.push(r.elapsed_ms < 1000 ? `${r.elapsed_ms} ms` : `${(r.elapsed_ms / 1000).toFixed(1)} s`);
+  }
+  $('res-meta').innerHTML = esc(parts.join(' · ')) + extraHtml;
+}
+function setBusy(on) {
+  $('results').classList.toggle('busy', on);
+  setMeta(on ? ' <span class="busy"><i class="bi bi-arrow-repeat"></i> updating…</span>' : stale ? ' <span class="stale">changed: press Generate</span>' : '');
+}
+function scheduleRun(ms = 650) {
+  if (!S) return;
+  if (!LIVE) { stale = !!lastResult; setBusy(false); return; }
+  clearTimeout(runTimer);
+  runTimer = setTimeout(() => runNow(false), ms);
+}
 function resetResults() {
   if (chart) { chart.dispose(); chart = null; }
-  $('rc-kpis').hidden = true; $('res-meta').textContent = ''; $('res-title').textContent = 'Result';
-  $('results').innerHTML = '<div class="rc-empty">Choose what to count and the filters on the left, then press <strong>Generate</strong>.</div>';
+  stale = false; model = null; $('res-meta').innerHTML = ''; $('res-title').textContent = 'Result';
+  $('results').innerHTML = `<div class="rc-empty">${!S || !D().dataset ? 'Choose what to count on the left.' : LIVE ? 'The result appears here as you build.' : 'Press <strong>Generate</strong>.'}</div>`;
 }
-async function run(defn) {
-  if (chart) { chart.dispose(); chart = null; }
-  $('results').innerHTML = '<div class="rc-empty"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Running…</div>'; $('res-meta').textContent = '';
-  try { lastResult = await api('/worklists/api/run', {definition: defn}); }
-  catch (e) { lastResult = null; $('rc-kpis').hidden = true; $('results').innerHTML = `<div class="rc-note bad">${esc(e.message)}</div>`; return; }
-  renderResults();
-}
-async function startRun() {
+// manual: Generate (asks for the filters marked "ask when run"); live runs use their saved values.
+async function runNow(manual) {
   const blockers = runBlockers();
-  if (blockers.length) { toast('Before it can run: ' + blockers.map(m => m[1]).join(', ') + '.'); focusMissing(blockers[0][0]); return; }
+  if (blockers.length) {
+    if (manual) { toast('Before it can run: ' + blockers.map(m => m[1]).join(', ') + '.'); focusMissing(blockers[0][0]); }
+    else resetResults();
+    return;
+  }
   const asked = D().ask.filter(id => FIELD[id] && inDataset(FIELD[id]));
-  if (!asked.length || handMode()) return run(D());
+  if (!manual || !asked.length || handMode()) return run(D());
   await Promise.all(asked.map(id => FIELD[id]).filter(f => f.type === 'multi' && !Array.isArray(f.options))
     .map(f => cachedOptions(f).catch(() => [])));
   const temp = clone(D());
@@ -805,63 +1084,236 @@ async function startRun() {
   $('ask-cancel').onclick = closeModal;
   $('ask-go').onclick = () => { closeModal(); run(temp); };
 }
+async function run(defn) {
+  const seq = ++runSeq;
+  clearTimeout(runTimer);
+  setBusy(true);
+  try {
+    const r = await api('/worklists/api/run', {definition: defn});
+    if (seq !== runSeq) return;                 // a newer run is under way
+    lastResult = r; stale = false;
+    renderResults();
+  } catch (e) {
+    if (seq !== runSeq) return;
+    lastResult = null; model = null; if (chart) { chart.dispose(); chart = null; }
+    $('results').innerHTML = `<div class="rc-note bad">${esc(e.message)}</div>`;
+  } finally {
+    if (seq === runSeq) setBusy(false);
+  }
+}
+$('btn-run').onclick = () => runNow(true);
+$('rc-live').addEventListener('change', e => {
+  LIVE = e.target.checked; storeSet('rc-live', LIVE ? '1' : '0');
+  if (LIVE && (stale || !lastResult)) scheduleRun(0); else setBusy(false);
+});
+
+// ── The result: list, pivot table, chart ─────────────────────────────────────
 const fmt = v => v == null ? '' : (typeof v === 'number' ? (Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, {maximumFractionDigits: 2})) : String(v));
+const cmp = (a, b) => (a == null) - (b == null) || (typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b), undefined, {numeric: true}));
 function renderResults() {
   const r = lastResult; if (!r) return;
   $('res-title').textContent = S.name || 'Result';
-  $('res-meta').textContent = r.truncated ? `the first ${r.cap.toLocaleString()} rows: Download CSV holds up to 100,000` : '';
-  $('rc-kpis').hidden = false;
-  $('kpi-rows').textContent = r.rows.length.toLocaleString();
-  $('kpi-rows-sub').textContent = r.truncated ? `capped at ${r.cap.toLocaleString()}` : (r.kind === 'list' ? 'one per line of the list' : 'groups in the table');
-  $('kpi-time').textContent = r.elapsed_ms < 1000 ? `${r.elapsed_ms} ms` : `${(r.elapsed_ms / 1000).toFixed(1)} s`;
+  setMeta();
   if (chart) { chart.dispose(); chart = null; }
-  if (!r.rows.length) { $('results').innerHTML = '<div class="rc-empty">No rows match these filters.</div>'; return; }
-  if (r.kind === 'list') {
-    const labels = r.column_labels ? r.column_labels.map(c => c.label) : r.columns;
-    $('results').innerHTML = `<div class="rc-table-wrap"><table class="rc-table"><thead><tr>${labels.map(l => `<th class="txt">${esc(l)}</th>`).join('')}</tr></thead><tbody>${
-      r.rows.map(row => `<tr>${row.map(v => `<td class="${typeof v === 'number' ? '' : 'txt'}">${esc(fmt(v))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-    return;
+  if (!r.rows.length) { model = null; $('results').innerHTML = '<div class="rc-empty">No rows match these filters.</div>'; return; }
+  if (r.kind === 'list') { model = null; $('results').innerHTML = listTable(r, !r.hand_sql); return; }
+  model = pivotModel(r);
+  if (r.kind === 'table') return renderPivot();
+  renderChart(D().output.chart || 'bar');
+}
+function listTable(r, tools) {
+  const o = D().output;
+  const cols = r.column_labels || r.columns.map(c => ({id: null, label: c}));
+  const head = cols.map(c => {
+    if (!tools || !c.id) return `<th class="txt">${esc(c.label)}</th>`;
+    const arr = o.sort === c.id ? (o.desc !== false ? '▼' : '▲') : '';
+    return `<th class="txt" data-lsort="${c.id}" title="Sort by ${esc(c.label)}">${esc(c.label)}${arr ? `<span class="arr">${arr}</span>` : ''}<span class="tools">
+      <button type="button" data-lmove="-1" data-col="${c.id}" title="Move left" aria-label="Move left">‹</button><button type="button" data-lmove="1" data-col="${c.id}" title="Move right" aria-label="Move right">›</button>
+      <button type="button" class="danger" data-lhide="${c.id}" title="Hide this column" aria-label="Hide this column">✕</button></span></th>`;
+  }).join('');
+  return `<div class="rc-table-wrap"><table class="rc-table"><thead><tr>${head}</tr></thead><tbody>${
+    r.rows.map(row => `<tr>${row.map(v => `<td class="${typeof v === 'number' ? '' : 'txt'}">${esc(fmt(v))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+// The run's rows as a pivot: one key per combination of the row groupings, one series per
+// measure, or per value of the column split.
+function pivotModel(r) {
+  const rowDims = r.row_dims || r.dims.slice(0, r.dims.length - (r.col_dim ? 1 : 0)), nr = rowDims.length;
+  const split = !!r.col_dim, meas = r.measures;
+  let keys, series, data;
+  if (split) {
+    const idx = new Map(), cell = new Map();
+    const cols = [...new Set(r.rows.map(x => x[nr]))].sort(cmp);
+    keys = [];
+    r.rows.forEach(x => {
+      const ks = JSON.stringify(x.slice(0, nr));
+      if (!idx.has(ks)) { idx.set(ks, keys.length); keys.push(x.slice(0, nr)); }
+      cell.set(ks + '\u0001' + x[nr], x[nr + 1]);
+    });
+    const empty = meas[0].additive ? 0 : null;
+    series = cols.map(c => ({label: String(c), additive: meas[0].additive, col: c}));
+    data = keys.map(k => cols.map(c => { const v = cell.get(JSON.stringify(k) + '\u0001' + c); return v === undefined ? empty : v; }));
+  } else {
+    keys = nr ? r.rows.map(x => x.slice(0, nr)) : [[]];
+    series = meas.map(m => ({label: m.label, additive: m.additive, measure: m.id}));
+    data = nr ? r.rows.map(x => x.slice(nr)) : [r.rows[0]];
   }
-  const m = matrix(r);
-  if (r.kind === 'table') return renderTable(r, m);
-  renderChart(r, m);
+  return {nr, split, keys, series, data, rowDims, colDim: r.col_dim, measure: meas[0]};
 }
-function matrix(r) {
-  const nd = r.dims.length, meas = r.measures;
-  if (nd === 2) {
-    const rows = [...new Set(r.rows.map(x => x[0]))], cols = [...new Set(r.rows.map(x => x[1]))].sort();
-    const cell = {}; r.rows.forEach(x => cell[x[0] + '\u0000' + x[1]] = x[2]);
-    return {rows, series: cols.map(c => ({label: c, additive: meas[0].additive})), data: rows.map(a => cols.map(b => cell[a + '\u0000' + b] ?? 0)), rowLabel: r.dims[0].label, measureLabel: meas[0].label};
+const sum = a => a.reduce((s, v) => s + (+v || 0), 0);
+function renderPivot() {
+  const m = model, rowTotal = m.split && m.measure.additive;
+  const order = m.keys.map((_, i) => i);
+  if (pivotSort) {
+    const {key, dir} = pivotSort;
+    const val = i => key[0] === 'd' ? m.keys[i][+key.slice(1)] : key === 't' ? sum(m.data[i]) : m.data[i][+key.slice(1)];
+    order.sort((a, b) => dir * cmp(val(a), val(b)));
   }
-  const rows = nd ? r.rows.map(x => x[0]) : ['All'];
-  return {rows, series: meas.map(x => ({label: x.label, additive: x.additive})), data: r.rows.map(x => x.slice(nd)), rowLabel: nd ? r.dims[0].label : '', measureLabel: ''};
+  const grouped = !pivotSort && m.nr >= 2, anyAdd = m.series.some(s => s.additive);
+  const arrow = key => pivotSort && pivotSort.key === key ? `<span class="arr">${pivotSort.dir > 0 ? '▲' : '▼'}</span>` : '';
+  const tool = (attr, i, n, hideLabel) => `<span class="tools">${i > 0 ? `<button type="button" data-${attr}-move="-1" data-i="${i}" title="Move left" aria-label="Move left">‹</button>` : ''}${
+    i < n - 1 ? `<button type="button" data-${attr}-move="1" data-i="${i}" title="Move right" aria-label="Move right">›</button>` : ''}<button type="button" class="danger" data-${attr}-rm="${i}" title="${hideLabel}" aria-label="${hideLabel}">✕</button></span>`;
+  let head = m.nr ? m.rowDims.map((d, di) => `<th class="txt" data-psort="d${di}">${esc(d.label)}${arrow('d' + di)}${tool('pdim', di, m.nr, 'Take out of Rows')}</th>`).join('') : '<th class="txt"></th>';
+  head += m.series.map((s, j) => `<th data-psort="s${j}"${m.split && j === 0 ? ` title="${esc(m.colDim.label)} · ${esc(m.measure.label)}"` : ''}>${esc(s.label)}${arrow('s' + j)}${
+    !m.split && m.series.length > 1 ? tool('pser', j, m.series.length, 'Hide this measure') : ''}</th>`).join('');
+  if (rowTotal) head += `<th data-psort="t">Total${arrow('t')}</th>`;
+  const cells = (vals, attrs) => vals.map((v, j) => `<td class="drill" ${attrs} data-j="${j}">${fmt(v)}</td>`).join('')
+    + (rowTotal ? `<td class="drill" ${attrs} data-j="t">${fmt(sum(vals))}</td>` : '');
+  const subRow = (g, rows) => {
+    const vals = m.series.map((s, j) => s.additive ? sum(rows.map(i => m.data[i][j])) : null);
+    return `<tr class="sub"><td class="dim">${esc(g)} · subtotal</td>${'<td></td>'.repeat(m.nr - 1)}${vals.map((v, j) => `<td class="${v == null ? '' : 'drill'}" data-sub="${esc(g)}" data-j="${j}">${fmt(v)}</td>`).join('')}${
+      rowTotal ? `<td class="drill" data-sub="${esc(g)}" data-j="t">${fmt(sum(vals))}</td>` : ''}</tr>`;
+  };
+  let body = '', prev = null, group = [], groupKey = null;
+  order.forEach(i => {
+    const k = m.keys[i];
+    if (grouped && groupKey !== null && k[0] !== groupKey) { if (group.length > 1 && anyAdd) body += subRow(groupKey, group); group = []; }
+    const dims = m.nr ? k.map((v, d) => {
+      const rep = grouped && prev && k.slice(0, d + 1).every((x, e) => x === prev[e]);
+      return `<td class="dim${rep ? ' rep' : ''}">${esc(v)}</td>`;
+    }).join('') : '<td class="dim">All</td>';
+    body += `<tr>${dims}${cells(m.data[i], `data-i="${i}"`)}</tr>`;
+    prev = k; groupKey = k[0]; group.push(i);
+  });
+  if (grouped && group.length > 1 && anyAdd) body += subRow(groupKey, group);
+  if (m.keys.length > 1) {
+    const tot = m.series.map((s, j) => s.additive ? sum(m.data.map(row => row[j])) : null);
+    body += `<tr class="total"><td class="dim">Total</td>${'<td></td>'.repeat(Math.max(m.nr, 1) - 1)}${tot.map((v, j) => `<td class="${v == null ? '' : 'drill'}" data-total="1" data-j="${j}">${fmt(v)}</td>`).join('')}${
+      rowTotal ? `<td class="drill" data-total="1" data-j="t">${fmt(sum(tot))}</td>` : ''}</tr>`;
+  }
+  $('results').innerHTML = `<div class="rc-table-wrap"><table class="rc-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    <p class="rc-hint mt-2">Click a header to sort, a number to see the rows behind it.${m.split ? ` Columns: ${esc(m.colDim.label)} · ${esc(m.measure.label)}.` : ''}</p>`;
 }
-function renderTable(r, m) {
-  const split = r.dims.length === 2, allAdd = m.series.every(s => s.additive);
-  const head = `<tr><th class="txt">${esc(m.rowLabel)}${split ? ` · ${esc(m.measureLabel)}` : ''}</th>${m.series.map(s => `<th>${esc(s.label)}</th>`).join('')}${split && allAdd ? '<th>Total</th>' : ''}</tr>`;
-  const body = m.rows.map((row, i) => `<tr><td class="txt">${esc(row)}</td>${m.data[i].map(v => `<td>${fmt(v)}</td>`).join('')}${split && allAdd ? `<td>${fmt(m.data[i].reduce((a, b) => a + (+b || 0), 0))}</td>` : ''}</tr>`).join('');
-  const total = m.rows.length > 1 ? `<tr class="total"><td class="txt">Total</td>${m.series.map((s, j) => `<td>${s.additive ? fmt(m.data.reduce((a, row) => a + (+row[j] || 0), 0)) : ''}</td>`).join('')}${split && allAdd ? `<td>${fmt(m.data.flat().reduce((a, b) => a + (+b || 0), 0))}</td>` : ''}</tr>` : '';
-  $('results').innerHTML = `<div class="rc-table-wrap"><table class="rc-table"><thead>${head}</thead><tbody>${body}${total}</tbody></table></div>`;
-}
-function renderChart(r, m) {
-  $('results').innerHTML = '<div class="rc-chart" id="chart"></div>';
+function chartColors() { const cs = getComputedStyle(document.body); return {fg: cs.getPropertyValue('--rc-muted').trim(), line: cs.getPropertyValue('--rc-line').trim()}; }
+const PALETTE = ['#60a5fa', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#fb923c', '#22d3ee', '#f87171', '#a3e635', '#e879f9'];
+function renderChart(type) {
+  const m = model;
+  if (type === 'heatmap' && !m.split) { $('results').innerHTML = '<div class="rc-note info">A heatmap needs a field in Columns (e.g. hour) and one in Rows (e.g. weekday).</div>'; return; }
   if (!window.echarts) { $('results').innerHTML = '<div class="rc-note bad">The chart library could not be loaded. Show it as a Table.</div>'; return; }
-  const cs = getComputedStyle(document.body);
-  const fg = cs.getPropertyValue('--rc-muted').trim(), line = cs.getPropertyValue('--rc-line').trim();
+  $('results').innerHTML = '<div class="rc-chart" id="chart"></div><p class="rc-hint mt-2">Click a bar, a point, a slice or a cell to see the rows behind it.</p>';
+  const {fg, line} = chartColors();
+  const cats = m.keys.map(k => k.length ? k.join(' · ') : 'All');
   chart = echarts.init($('chart'));
-  chart.setOption({
-    color: ['#60a5fa', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#fb923c', '#22d3ee', '#f87171'],
-    tooltip: {trigger: 'axis'}, legend: {textStyle: {color: fg}, top: 0, type: 'scroll'},
-    grid: {left: 50, right: 16, top: 36, bottom: 60, containLabel: true},
-    xAxis: {type: 'category', data: m.rows, axisLabel: {color: fg, rotate: m.rows.length > 8 ? 35 : 0}, axisLine: {lineStyle: {color: line}}, name: m.rowLabel, nameLocation: 'middle', nameGap: 44, nameTextStyle: {color: fg}},
-    yAxis: {type: 'value', axisLabel: {color: fg}, splitLine: {lineStyle: {color: line}}},
-    series: m.series.map((s, j) => ({name: s.label, type: 'bar', data: m.data.map(row => row[j]), stack: r.dims.length === 2 ? 'split' : undefined})),
+  let option;
+  if (type === 'pie') {
+    option = {color: PALETTE, tooltip: {trigger: 'item', valueFormatter: fmt}, legend: {type: 'scroll', orient: 'vertical', right: 0, top: 'middle', textStyle: {color: fg}},
+      series: [{type: 'pie', radius: ['35%', '70%'], center: ['40%', '50%'], name: m.series[0].label, label: {color: fg},
+        data: cats.map((c, i) => ({name: c, value: m.data[i][0]}))}]};
+  } else if (type === 'heatmap') {
+    const vals = m.data.flat().filter(v => v != null).map(Number);
+    const lo = Math.min(...vals, 0), hi = Math.max(...vals, 1), mid = lo + (hi - lo) * 0.55;
+    // light ink on the dark (low) cells, dark ink on the light (high) ones
+    const pts = [];
+    m.data.forEach((row, i) => row.forEach((v, j) => { if (v != null) pts.push({value: [j, i, v], label: {color: +v > mid ? '#0f172a' : '#e2e8f0'}}); }));
+    option = {tooltip: {position: 'top', formatter: p => `${esc(cats[p.value[1]])} · ${esc(m.series[p.value[0]].label)}<br><b>${fmt(p.value[2])}</b> ${esc(m.measure.label)}`},
+      grid: {left: 10, right: 20, top: 10, bottom: 60, containLabel: true},
+      xAxis: {type: 'category', data: m.series.map(s => s.label), axisLabel: {color: fg}, axisLine: {lineStyle: {color: line}}, splitArea: {show: true}},
+      yAxis: {type: 'category', data: cats, inverse: true, axisLabel: {color: fg}, axisLine: {lineStyle: {color: line}}, splitArea: {show: true}},
+      visualMap: {min: lo, max: hi, calculable: true, orient: 'horizontal', left: 'center', bottom: 0, textStyle: {color: fg},
+        inRange: {color: ['#0d366b', '#256abf', '#6da7ec', '#cde2fb']}},
+      series: [{type: 'heatmap', data: pts, label: {show: m.keys.length * m.series.length <= 400, formatter: p => fmt(p.value[2])}}]};
+  } else {
+    option = {color: PALETTE, tooltip: {trigger: 'axis', valueFormatter: fmt}, legend: {textStyle: {color: fg}, top: 0, type: 'scroll'},
+      grid: {left: 50, right: 16, top: 36, bottom: 60, containLabel: true},
+      xAxis: {type: 'category', data: cats, axisLabel: {color: fg, rotate: cats.length > 8 ? 35 : 0}, axisLine: {lineStyle: {color: line}},
+        name: m.rowDims.map(d => d.label).join(' · '), nameLocation: 'middle', nameGap: 44, nameTextStyle: {color: fg}},
+      yAxis: {type: 'value', axisLabel: {color: fg}, splitLine: {lineStyle: {color: line}}},
+      series: m.series.map((s, j) => ({name: s.label, type: type === 'line' ? 'line' : 'bar', stack: type === 'stacked' ? 'all' : undefined,
+        emphasis: {focus: 'series'}, data: m.data.map(row => row[j])}))};
+  }
+  chart.setOption(option);
+  chart.on('click', p => {
+    if (type === 'heatmap') return drill(p.value[1], p.value[0]);
+    drill(p.dataIndex, type === 'pie' ? 0 : p.seriesIndex);
   });
 }
 window.addEventListener('resize', () => chart && chart.resize());
 window.addEventListener('rc-theme', () => { if (chart && lastResult) renderResults(); });
 
-$('btn-run').onclick = startRun;
+// Work in the result: sort, move and hide columns, open the rows behind a number.
+$('results').addEventListener('click', e => {
+  const t = e.target, o = D().output;
+  const lm = t.closest('[data-lmove]');
+  if (lm) {
+    const id = lm.dataset.col, i = o.columns.indexOf(id), to = i + (+lm.dataset.lmove);
+    if (i < 0 || to < 0 || to >= o.columns.length) return;
+    o.columns.splice(i, 1); o.columns.splice(to, 0, id); return outputChanged();
+  }
+  const lh = t.closest('[data-lhide]');
+  if (lh) { if (o.columns.length === 1) return toast('A list needs at least one column.'); o.columns = o.columns.filter(c => c !== lh.dataset.lhide); return outputChanged(); }
+  const ls = t.closest('[data-lsort]');
+  if (ls) {
+    if (o.sort === ls.dataset.lsort) o.desc = o.desc === false; else { o.sort = ls.dataset.lsort; o.desc = true; }
+    markDirty(); renderZones(); scheduleCompile(0); return run(D());
+  }
+  const pdm = t.closest('[data-pdim-move]');
+  if (pdm) { const i = +pdm.dataset.i, to = i + (+pdm.dataset.pdimMove); [o.rows[i], o.rows[to]] = [o.rows[to], o.rows[i]]; return outputChanged(); }
+  const pdr = t.closest('[data-pdim-rm]'); if (pdr) { o.rows.splice(+pdr.dataset.pdimRm, 1); return outputChanged(); }
+  const psm = t.closest('[data-pser-move]');
+  if (psm) { const i = +psm.dataset.i, to = i + (+psm.dataset.pserMove); [o.measures[i], o.measures[to]] = [o.measures[to], o.measures[i]]; return outputChanged(); }
+  const psr = t.closest('[data-pser-rm]');
+  if (psr) { if (o.measures.length === 1) return toast('Values need at least one measure.'); o.measures.splice(+psr.dataset.pserRm, 1); return outputChanged(); }
+  const ps = t.closest('[data-psort]');
+  if (ps) {
+    const key = ps.dataset.psort, first = key[0] === 'd' ? 1 : -1;
+    pivotSort = !pivotSort || pivotSort.key !== key ? {key, dir: first} : pivotSort.dir === first ? {key, dir: -first} : null;
+    return renderPivot();
+  }
+  const cell = t.closest('td.drill');
+  if (cell) {
+    const j = cell.dataset.j === 't' ? null : +cell.dataset.j;
+    if (cell.dataset.sub != null) return drill(null, j, cell.dataset.sub);
+    if (cell.dataset.total) return drill(null, j);
+    return drill(+cell.dataset.i, j);
+  }
+});
+// The rows behind a cell: row key i (or the first grouping's value for a subtotal, or all for
+// the total), and series j when the columns are split.
+function drill(i, j, sub) {
+  const m = model; if (!m) return;
+  const cell = {}, words = [];
+  if (i != null) m.rowDims.forEach((d, di) => { cell[d.id] = m.keys[i][di]; words.push(`${d.label}: ${m.keys[i][di]}`); });
+  if (sub != null) { cell[m.rowDims[0].id] = sub; words.push(`${m.rowDims[0].label}: ${sub}`); }
+  if (m.split && j != null) { cell[m.colDim.id] = m.series[j].col; words.push(`${m.colDim.label}: ${m.series[j].col}`); }
+  openDrill(cell, words);
+}
+async function openDrill(cell, words) {
+  $('modal').innerHTML = `<div class="modal-back" id="drill-back"><div class="modal wide" role="dialog" aria-modal="true" aria-label="The rows behind this number">
+    <div class="panel-head"><h2>${esc(ds().count_label)} behind · ${esc(words.join(' · ') || 'the total')}</h2><span class="hint" id="drill-meta"></span>
+      <button class="btn small" id="drill-close" type="button" style="margin-left:auto">Close</button></div>
+    <div class="panel-body" id="drill-body"><div class="empty">Loading…</div></div></div></div>`;
+  const close = () => { closeModal(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  $('drill-close').onclick = close;
+  $('drill-back').addEventListener('click', e => { if (e.target.id === 'drill-back') close(); });
+  try {
+    const r = await api('/worklists/api/drill', {definition: D(), cell});
+    if (!$('drill-body')) return;
+    $('drill-meta').textContent = `${r.rows.length.toLocaleString()} row${r.rows.length === 1 ? '' : 's'}${r.truncated ? ` (the first ${r.cap.toLocaleString()})` : ''}`;
+    $('drill-body').innerHTML = r.rows.length ? listTable(r, false) + '<p class="rc-hint">The list columns are the report’s (Show as List to change them).</p>' : '<div class="empty">No rows.</div>';
+  } catch (e) { if ($('drill-body')) $('drill-body').innerHTML = `<div class="note bad">${esc(e.message)}</div>`; }
+}
+
 $('btn-csv').onclick = async () => {
   const blockers = runBlockers();
   if (blockers.length) { toast('Before it can export: ' + blockers.map(m => m[1]).join(', ') + '.'); focusMissing(blockers[0][0]); return; }
@@ -876,11 +1328,11 @@ $('btn-csv').onclick = async () => {
 
 // ── Saving, the library buttons, the header fields ───────────────────────────
 function renderAll() {
-  renderLibrary(); renderHeader(); renderPanel(); renderPills(); renderOutput(); renderHandNote(); renderSQL(); renderStatus();
+  renderLibrary(); renderHeader(); renderFields(); renderZones(); renderHandNote(); renderSQL(); renderStatus();
 }
 $('btn-new').onclick = async () => {
   if (dirty && !(await askYesNo('Discard your changes?', 'This report has changes that are not saved.', {yes: 'Discard changes'}))) return;
-  blank(); toast('New report: name it, choose what to count and how to show it.'); $('f-name').focus();
+  blank(); toast('New report: choose what to count, then drag fields into the builder.'); $('f-ds').focus();
 };
 $('btn-dup').onclick = () => {
   const c = clone(S); c.id = null; c.name = (S.name || 'Report') + ' (copy)'; c.visibility = 'personal'; c.can_edit = true;
@@ -904,14 +1356,15 @@ $('btn-save').onclick = save;
 document.addEventListener('keydown', e => {
   if (!(e.ctrlKey || e.metaKey) || !S) return;
   if (e.key.toLowerCase() === 's') { e.preventDefault(); save(); }
-  if (e.key === 'Enter' && !e.target.closest('textarea')) { e.preventDefault(); startRun(); }
+  if (e.key === 'Enter' && !e.target.closest('textarea')) { e.preventDefault(); runNow(true); }
 });
 $('f-history').onchange = async e => {
   const v = e.target.value; if (!v || !S.id) return;
   try {
     const old = await api(`/worklists/api/${S.id}/versions/${v}`);
     S.definition = old.definition; S.definition.ask = S.definition.ask || []; S.definition.criteria = S.definition.criteria || {}; S.name = old.name;
-    extra = initialExtra(); markDirty(); renderAll(); scheduleCompile(0); toast(`Loaded version ${v}. Save to make it current.`);
+    normalizeOutput(); extra = initialExtra(); markDirty(); renderAll(); scheduleCompile(0); scheduleRun(0);
+    toast(`Loaded version ${v}. Save to make it current.`);
   } catch (err) { toast(err.message); }
   e.target.value = '';
 };
@@ -921,13 +1374,26 @@ $('f-folder').addEventListener('input', e => { S.folder = e.target.value; markDi
 $('f-vis').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.disabled) return; S.visibility = b.dataset.v; markDirty(); renderHeader(); });
 $('f-ds').addEventListener('change', e => {
   if (!e.target.value) return;
-  const old = D(), keep = extra;
-  S.definition = blankDefinition(e.target.value, (old.output || {}).kind || null);
-  Object.entries(old.criteria || {}).forEach(([k, v]) => { if (FIELD[k] && FIELD[k].datasets.includes(e.target.value)) S.definition.criteria[k] = v; });
-  S.definition.ask = (old.ask || []).filter(k => FIELD[k] && FIELD[k].datasets.includes(e.target.value));
+  closePop();
+  const old = D(), keep = extra, ds2 = e.target.value, oldOut = old.output || {};
+  S.definition = blankDefinition(ds2, oldOut);
+  Object.entries(old.criteria || {}).forEach(([k, v]) => { if (FIELD[k] && FIELD[k].datasets.includes(ds2)) S.definition.criteria[k] = v; });
+  S.definition.ask = (old.ask || []).filter(k => FIELD[k] && FIELD[k].datasets.includes(ds2));
   S.definition.sql = old.sql;
+  // groupings and measures the new dataset has too stay; its date starts at the last 30 days
+  if (old.dataset) {
+    const dims = new Set(CAT.datasets[ds2].dimensions.map(x => x.id));
+    const rows = (Array.isArray(oldOut.rows) ? oldOut.rows : [oldOut.rows]).filter(x => x && dims.has(x));
+    if (rows.length) S.definition.output.rows = rows;
+    if (oldOut.cols && dims.has(oldOut.cols)) S.definition.output.cols = oldOut.cols;
+    const ms = (oldOut.measures || []).filter(m => CAT.datasets[ds2].measures.some(x => x.id === m));
+    if (ms.length) S.definition.output.measures = ms;
+  }
+  const dd = CAT.datasets[ds2].default_date;
+  if (!S.definition.criteria[dd]) S.definition.criteria[dd] = {mode: 'quick', quick: 'last_30_days'};
+  normalizeOutput();
   extra = [...new Set([...keep.filter(k => inDataset(FIELD[k])), ...initialExtra()])];
-  markDirty(); renderAll(); scheduleCompile(0);
+  pivotSort = null; markDirty(); renderAll(); scheduleCompile(0); scheduleRun(0);
 });
 window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 
@@ -968,7 +1434,6 @@ function scListView() {
 }
 function scFormView() {
   const s = SC.edit, chosen = (s.worklists || []).map(w => w.id);
-  // Your library, plus what the schedule already holds (another admin's personal report).
   const pool = LIB.map(w => ({id: w.id, name: w.name, folder: w.visibility === 'shared' ? w.folder : 'Personal'}))
     .concat((s.worklists || []).filter(w => !LIB.some(x => x.id === w.id)).map(w => ({...w, folder: 'Another admin\'s'})));
   return `<div class="def-grid">
@@ -1044,6 +1509,8 @@ $('btn-sched').onclick = () => { document.addEventListener('keydown', scKey); sc
 
 // ── Start ────────────────────────────────────────────────────────────────────
 (async () => {
+  LIVE = storeGet('rc-live') !== '0';
+  $('rc-live').checked = LIVE;
   try { CAT = await api('/worklists/api/catalog'); } catch (e) { $('results').innerHTML = `<div class="rc-note bad">${esc(e.message)}</div>`; return; }
   CAT.fields.forEach(f => FIELD[f.id] = f);
   $('btn-sched').hidden = !CAT.me.can_schedule;

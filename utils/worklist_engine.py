@@ -303,10 +303,36 @@ def _criterion(ds, f, c, params, now):
     raise WorklistError(f'unknown field type {t!r}')
 
 
-def compile_definition(defn, now=None):
+MAX_ROW_DIMS = 4
+CHART_TYPES = ('bar', 'stacked', 'line', 'pie', 'heatmap')
+
+
+def _row_dims(out):
+    """output.rows: a list of groupings (the pivot builder, 2026-11-21), or one as a string (saved
+    before it)."""
+    rows = out.get('rows')
+    if rows in (None, ''):
+        return []
+    if isinstance(rows, str):
+        return [rows]
+    if not isinstance(rows, list) or not all(isinstance(r, str) and r for r in rows):
+        raise WorklistError('rows must be a list of groupings')
+    if len(rows) > MAX_ROW_DIMS:
+        raise WorklistError(f'at most {MAX_ROW_DIMS} groupings in rows')
+    if len(set(rows)) != len(rows):
+        raise WorklistError('a grouping is in rows twice')
+    return rows
+
+
+def compile_definition(defn, now=None, drill=None):
     """
-    Returns {'sql', 'params', 'kind', 'dims', 'measures', 'columns'}.
+    Returns {'sql', 'params', 'kind', 'dims', 'rows', 'col', 'measures', 'columns'}: dims is
+    every grouping in order (rows, then the column split), rows and col say which is which.
     Raises WorklistError for anything the catalog does not offer.
+
+    drill: {grouping id: value as the result shows it} — the rows behind one cell of a table
+    or chart (the pivot builder's drill-down): the same criteria, plus each grouping's own
+    expression equal to the cell's value, listed with the report's list columns.
     """
     if not isinstance(defn, dict):
         raise WorklistError('a report definition is an object')
@@ -328,6 +354,14 @@ def compile_definition(defn, now=None):
 
     out = defn.get('output') or {}
     kind = out.get('kind') or 'list'
+    if drill is not None:
+        if not isinstance(drill, dict) or len(drill) > MAX_ROW_DIMS + 1:
+            raise WorklistError('a drill-down names the groupings of one cell')
+        for i, (dim_id, value) in enumerate(drill.items()):
+            expr, _ = _dimension(ds, dim_id)
+            params[f'drill_{i}'] = str(value)
+            where.append(f'{expr} = :drill_{i}')
+        kind = 'list'
     view = cat.DATASETS[ds]['view']
     where_sql = ('\nWHERE ' + '\n  AND '.join(where)) if where else ''
     columns_offered = dict(cat.COLUMNS[ds])
@@ -346,12 +380,20 @@ def compile_definition(defn, now=None):
         sql = (f'SELECT {", ".join(_col(c) + " AS " + chr(34) + c + chr(34) for c in cols)}'
                f'\nFROM {view} d{where_sql}'
                f'\nORDER BY {_col(sort)} {direction} NULLS LAST')
-        return {'sql': sql, 'params': params, 'kind': kind, 'dims': [], 'measures': [],
-                'columns': [{'id': c, 'label': columns_offered[c]} for c in cols]}
+        return {'sql': sql, 'params': params, 'kind': kind, 'dims': [], 'rows': [], 'col': None,
+                'measures': [], 'columns': [{'id': c, 'label': columns_offered[c]} for c in cols]}
 
     if kind not in ('table', 'chart'):
         raise WorklistError(f'unknown output {kind!r}')
-    dims = [d for d in (out.get('rows'), out.get('cols')) if d]
+    if kind == 'chart' and (out.get('chart') or 'bar') not in CHART_TYPES:
+        raise WorklistError(f'unknown chart {out.get("chart")!r}')
+    rows = _row_dims(out)
+    col = out.get('cols') or None
+    if col is not None and not isinstance(col, str):
+        raise WorklistError('the column split is one grouping')
+    if col in rows:
+        raise WorklistError('a grouping cannot be in rows and columns at once')
+    dims = rows + ([col] if col else [])
     measures = out.get('measures') or [cat.DATASETS[ds]['default_measure']]
     if not isinstance(measures, list):
         raise WorklistError('measures must be a list')
@@ -359,12 +401,13 @@ def compile_definition(defn, now=None):
     for m in measures:
         if m not in offered_m:
             raise WorklistError(f'{m!r} is not a measure of {cat.DATASETS[ds]["label"]}')
-    if len(dims) == 2:
+    if col:
         measures = measures[:1]     # a split by columns shows one measure across them
     sel, dim_meta = [], []
     for i, dim_id in enumerate(dims):
         expr, label = _dimension(ds, dim_id)
-        sel.append(f'{expr} AS "{("row", "col")[i]}"')
+        alias = 'col' if col and i == len(dims) - 1 else ('row' if i == 0 else f'row{i + 1}')
+        sel.append(f'{expr} AS "{alias}"')
         dim_meta.append({'id': dim_id, 'label': label})
     sel += [f'{cat.MEASURES[m]["sql"]} AS "{m}"' for m in measures]
     sql = f'SELECT {", ".join(sel)}\nFROM {view} d{where_sql}'
@@ -372,6 +415,7 @@ def compile_definition(defn, now=None):
         idx = ', '.join(str(i + 1) for i in range(len(dims)))
         sql += f'\nGROUP BY {idx}\nORDER BY {idx}'
     return {'sql': sql, 'params': params, 'kind': kind, 'dims': dim_meta,
+            'rows': dim_meta[:len(rows)], 'col': dim_meta[-1] if col else None,
             'measures': [{'id': m, 'label': offered_m[m],
                           'additive': cat.MEASURES[m]['additive']} for m in measures],
             'columns': None}

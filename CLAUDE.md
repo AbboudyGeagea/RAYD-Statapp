@@ -129,7 +129,14 @@ routes/
                                    SQL button, page script static/js/report_composer.js, one example
                                    report left (migration 0181). Every date filter also takes days
                                    and times (windows of days, from → to, through midnight:
-                                   engine._windows_sql), for after-hours reports.
+                                   engine._windows_sql), for after-hours reports. A pivot builder
+                                   since 2026-11-21 (operator: "more flexible"): field list (drag or
+                                   menu) onto Filters / Rows (output.rows = up to 4 groupings, a
+                                   string before) / Columns / Values; table, list, bar, stacked,
+                                   line, pie, heatmap (output.chart); live runs; sortable result
+                                   with move/hide; drill-down /worklists/api/drill
+                                   (compile_definition(drill=...): the cell's grouping expressions
+                                   as criteria).
                                    REPLACED Custom Reports (custom_reports.py,
                                    report_widgets.py and 3 templates removed; same licence key +
                                    page permission `custom_reports`; /reports/custom redirects).

@@ -567,39 +567,33 @@ const ChartExplanations = {
     // ── Report Composer (/report-composer) ──────────────────────────────────────
     'rc-report': {
       title: 'Report Composer',
-      purpose: 'Build your own report on the RIS and PACS data without writing SQL: choose what to count on the left (RIS exams, PACS studies, series, reports, NLP findings, storage or CRN), narrow it with the date range and the filters, choose how to show it, and press Generate.',
-      valueMeaning: 'Every report counts as the numbered reports do: structured reports (SR) are left out, the modality comes from the device mapping, times are hospital time. Save keeps it in the Report list on the left, Personal (only you) or Shared (everyone with access to this page); every save is kept in History.',
-      interpretation: 'Start from the shared example or a colleague’s report with Duplicate. A date range keeps a report fast: a year of studies with many filters can take a few seconds.'
+      purpose: 'Build your own report on the RIS and PACS data without writing SQL, like a pivot table: choose what to count on the left (RIS exams, PACS studies, series, reports, NLP findings, storage or CRN), then drag fields onto Filters, Rows, Columns and Values. With Live on, the result follows every change.',
+      valueMeaning: 'Every report counts as the numbered reports do: structured reports (SR) are left out, the modality comes from the device mapping, times are hospital time. Save keeps it in the Report list, Personal (only you) or Shared (everyone with access to this page); every save is kept in History.',
+      interpretation: 'Start from the shared example or a colleague’s report with Duplicate. A date range keeps a report fast: a year of studies with many filters can take a few seconds. Turn Live off to build a heavy report and press Generate when it is ready.'
+    },
+    'rc-fields': {
+      title: 'Fields',
+      purpose: 'Everything the chosen dataset can be filtered, grouped or measured by, in the same groups as the source (patient, RIS exam, study, report, NLP, series, CRN), with the measures (or, for a list, its columns) at the top.',
+      valueMeaning: 'Drag a field onto Filters to narrow the report, onto Rows or Columns to group by it, a measure onto Values to count or time it. Click a field for the same choices. A tag shows where a field is used: filter, row, col, value.',
+      interpretation: 'Type in the search box to find a field by its name or what it holds (TAT, room, protocol). A field that cannot be grouped (a free text, an exact time) can still filter.'
     },
     'rc-filters': {
-      title: 'Filters applied',
-      purpose: 'Everything that narrows the report right now, as set in the left panel: the date range and each filter with the values picked.',
-      valueMeaning: 'A filter with several values keeps rows with any of them (CT or MR). Different filters all apply together (CT or MR, and in room CT1). (blank) = rows where the value is missing. Days and times keep the rows whose time falls in one of the windows listed: “Sat 13:00 → 07:00 next day” is Saturday 13:00 to Sunday 07:00 (the start is included, the end is not). A filter marked “asked when run” is asked for each time the report runs, its saved value as the default.',
-      interpretation: 'Click a tag to find its filter in the panel; the × takes it off. No tag means the report reads all the data, which is slow for the large datasets: add a date range.'
+      title: 'Filters',
+      purpose: 'What narrows the report: the dataset’s date range and usual filters are always in the bar (dashed while unused); click one to set it, or “+ Filter” for any other field.',
+      valueMeaning: 'A filter with several values keeps rows with any of them (CT or MR). Different filters all apply together (CT or MR, and in room CT1). (blank) = rows where the value is missing. Days and times keep the rows whose time falls in one of the windows listed: “Sat 13:00 → 07:00 next day” is Saturday 13:00 to Sunday 07:00 (the start is included, the end is not). A filter marked “asked” is asked for each time the report is generated, its saved value as the default.',
+      interpretation: 'The × on a chip takes the filter off. With no date range the report reads all the data, which is slow for the large datasets.'
     },
     'rc-show-as': {
-      title: 'Show as',
-      purpose: 'How the result is laid out: a List of rows, a Table of counts and measures grouped by what you pick, or the same table as a bar Chart.',
-      valueMeaning: 'List: one line per exam, study, report ... with the columns ticked, in the order chosen. Table: one line per value of “Rows by” (and one column per value of “Columns by” when set), each measure ticked as a column, with a Total where the measure can be added up (counts, gigabytes; not medians or averages).',
-      interpretation: 'Use a List to find the cases themselves, a Table or a Chart to compare groups. Months and weeks are offered for every date (“Study date — month”) to see a trend.'
-    },
-    'rc-kpi-rows': {
-      title: 'Rows',
-      purpose: 'How many lines the result has.',
-      valueMeaning: 'For a List, one line per exam, study, report ... that matches the filters; for a Table or a Chart, one line per group. The page shows at most the first 2,000 lines; Download CSV holds up to 100,000.',
-      interpretation: 'A List that reaches 2,000 is capped: narrow the dates or the filters, or download the CSV for every line.'
-    },
-    'rc-kpi-time': {
-      title: 'Run time',
-      purpose: 'How long the database took to answer this report.',
-      valueMeaning: 'Measured on the read-only reporting account the report runs as. A report that would take longer than 20 seconds is stopped.',
-      interpretation: 'Several seconds usually means a long period with filters on times that are not indexed (arrival, start, signatures). Filter on the main date of the dataset, or group (Table) rather than list.'
+      title: 'The builder',
+      purpose: 'How the result is laid out (Show as) and what goes where: Rows group the lines (up to 4 fields, e.g. modality then room), Columns split the values across columns (one field, e.g. month), Values are the measures shown.',
+      valueMeaning: 'Table: one line per combination of the Rows, with a subtotal per value of the first and a Total where the measure adds up (counts, gigabytes; not medians or averages). List: one line per exam, study, report ... with the columns chosen. Bar, Stacked, Line: the table as a chart, one series per value or per column. Pie: the first value per row. Heatmap: Rows × Columns coloured by the first value (e.g. weekday × hour).',
+      interpretation: 'Drag a chip to reorder it or move it between Rows and Columns; a date chip says its period (day, week, month, quarter, year). A split by Columns, a pie and a heatmap show the first value only.'
     },
     'rc-result': {
       title: 'Result',
-      purpose: 'The report as generated with the filters and Show as above, from the data RAYD holds (the nightly ETL from the RIS and PACS, the HL7 reports, CRN).',
-      valueMeaning: 'Counts are rows of the dataset chosen: an exam is one RIS worklist entry, a study one PACS study, a series one PACS series. Times are in hospital time; turnarounds and waits are in the unit their name says (minutes or hours). (blank) = no value recorded.',
-      interpretation: 'Data reach RAYD overnight, so today is incomplete for anything read from the RIS or PACS. The SQL button shows the exact query that ran.'
+      purpose: 'The report as built above, from the data RAYD holds (the nightly ETL from the RIS and PACS, the HL7 reports, CRN). The line beside the title gives its rows and how long the database took.',
+      valueMeaning: 'Counts are rows of the dataset chosen: an exam is one RIS worklist entry, a study one PACS study, a series one PACS series. Times are in hospital time; turnarounds and waits are in the unit their name says (minutes or hours). (blank) = no value recorded. The page shows the first 2,000 lines; CSV holds up to 100,000.',
+      interpretation: 'Click a header to sort, use its arrows to move a column and its × to take it out; click any number, bar or slice to list the exams or studies behind it. Data reach RAYD overnight, so today is incomplete for anything read from the RIS or PACS.'
     },
     'r32-addendum': {
       title: 'Addendum Rate by Radiologist',

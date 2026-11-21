@@ -358,6 +358,31 @@ def test_a_measure_that_does_not_add_up_gets_no_total():
     assert rows == [['CT', 2, 5.5], ['MR', 1, 9.0]] and total == ['Total', 3, None]
 
 
+def test_several_row_groupings_get_a_column_each(client, relay):
+    """The pivot builder (2026-11-21): rows may hold several groupings, with or without a
+    column split; the attachment gives each its own column."""
+    users()
+    ae('CT_1', 'CT'), ae('MR_1', 'MR')
+    study(1), study(2, patient_class='I'), study(3, storing_ae='MR_1')
+    base = {'dataset': 'studies', 'criteria': {'study_at': {'mode': 'quick', 'quick': 'today'}}}
+    rows = {**base, 'output': {'kind': 'table', 'rows': ['modality', 'patient_type'], 'measures': ['count']}}
+    split = {**base, 'output': {'kind': 'chart', 'chart': 'stacked', 'rows': ['modality', 'device'],
+                                'cols': 'patient_type', 'measures': ['count']}}
+    sid = schedule(client, [worklist(client, 'Rows', rows), worklist(client, 'Split2', split)])
+    make_due(sid)
+    mailer.run_due()
+    files = attachments(relay.mails[0])
+    assert cells(files['Rows.xlsx']) == [
+        ['Modality', 'Patient type', 'Studies'],
+        ['CT', 'Inpatient', 1], ['CT', 'Outpatient', 1], ['MR', 'Outpatient', 1],
+        ['Total', None, 3]]
+    assert cells(files['Split2.xlsx']) == [
+        ['Modality', 'Device (AE title) · Studies', 'Inpatient', 'Outpatient', 'Total'],
+        ['CT', 'CT_1', 1, 1, 2],
+        ['MR', 'MR_1', 0, 1, 1],
+        ['Total', None, 1, 2, 3]]
+
+
 def test_a_measure_with_no_grouping_is_one_line():
     compiled = {'kind': 'table', 'dims': [], 'columns': None,
                 'measures': [{'id': 'n', 'label': 'Studies', 'additive': True}]}

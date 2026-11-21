@@ -802,6 +802,73 @@ def test_groups_measures_and_totals(app):
     assert by_hour['rows'] == [['10', 3]]
 
 
+# ── the pivot builder (operator, 2026-11-21: "more flexible") ─────────────────
+
+def test_rows_take_several_groupings_and_a_column_split(app):
+    ae('CT_1', 'CT', room='CT room'), ae('MR_1', 'MR', room='MR room')
+    study(1), study(2, patient_class='I', accession_number='A2')
+    study(3, storing_ae='MR_1', study_modality='MR', accession_number='A3')
+    out = {'kind': 'table', 'rows': ['modality', 'room'], 'measures': ['count']}
+    compiled = engine.compile_definition({'dataset': 'studies', 'output': out})
+    assert [d['id'] for d in compiled['rows']] == ['modality', 'room'] and compiled['col'] is None
+    assert '"row"' in compiled['sql'] and '"row2"' in compiled['sql']
+    assert run_defn({'dataset': 'studies', 'output': out})['rows'] == [['CT', 'CT room', 2], ['MR', 'MR room', 1]]
+    split = {**out, 'cols': 'patient_type'}
+    res = run_defn({'dataset': 'studies', 'output': split})
+    assert res['columns'] == ['row', 'row2', 'col', 'count']
+    assert res['rows'] == [['CT', 'CT room', 'Inpatient', 1], ['CT', 'CT room', 'Outpatient', 1],
+                           ['MR', 'MR room', 'Outpatient', 1]]
+    assert engine.compile_definition({'dataset': 'studies', 'output': split})['col']['id'] == 'patient_type'
+    # saved before the builder: one grouping as a string, still the same
+    old = engine.compile_definition({'dataset': 'studies', 'output': {'kind': 'table', 'rows': 'modality', 'cols': 'room'}})
+    assert [d['id'] for d in old['dims']] == ['modality', 'room'] and old['col']['id'] == 'room'
+    for chart in engine.CHART_TYPES:
+        run_defn({'dataset': 'studies', 'output': {**split, 'kind': 'chart', 'chart': chart}})
+
+
+@pytest.mark.parametrize('out,msg', [
+    ({'rows': ['modality', 'room', 'device', 'technologist', 'shift']}, 'at most 4'),
+    ({'rows': ['modality', 'modality']}, 'twice'),
+    ({'rows': ['modality'], 'cols': 'modality'}, 'rows and columns'),
+    ({'rows': 'modality', 'cols': ['room']}, 'one grouping'),
+    ({'rows': [1]}, 'list of groupings'),
+    ({'rows': ['protocol']}, 'cannot group'),
+    ({'kind': 'chart', 'chart': 'radar'}, 'unknown chart'),
+])
+def test_the_builder_refuses(app, out, msg):
+    with pytest.raises(WorklistError, match=msg):
+        engine.compile_definition({'dataset': 'studies', 'output': {'kind': 'table', **out}})
+
+
+def test_drill_lists_the_rows_behind_a_cell(app):
+    """A cell's groupings become criteria with the same expressions the table groups by: a
+    value, a date period, an hour, a weekday, (blank)."""
+    ae('CT_1', 'CT', room='CT room')
+    study(1)
+    study(2, patient_class='I', accession_number='A2')
+    study(3, storing_ae='MR_1', study_modality='MR', accession_number='A3', study_time=None)
+    defn = {'dataset': 'studies', 'output': {'kind': 'table', 'rows': ['modality', 'room'],
+                                             'cols': 'patient_type', 'columns': ['accession', 'modality']}}
+    run = lambda cell: engine.run(engine.compile_definition(defn, drill=cell))
+    got = run({'modality': 'CT', 'room': 'CT room', 'patient_type': 'Inpatient'})
+    assert got['columns'] == ['accession', 'modality'] and got['rows'] == [['A2', 'CT']]
+    assert sorted(r[0] for r in run({'modality': 'CT'})['rows']) == ['A2', 'ACC1']        # a subtotal
+    assert len(run({})['rows']) == 3                                                       # the total
+    assert [r[0] for r in run({'room': BLANK_})['rows']] == ['A3']                         # no room
+    month = TODAY.strftime('%Y-%m')
+    assert len(run({'study_at:month': month})['rows']) == 3
+    assert [r[0] for r in run({'hour': '(blank)'})['rows']] == ['A3']
+    weekday = run({'weekday': f"{TODAY.isoweekday()} {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][TODAY.weekday()]}"})
+    assert len(weekday['rows']) == 3
+    compiled = engine.compile_definition(defn, drill={'modality': "CT' OR 1=1 --"})
+    assert "OR 1=1" not in compiled['sql'] and engine.run(compiled)['rows'] == []
+    with pytest.raises(WorklistError, match='cannot group'):
+        engine.compile_definition(defn, drill={'protocol': 'x'})
+
+
+BLANK_ = '(blank)'
+
+
 @pytest.mark.parametrize('defn,msg', [
     ({'dataset': 'users'}, 'unknown dataset'),
     ({'dataset': 'orders'}, 'unknown dataset'),
@@ -1058,6 +1125,26 @@ def test_run_compile_csv_and_options(client):
     assert err.status_code == 400
 
 
+def test_drill_and_the_run_say_which_groupings_are_rows(client):
+    users()
+    ae('CT_1', 'CT')
+    study(1), study(2, accession_number='A2')
+    defn = {'dataset': 'studies', 'criteria': {'study_at': {'mode': 'quick', 'quick': 'today'}},
+            'output': {'kind': 'table', 'rows': ['modality', 'patient_type'], 'measures': ['count'],
+                       'columns': ['accession']}}
+    res = h(client, 'post', '/worklists/api/run', uid=VIEWER, json={'definition': defn}).get_json()
+    assert [d['id'] for d in res['row_dims']] == ['modality', 'patient_type'] and res['col_dim'] is None
+    got = h(client, 'post', '/worklists/api/drill', uid=VIEWER,
+            json={'definition': defn, 'cell': {'modality': 'CT', 'patient_type': 'Outpatient'}}).get_json()
+    assert got['kind'] == 'list' and sorted(r[0] for r in got['rows']) == ['A2', 'ACC1']
+    assert got['column_labels'] == [{'id': 'accession', 'label': dict(cat.COLUMNS['studies'])['accession']}]
+    bad = h(client, 'post', '/worklists/api/drill', uid=VIEWER, json={'definition': defn, 'cell': {'nope': 'x'}})
+    assert bad.status_code == 400
+    hand = h(client, 'post', '/worklists/api/drill', uid=VIEWER, json={'definition': {'sql': 'SELECT 1'}, 'cell': {}})
+    assert hand.status_code == 400
+    assert h(client, 'post', '/worklists/api/drill', uid=TEC, json={'definition': defn, 'cell': {}}).status_code == 403
+
+
 def test_sql_reference_documents_every_column(client):
     users()
     ref = h(client, 'get', '/worklists/api/sql-reference', uid=VIEWER).get_json()
@@ -1090,19 +1177,23 @@ def test_page_renders_for_a_viewer(client):
     assert 'href="/report-composer"' in html        # the sidebar
 
 
-def test_page_has_the_reports_frame_and_the_sql_behind_a_click(client):
-    """Revamp of 2026-11-20: the reports' left panel (one, with Generate), the result in
-    cards, and the SQL in a drawer that is closed until the SQL button opens it."""
+def test_page_is_a_pivot_builder_with_the_sql_behind_a_click(client):
+    """2026-11-21 (operator: "more flexible"): a field list on the left (the reports' panel
+    look), Filters / Rows / Columns / Values bars, Live and Generate, the result below; the
+    SQL in a drawer that is closed until the SQL button opens it."""
     users()
     html = h(client, 'get', '/report-composer', uid=VIEWER).get_data(as_text=True)
-    assert html.count('aria-label="Report filters"') == 1 and 'class="rfp ' in html
-    assert 'select2' in html                         # the reports' dropdowns
-    assert re.search(r'id="btn-run" class="rfp-generate"[^>]*>Generate</button>', html)
+    assert html.count('aria-label="Report fields"') == 1 and 'class="rfp ' in html
+    assert 'id="rc-fields"' in html and 'id="rc-fq"' in html and 'select2' in html
+    for zone in ('filters', 'rows', 'cols', 'values', 'listcols'):
+        assert f'id="z-{zone}" data-zone="{zone}"' in html, zone
+    assert 'id="rc-show"' in html and 'id="rc-live"' in html
+    assert re.search(r'id="btn-run"[^>]*>.*?Generate</button>', html)
     assert re.search(r'<div id="sql-drawer" hidden>', html)
     assert 'id="btn-sql"' in html and 'id="sql-view"' in html
     assert html.index('id="sql-drawer"') > html.index('</main>')     # not part of the page
     assert 'js/report_composer.js" defer></script>' in html
-    for key in ('rc-report', 'rc-filters', 'rc-show-as', 'rc-kpi-rows', 'rc-kpi-time', 'rc-result'):
+    for key in ('rc-report', 'rc-fields', 'rc-filters', 'rc-show-as', 'rc-result'):
         assert f'data-explain="{key}"' in html, key
 
 

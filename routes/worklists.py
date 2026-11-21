@@ -334,9 +334,31 @@ def api_run():
         return _error(e)
     res.update({'kind': 'list' if hand else compiled['kind'],
                 'dims': [] if hand else compiled['dims'],
+                'row_dims': [] if hand else compiled['rows'],
+                'col_dim': None if hand else compiled['col'],
                 'measures': [] if hand else compiled['measures'],
                 'column_labels': None if hand else compiled['columns'],
                 'hand_sql': bool(hand), 'cap': engine.ROW_CAP})
+    return jsonify(res)
+
+
+@worklists_bp.route('/worklists/api/drill', methods=['POST'])
+@login_required
+def api_drill():
+    """The rows behind one cell of a table or chart (the pivot builder's drill-down): the same
+    criteria plus the cell's groupings, listed with the report's list columns."""
+    _require_access()
+    b = _body()
+    defn, cell = b.get('definition'), b.get('cell')
+    if _hand_sql(defn):
+        return _error('a report written in SQL has no cells to open')
+    try:
+        compiled = engine.compile_definition(defn, drill=cell if cell is not None else {})
+        res = engine.run(compiled=compiled)
+    except WorklistError as e:
+        return _error(e)
+    res.update({'kind': 'list', 'dims': [], 'measures': [], 'column_labels': compiled['columns'],
+                'hand_sql': False, 'cap': engine.ROW_CAP})
     return jsonify(res)
 
 

@@ -32,6 +32,21 @@ Page script moved to `static/js/report_composer.js`. The definition format, the 
 sandbox, permissions, versions and schedules are unchanged. **Next:** the operator looks at it on
 the server after the deploy and gives the next points.
 
+**The pivot builder (operator, 21 Nov: "report composer layout is still not very practical, i am
+looking for something more flexible"; chose the pivot builder and all four of: more than 2
+groupings, more chart types, live result, work in the result table).** The page is now: a field
+list on the left (report, what to count, search, Measures or List columns, then the fields by
+group; drag one, or click it for a menu), a builder card (Show as: Table, List, Bar, Stacked,
+Line, Pie, Heatmap; Filters as chips, the date and the usual filters always there, each opening
+its editor in a popover; Rows up to 4 groupings, a date chip with its period; Columns one split;
+Values the measures; a list's Columns and sort), Live switch + Generate, and the result: a pivot
+table with subtotals per first grouping and totals, sort on a header click, move or take out a
+column from its header, click a number (or a bar, slice, cell) for the rows behind it
+(`/worklists/api/drill`). Engine: `output.rows` a list (a string still reads), `output.chart`,
+`compile_definition(drill=...)`; the email attachment gives each row grouping its own column.
+Checked in headless Edge on the local stack (drag and drop, live, drill, heatmap, list sort, light
+theme). Not deployed.
+
 **Days and times in every date filter (operator, 20 Nov late: "specific day of the week, and from
 time → to time"),** for a customer's after-hours report the operator wants built in the Report
 Composer rather than as a Clinical KPI report: Monday–Friday 19:00 → 07:00, Saturday 13:00 →
@@ -72,6 +87,7 @@ fixes; update.sh refuses while a move runs). Confirm with
 |---|------|--------|
 | **New** | **Report Composer revamp**, spec points 1–4 (above), migration 0181 | Built and tested 20 Nov evening; deploy, then the operator looks and gives the next points |
 | **New** | Report Composer: days and times in the date filter (done) → the customer's after-hours report | Waiting on the operator: what to count and by what; production's PACS times (query above) |
+| **New** | Report Composer as a pivot builder (21 Nov) | Built and tested; in the next deploy, then the operator tries it |
 | 1 | HIS vs RIS: 19 Nov MRI on Report 27's HIS tab (query in the 20 Nov morning checklist below) | Waiting on the operator (booked room closed: 1,472 / 1,472) |
 | — | Deployed 20 Nov ~23:00 (9e5305fd: Composer revamp, days and times, copy fixes). Open the Super Report, Report AI, Report 27 (Peak Hours), the Report Composer | Done; checks when convenient |
 | 17 | BRAYN: per-modality breakdown (query in item 17, "The breakdown") → mark arrival/start not expected where the RIS never sends them → operator switches on the stall rules (ORPHAN_ORDER suggested off); the 7 approved-without-report accessions to Mirth | Waiting on the operator |
