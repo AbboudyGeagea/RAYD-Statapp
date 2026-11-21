@@ -378,9 +378,15 @@ def api_csv():
         res = engine.run(compiled=compiled, hand_sql=hand, cap=engine.CSV_CAP)
     except WorklistError as e:
         return _error(e)
+    # the names people read, as on the page: groupings and measures, or the list's columns
+    headers = res['columns']
+    if compiled and compiled['kind'] == 'list':
+        headers = [c['label'] for c in compiled['columns']]
+    elif compiled:
+        headers = [d['label'] for d in compiled['dims']] + [m['label'] for m in compiled['measures']]
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(res['columns'])
+    w.writerow(headers)
     w.writerows(res['rows'])
     name = engine.file_name(b.get('name'))
     return Response('﻿' + buf.getvalue(), mimetype='text/csv',

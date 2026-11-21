@@ -1116,6 +1116,10 @@ def test_run_compile_csv_and_options(client):
     assert ':study_at_from' in comp['sql'] and "TIMESTAMP '" in comp['editable_sql']
     csv = h(client, 'post', '/worklists/api/csv', uid=VIEWER, json={'definition': defn, 'name': 'x/y'})
     assert csv.status_code == 200 and 'CT,1' in csv.get_data(as_text=True)
+    assert csv.get_data(as_text=True).lstrip('﻿').splitlines()[0] == 'Modality,Studies'
+    two = {**defn, 'output': {'kind': 'table', 'rows': ['modality', 'patient_type'], 'measures': ['count']}}
+    head = h(client, 'post', '/worklists/api/csv', uid=VIEWER, json={'definition': two}).get_data(as_text=True)
+    assert head.lstrip('﻿').splitlines()[0] == 'Modality,Patient type,Studies'
     assert 'filename="x_y.csv"' in csv.headers['Content-Disposition']
     opts = h(client, 'get', '/worklists/api/options?dataset=studies&field=device', uid=VIEWER).get_json()
     assert opts == [{'value': 'CT_1', 'label': 'CT_1', 'n': 1}]
