@@ -282,3 +282,61 @@ def test_the_super_report_reads_the_utilization_through_the_report_34_wrapper():
     from routes import super_report
     src = inspect.getsource(super_report._get_utilization_summary)
     assert 'utilization_data(start, end)' in src and 'get_device_utilization_data' not in src.split('"""')[-1]
+
+
+# ── patient schedule lead time (operator, 2026-11-21: "add patient lead time to super report") ─
+
+LT = 87000
+
+
+def lead_order(n, booked, appointment, modality='CT', status='CM'):
+    sql("""INSERT INTO etl_orders (order_dbid, order_control, order_status, modality, scheduled_datetime,
+                                   order_created_at, accession_number, proc_id, proc_text)
+           VALUES (:k, 'SAP_PROD', :s, :m, :a, :b, :acc, 'P1', 'Procedure one')""",
+        k=LT + n, s=status, m=modality, a=appointment, b=booked, acc=f'ACC{LT + n}')
+
+
+def test_the_lead_time_card_has_report_40s_figures_for_both_periods(client, app):
+    """Report 40's definitions (utils/schedule_lead_time.py) on the Super Report's period, the
+    comparison's headline beside them, the narrative's section and comparison line; of the
+    page's filters only Modality applies."""
+    with app.app_context():
+        lead_order(1, datetime(2026, 11, 2, 9), datetime(2026, 11, 2, 14))                  # same day
+        lead_order(2, datetime(2026, 10, 23, 9), datetime(2026, 11, 3, 9), 'MR')            # 11 days
+        lead_order(3, datetime(2026, 10, 29, 9), datetime(2026, 11, 4, 9), status='CA')     # 6 days, cancelled
+        lead_order(4, datetime(2026, 10, 18, 9), datetime(2026, 10, 28, 9))                 # comparison: 10 days
+    q = '/viewer/super-report?start=2026-11-02&end=2026-11-08&cmp_start=2026-10-26&cmp_end=2026-11-01'
+    r = client.get(q, headers=ADMIN).get_json()
+    lt, plt = r['current']['lead_time'], r['previous']['lead_time']
+    assert lt['kpi']['exams'] == 3 and lt['kpi']['median_days'] == 6
+    assert lt['kpi']['same_day_pct'] == 33.3 and lt['kpi']['cancelled_pct'] == 33.3
+    assert {row['value']: row['exams'] for row in lt['by_modality']} == {'CT': 2, 'MR': 1}
+    assert sum(b['exams'] for b in lt['buckets']) == 3 and lt['modality_filter'] is False
+    assert set(plt) == {'kpi', 'ahead_days'} and (plt['kpi']['exams'], plt['kpi']['median_days']) == (1, 10)
+    section = next(s for s in r['narrative'] if s['title'] == 'Patient Lead Time')['bullets']
+    assert 'a median of 6 days before the appointment (10 days in the prior period)' in section[0], section
+    assert not any('Longest wait' in b for b in section)          # under 20 appointments: no "longest"
+    comp = next(s for s in r['narrative'] if s['title'] == 'Period Comparison')['bullets']
+    assert 'Median booking lead time: 10 days → 6 days' in comp
+    r = client.get(q + '&modality=MR', headers=ADMIN).get_json()
+    assert r['current']['lead_time']['kpi']['exams'] == 1 and r['current']['lead_time']['modality_filter']
+
+
+def test_the_lead_time_never_takes_the_page_down(app, monkeypatch):
+    from routes import super_report
+    from utils import schedule_lead_time
+    monkeypatch.setattr(schedule_lead_time, 'build', lambda *a, **k: 1 / 0)
+    with app.app_context():
+        data = super_report._collect_data('2026-11-02', '2026-11-08', {}, site_id('RH'))
+    assert data['lead_time'] is None and 'kpis' in data
+
+
+def test_the_lead_time_card_on_the_page(client):
+    import os
+    page = client.get('/viewer/super-report-page', headers=ADMIN).get_data(as_text=True)
+    assert 'id="super-leadtime-card"' in page and 'Patient Schedule Lead Time' in page
+    assert 'href="/viewer/40"' in page                              # the administrator may open Report 40
+    explain = open(os.path.join(os.path.dirname(__file__), '..', 'static', 'js', 'chart-explanations.js'), encoding='utf-8').read()
+    for key in ('sr-leadtime', 'sr-leadtime-buckets', 'sr-leadtime-table'):
+        assert f'data-explain="{key}"' in page and f"'{key}': {{" in explain, key
+    assert 'srLeadTime(cur.lead_time, prev.lead_time, d)' in _page_js()

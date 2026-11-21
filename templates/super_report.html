@@ -304,6 +304,28 @@
                     </div>
                 </div>
 
+                <!-- Patient schedule lead time: Report 40's figures (operator, 2026-11-21) -->
+                <div class="card p-5" id="super-leadtime-card" style="display:none">
+                    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+                        <h4 class="text-sky-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><i class="bi bi-calendar-check"></i> Patient Schedule Lead Time<i class="bi bi-info-circle chart-info-icon" data-explain="sr-leadtime" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
+                        {% if lead_time_report %}
+                        <a href="/viewer/40" class="sr-export-btn" title="Report 40: every breakdown, the booking hours, the exams in Excel"><i class="bi bi-box-arrow-up-right"></i> Report 40</a>
+                        {% endif %}
+                    </div>
+                    <div id="super-leadtime-tiles" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4"></div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                        <div>
+                            <p class="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-2">How far ahead the exams were booked<i class="bi bi-info-circle chart-info-icon" data-explain="sr-leadtime-buckets" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
+                            <div id="super-leadtime-buckets" class="flex flex-col gap-1.5"></div>
+                        </div>
+                        <div>
+                            <p class="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-2">By modality<i class="bi bi-info-circle chart-info-icon" data-explain="sr-leadtime-table" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></p>
+                            <div id="super-leadtime-mod" style="overflow-x:auto;border:1px solid #1e2a26;border-radius:8px;"></div>
+                        </div>
+                    </div>
+                    <p id="super-leadtime-note" class="text-[10px] text-slate-500 mt-3"></p>
+                </div>
+
                 <!-- Demographics -->
                 <div class="card p-5">
                     <h4 class="text-pink-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-people"></i> Patient Demographics<i class="bi bi-info-circle chart-info-icon" data-explain="sr-demo" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>

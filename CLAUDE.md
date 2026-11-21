@@ -47,7 +47,11 @@ routes/
   super_report.py               — aggregated multi-section report; page script static/js/super_report.js
                                    (2026-11-20); narrative thresholds are settings sr_* (fallbacks
                                    in _NARRATIVE_DEFAULTS); dates validated (400); tests in
-                                   tests/test_super_report.py
+                                   tests/test_super_report.py. Patient Schedule Lead Time card
+                                   (2026-11-21): Report 40's build() (utils/schedule_lead_time.py)
+                                   on the page's period, the comparison's headline beside it, a
+                                   narrative section; only the Modality filter applies (the others
+                                   are PACS study filters); links to Report 40 when it may be opened
   report_25.py                  — shift & device utilization
   report_38.py                  — Report 38, the ER dashboard (until 2026-11-14 the page /er,
                                    routes/er_dashboard.py; /er redirects): TAT, target compliance,

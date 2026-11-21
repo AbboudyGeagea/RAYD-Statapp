@@ -415,6 +415,71 @@ function render(d) {
     srRadMatrixInit(cur.rad_matrix || {});
     // Residents by their wet reads (PACS audit trail, item 8)
     srWetReads(cur.resident_wetreads || {});
+    // Patient schedule lead time (Report 40's figures)
+    srLeadTime(cur.lead_time, prev.lead_time, d);
+}
+
+// ── Patient schedule lead time (Report 40's definitions) ──────────
+function srDays(v) {
+    if (v === null || v === undefined) return '—';
+    if (Number(v) === 0) return 'Same day';
+    return `${_round(Number(v), 1)} day${Number(v) === 1 ? '' : 's'}`;
+}
+// A change badge. worseUp: a rise is bad news (longer waits, more cancellations) and reads red;
+// neutral: no colour judgement (a share of same-day bookings is neither good nor bad).
+function srChange(text, delta, {worseUp = false, neutral = false} = {}) {
+    if (delta === null || delta === undefined || !Number.isFinite(delta)) return '';
+    if (delta === 0) text = 'no change';
+    const color = neutral || delta === 0 ? '#64748b' : ((delta > 0) === worseUp ? '#f87171' : '#34d399');
+    return `<span style="font-size:9px;font-weight:700;color:${color}">${text}</span>`;
+}
+function srPts(a, b) {
+    return (a === null || a === undefined || b === null || b === undefined) ? null : _round(Number(a) - Number(b), 1);
+}
+function srLeadTime(lt, plt, d) {
+    const card = document.getElementById('super-leadtime-card');
+    if (!lt || !lt.kpi) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    const k = lt.kpi, pk = (plt && plt.kpi) || {}, ahead = lt.ahead_days || 7;
+    const pctTxt = v => (v === null || v === undefined) ? '—' : `${_round(Number(v), 1)}%`;
+    const ptsBadge = (a, b, opt) => { const p = srPts(a, b); return srChange(`${p > 0 ? '+' : ''}${p} pts`, p, opt); };
+    const medDelta = srPts(k.median_days, pk.median_days);
+    const tiles = [
+        {label: 'Appointments', val: fmt(k.exams), badge: (() => { const p = pct(k.exams, pk.exams); return srChange(`${p > 0 ? '+' : ''}${p}%`, p, {neutral: true}); })(), color: '#38bdf8'},
+        {label: 'Median lead time', val: srDays(k.median_days), badge: srChange(`${medDelta > 0 ? '+' : ''}${medDelta} day${Math.abs(medDelta) === 1 ? '' : 's'}`, medDelta, {worseUp: true}), color: '#60a5fa'},
+        {label: 'Booked the same day', val: pctTxt(k.same_day_pct), badge: ptsBadge(k.same_day_pct, pk.same_day_pct, {neutral: true}), color: '#a78bfa'},
+        {label: `Booked ${ahead}+ days ahead`, val: pctTxt(k.ahead_pct), badge: ptsBadge(k.ahead_pct, pk.ahead_pct, {neutral: true}), color: '#2dd4bf'},
+        {label: 'Cancelled', val: pctTxt(k.cancelled_pct), badge: ptsBadge(k.cancelled_pct, pk.cancelled_pct, {worseUp: true}), color: '#f87171'},
+        {label: 'Scheduled more than once', val: pctTxt(k.rescheduled_pct), badge: ptsBadge(k.rescheduled_pct, pk.rescheduled_pct, {worseUp: true}), color: '#f59e0b'},
+    ];
+    document.getElementById('super-leadtime-tiles').innerHTML = tiles.map(t => `<div class="bg-[#141a17] rounded-xl p-4 border border-[#28332e]">
+        <p class="text-[10px] font-black uppercase tracking-widest mb-1" style="color:${t.color}">${t.label}</p>
+        <p class="text-2xl font-black text-white font-mono">${t.val}</p>
+        <p style="min-height:12px">${t.badge}</p></div>`).join('');
+
+    // "booked after the appointment" only when there is one
+    const buckets = (lt.buckets || []).filter(b => b.key !== 'after' || b.exams), total = buckets.reduce((s, b) => s + (b.exams || 0), 0);
+    document.getElementById('super-leadtime-buckets').innerHTML = total ? buckets.map(b => {
+        const share = Math.round(b.exams / total * 100), late = b.key === 'after';
+        return `<div class="flex items-center gap-2 text-xs">
+            <span class="w-44 shrink-0 ${late ? 'text-amber-400' : 'text-slate-300'} font-bold">${escHtml(b.label)}</span>
+            <div class="flex-1 bg-[#28332e] rounded-full h-1.5"><div class="h-1.5 rounded-full" style="width:${share}%;background:${late ? '#f59e0b' : '#38bdf8'}"></div></div>
+            <span class="text-slate-400 w-24 text-right shrink-0">${fmt(b.exams)} <span class="text-slate-600">(${share}%)</span></span></div>`;
+    }).join('') : '<p class="text-slate-600 text-xs">No RIS appointment in this period.</p>';
+
+    const rows = lt.by_modality || [];
+    const th = (s, left) => `<th style="padding:6px 8px;text-align:${left ? 'left' : 'right'};color:#64748b;font-size:9px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">${s}</th>`;
+    const td = (s, left, strong) => `<td style="padding:5px 8px;text-align:${left ? 'left' : 'right'};color:${strong ? '#e2e8f0' : '#cbd5e1'};${strong ? 'font-weight:700;' : ''}white-space:nowrap;">${s}</td>`;
+    document.getElementById('super-leadtime-mod').innerHTML = rows.length
+        ? `<table style="width:100%;border-collapse:collapse;font-size:11px;"><thead style="background:#1a2420;"><tr>${th('Modality', true)}${th('Appointments')}${th('Median')}${th('9 in 10 within')}${th('Same day')}${th(ahead + '+ days')}${th('Cancelled')}</tr></thead><tbody>${
+            rows.map(r => `<tr style="border-top:1px solid #1e2a26;">${td(escHtml(r.value), true, true)}${td(fmt(r.exams))}${td(srDays(r.median_days))}${td(srDays(r.p90_days))}${td(pctTxt(r.same_day_pct))}${td(pctTxt(r.ahead_pct))}${td(pctTxt(r.cancelled_pct))}</tr>`).join('')}</tbody></table>`
+        : '<p class="text-slate-600 text-xs" style="padding:8px">No data</p>';
+
+    const notes = [`RIS appointments from ${escHtml($start().value || '')} to ${escHtml($end().value || '')}: from the order's creation on the RIS to the appointment, in days. Changes against ${escHtml(d.cmp_start)} → ${escHtml(d.cmp_end)}.`];
+    if (k.after) notes.push(`${fmt(k.after)} booked after the appointment (registered afterwards) are counted aside, not in the lead times.`);
+    notes.push(lt.modality_filter ? 'The Modality filter applies here; the other filters on the left are the PACS study\'s and do not.'
+                                  : 'Of the filters on the left, only Modality applies here (the others are the PACS study\'s).');
+    document.getElementById('super-leadtime-note').innerHTML = notes.join(' ');
 }
 
 // ── Wet reads per resident ────────────────────────────────────────

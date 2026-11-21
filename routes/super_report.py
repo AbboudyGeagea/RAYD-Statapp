@@ -38,6 +38,7 @@ def super_report_page():
     # Opens on the report start date (settings, migration 0149), as every report does;
     # it used to open on the last 30 days.
     from db import get_report_start_date
+    from utils.roles import can_open_report
 
     start = get_report_start_date()
     return render_template(
@@ -46,6 +47,8 @@ def super_report_page():
         start=start.isoformat() if start else "",
         end=datetime.now().date().isoformat(),
         panel=_panel(),
+        # the lead time card links to Report 40 for whoever may open it
+        lead_time_report=can_open_report(current_user, 40),
     )
 
 
@@ -1370,7 +1373,51 @@ def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
         "resident_wetreads": (
             _get_resident_wetreads(where, params, mj, pj) if include_rollups else None
         ),
+        # both periods: the comparison's headline gives the card's and the narrative's changes
+        "lead_time": _get_lead_time(start, end, filters, full=include_rollups),
     }
+
+
+# The lead time card's tables: the modalities and patient classes with the most appointments.
+LEAD_TIME_ROWS = 12
+
+
+def _get_lead_time(start, end, filters, full=True):
+    """Patient schedule lead time (operator 2026-11-21: "add patient lead time to super
+    report"), with Report 40's own definitions (utils/schedule_lead_time.py): the RIS exams
+    whose appointment falls in the period, from the order's creation on the RIS to the
+    appointment, in calendar days; booked after the appointment counted aside; cancelled and
+    scheduled more than once. Of the page's filters only Modality applies: the others are the
+    PACS study's (its patient class codes, physicians, statuses), which the RIS writes
+    differently. full=False (the comparison period): the headline only. None when it cannot be
+    worked out (the rest of the page still answers)."""
+    from utils import schedule_lead_time as slt
+
+    try:
+        d_start = datetime.strptime(start, "%Y-%m-%d").date()
+        d_end = datetime.strptime(end, "%Y-%m-%d").date()
+        chosen = {"modality": set(filters["modality"])} if filters.get("modality") else None
+        _cases, summary = slt.build(d_start, d_end, chosen)
+    except Exception:
+        logger.exception("lead time not computed")
+        db.session.rollback()
+        return None
+    out = {"kpi": summary["kpi"], "ahead_days": slt.AHEAD_DAYS}
+    if full:
+        out["buckets"] = summary["buckets"]
+        out["by_modality"] = summary["breakdowns"]["modality"]["rows"][:LEAD_TIME_ROWS]
+        out["by_class"] = summary["breakdowns"]["patient_class"]["rows"][:LEAD_TIME_ROWS]
+        out["modality_filter"] = bool(chosen)
+    return out
+
+
+def _days(v):
+    """A lead time in words: 'the same day', '1 day', '2.5 days'."""
+    if v is None:
+        return "—"
+    if v == 0:
+        return "the same day"
+    return f"{v:g} day" + ("" if v == 1 else "s")
 
 
 def _get_resident_wetreads(where, params, mj, pj):
@@ -1787,6 +1834,49 @@ def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, cmp_days):
         }
     )
 
+    # ── Patient lead time (Report 40's definitions) ───────────
+    lt_k = (cur.get("lead_time") or {}).get("kpi") or {}
+    lt_pk = (prev.get("lead_time") or {}).get("kpi") or {}
+    if lt_k.get("exams"):
+        ahead = (cur.get("lead_time") or {}).get("ahead_days", 7)
+        lead_bullets = [
+            f"Exams were booked a median of {_days(lt_k.get('median_days'))} before the appointment"
+            + (
+                f" ({_days(lt_pk.get('median_days'))} in the prior period)"
+                if lt_pk.get("median_days") is not None
+                else ""
+            )
+            + f", over {_fmt(lt_k['exams'])} appointments"
+        ]
+        if lt_k.get("same_day_pct") is not None:
+            lead_bullets.append(
+                f"{lt_k['same_day_pct']:g}% booked the same day, {lt_k['ahead_pct']:g}% "
+                f"{ahead} days or more ahead; 9 in 10 within {_days(lt_k.get('p90_days'))}"
+            )
+        if lt_k.get("cancelled_pct") is not None:
+            lead_bullets.append(
+                f"{lt_k['cancelled_pct']:g}% cancelled, {lt_k['rescheduled_pct']:g}% scheduled more than once"
+            )
+        busy = [
+            r
+            for r in (cur.get("lead_time") or {}).get("by_modality") or []
+            if r.get("median_days") is not None and r["exams"] >= 20
+        ]
+        if busy:
+            longest = max(busy, key=lambda r: (r["median_days"], r["exams"]))
+            lead_bullets.append(
+                f"Longest wait: {longest['value']}, booked a median of {_days(longest['median_days'])} ahead "
+                f"({_fmt(longest['exams'])} appointments)"
+            )
+        sections.append(
+            {
+                "icon": "bi-calendar-check",
+                "color": "#38bdf8",
+                "title": "Patient Lead Time",
+                "bullets": lead_bullets,
+            }
+        )
+
     # ── Storage ───────────────────────────────────────────────
     storage_bullets = []
     storage_bullets.append(
@@ -1827,6 +1917,10 @@ def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, cmp_days):
     if images_chg is not None:
         comp_bullets.append(
             f"Images acquired: {_trend(images_chg)} at {_fp(images_chg)}"
+        )
+    if lt_k.get("median_days") is not None and lt_pk.get("median_days") is not None:
+        comp_bullets.append(
+            f"Median booking lead time: {_days(lt_pk['median_days'])} → {_days(lt_k['median_days'])}"
         )
     if comp_bullets:
         comp_bullets.insert(

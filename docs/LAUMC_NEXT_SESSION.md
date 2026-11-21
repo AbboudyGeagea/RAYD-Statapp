@@ -7,7 +7,18 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 
 ---
 
-## Where we stopped (2026-11-21, afternoon) — START HERE in a new session
+## Where we stopped (2026-11-21, evening) — START HERE in a new session
+
+**21 Nov evening.** The operator approved the Report Composer and the after-hours report, set SJH's
+mail server, and reports the SJH move finished: **validate it** (13-V in the table). Built: the
+Super Report's **Patient Schedule Lead Time** card (operator: "add patient lead time to super
+report"): Report 40's `build()` on the page's period: tiles (appointments, median lead time,
+booked the same day, booked 7+ days ahead, cancelled, scheduled more than once) with the change
+against the comparison period (red when waits or cancellations grow), how far ahead the exams were
+booked, a table by modality, a "Patient Lead Time" section in the Executive Summary and a line in
+its Period Comparison; only the Modality filter applies (the others are the PACS study's); a link
+to Report 40 for whoever may open it. Tests in `tests/test_super_report.py`. Item 14's rest is
+listed in the table.
 
 **The Report Composer as a sentence (operator, 21 Nov: "sorry to tell you this, but report composer
 is still not user friendly"; what bothered: the pivot words and not knowing where to start; who
@@ -106,24 +117,26 @@ fixes; update.sh refuses while a move runs). Confirm with
 `cd /opt/rayd && git log --oneline -1 && sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 4;"`
 (expect 0180 on top).
 
-**Pending table (21 Nov afternoon)** — show it, kept current, at the end of each reply:
+**Pending table (21 Nov evening)** — show it, kept current, at the end of each reply:
 
 | # | Item | Status |
 |---|------|--------|
-| **New** | **Report Composer as a sentence** (21 Nov afternoon, replaces the pivot builder) | Built and tested; deploy, then the operator tries it |
-| **New** | Report Composer: the customer's after-hours report ("After hours only" is now one click) | Waiting on the operator: what to count and by what; production's PACS times (query above) |
+| **New** | Super Report: Patient Schedule Lead Time card (Report 40's figures, comparison, narrative section) | Built and tested 21 Nov evening; next deploy |
+| 13-V | Validate SJH after the move: the move log (DONE, no CHECK), per-table counts on both databases, RH's October reports unchanged, SJH's October reports, the first nightly ETL after the move (SJH's new rows in SJH's database, none on RH) | Operator running the checks (commands in the 21 Nov evening reply) |
+| 14 | Radiologists TAT revamp, the rest: Report 25's TAT duplicates out; per-resident threshold bands (exam done → wet read, → approved; per modality and patient class; adjustable); reports per radiologist per day per modality (Report 32); validation against Oracle on random dates. Done earlier: 14A/14B signature turnaround from the PACS audit trail (17 Nov), moved to Report 36 (19 Nov); item 8 wet reads per resident | Planned for December; the operator may bring it forward (deadline 30 Nov) |
 | 1 | HIS vs RIS: 19 Nov MRI on Report 27's HIS tab (query in the 20 Nov morning checklist below) | Waiting on the operator (booked room closed: 1,472 / 1,472) |
 | — | Deployed 20 Nov ~23:00 (9e5305fd: Composer revamp, days and times, copy fixes). Open the Super Report, Report AI, Report 27 (Peak Hours), the Report Composer | Done; checks when convenient |
 | 17 | BRAYN: per-modality breakdown (query in item 17, "The breakdown") → mark arrival/start not expected where the RIS never sends them → operator switches on the stall rules (ORPHAN_ORDER suggested off); the 7 approved-without-report accessions to Mirth | Waiting on the operator |
 | **SJH DB preparation** (parked, separate task, after the revamp) | | |
 | 13-1…13-6 | Old timer stopped, SJH off, partial copy dropped, deploy, `check`, `copy` | Done 20–21 Nov: copy verified 01:28, 177,949 studies, nothing deleted from RH |
-| 13-7 | SJH's reports on a past period (October): Report 22 and the Super Report side by side (account holding both sites); note RH's figures for the same period | Saturday |
-| 13-8a | Deploy the key-set and check fixes before the move (`_missing_sql` in the container) | 21 Nov: the operator's first try did not reach the move (newest log was still the copy's); the one-line rerun (stop timer, deploy if needed, `systemd-run … sjh_move.sh move`, tail) given 21 Nov afternoon |
-| 13-8 | `sudo bash /opt/rayd/scripts/sjh_move.sh move` (one `--move`: copies what is new, verifies, deletes from RH), as `systemd-run --unit=rayd-sjh-move-HHMM` (operator: now, no timer) | Running or about to; done when the log ends "DONE (move)" |
-| 13-9 | SJH's mail server (SJH in the header → Administration → Email Server) | After 13-8 |
+| 13-7 | SJH's reports on a past period (October): Report 22 and the Super Report side by side (account holding both sites); RH's figures for the same period | Part of 13-V |
+| 13-8a, 13-8 | Deploy the fixes, then the move (`systemd-run … sjh_move.sh move`, operator: now, no timer) | Operator: finished 21 Nov ("i guess SJH is finished"); confirmed by 13-V |
 | 4, 9, 37 | Open items (below) | Later |
 | 21, 33, 35 | Operator checks (below) | Waiting on the operator |
-| 14 | Radiologists TAT revamp, the rest | December |
+
+Closed 21 Nov (operator): SJH's mail server set (13-9); the Report Composer as a sentence approved;
+the customer's after-hours report approved (built in the Report Composer); the footer reads
+"Product of curehealthtech.com" (5ffc3786).
 
 Closed 20 Nov: floor plan (data dropped by 0179, images removed on the server); item 1's booked
 room; BRAYN unidentified 0 / FUTURE_EVENT 0 / UNREPORTED 32 real. Why the 20 Nov SJH copies

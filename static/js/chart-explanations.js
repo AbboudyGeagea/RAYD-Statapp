@@ -715,6 +715,24 @@ const ChartExplanations = {
       valueMeaning: 'Each study counts once, for the resident whose wet read came first, from the PACS audit trail (every wet read with its login and time). A resident is a member of the PACS "residents" group. Only studies that reached PACS since the audit copy began (1 October 2026) can count, within the dates and filters chosen. Staff who left show as "Former staff" while that setting is on.',
       interpretation: 'This is residents\' reading work, which the radiologist table above does not show (it credits the radiologist who approved). Compare residents over the same period and modalities.'
     },
+    'sr-leadtime': {
+      title: 'Patient Schedule Lead Time',
+      purpose: 'How long ahead patients get their appointment: from the moment the exam is booked on the RIS to the appointment itself, for the RIS appointments in the period. The same figures as Report 40, which has every breakdown (procedure, room, department, referrer, booking hours) and the exams in Excel.',
+      valueMeaning: 'Lead time = appointment day minus booking day, in calendar days (0 = booked the same day). The median is the middle exam: half were booked closer to the appointment, half further ahead. Cancelled = cancelled on the RIS; scheduled more than once = booked again for another time. An exam registered after its appointment (a walk-in entered afterwards) is counted aside and left out of the lead times. The small figures under each tile compare with the comparison period: days for the median, points for the percentages; red when waits or cancellations grow.',
+      interpretation: 'A longer median means patients wait longer for a slot; read it with the modality table, because one busy modality (often MR) sets most of the wait. Of the filters on the left only Modality applies here: the others describe the PACS study, which the RIS records differently.'
+    },
+    'sr-leadtime-buckets': {
+      title: 'How far ahead the exams were booked',
+      purpose: 'The appointments of the period by how far ahead they were booked: the same day, the next day, 2–3 days, up to over 60 days.',
+      valueMeaning: 'Each bar is the share of the appointments in that band, with the count beside it. "Booked after the appointment" (amber) are exams registered on the RIS after their appointment time, usually walk-ins.',
+      interpretation: 'Most same-day bookings are walk-ins, inpatients and emergencies; a long tail past 30 days points at a modality or room with too few slots.'
+    },
+    'sr-leadtime-table': {
+      title: 'Lead time by modality',
+      purpose: 'The lead time figures for each modality, the busiest first.',
+      valueMeaning: 'Appointments in the period; the median lead time; "9 in 10 within" = 90 % of the exams were booked no further ahead than this; the share booked the same day, booked a week or more ahead, and cancelled.',
+      interpretation: 'Compare modalities with a similar number of appointments. Report 40 breaks the same figures down by procedure, room, ordering department and referring physician.'
+    },
 
     // Report 36: the radiologists' reading TAT (the KPI) and the three-clock comparison
     'r36-reading-kpi': {
