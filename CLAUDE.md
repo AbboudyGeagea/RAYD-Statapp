@@ -121,22 +121,31 @@ routes/
                                    name, which must appear nowhere, on any branch (see
                                    tests/test_report_composer_name.py). Tables, code and API paths
                                    still say worklist. "Worklist" in a RIS sense stays as it is.
-                                   Revamped 2026-11-20 (operator's spec, points 1-4): the reports'
-                                   frame (left panel .rfp: report, what to count, date range, each
-                                   dataset's `pinned` filters as Select2 dropdowns whose values carry
-                                   their row count in the last year, "Add filter" for the rest,
-                                   Generate, CSV; result in cards), the SQL in a drawer behind the
-                                   SQL button, page script static/js/report_composer.js, one example
-                                   report left (migration 0181). Every date filter also takes days
-                                   and times (windows of days, from → to, through midnight:
-                                   engine._windows_sql), for after-hours reports. A pivot builder
-                                   since 2026-11-21 (operator: "more flexible"): field list (drag or
-                                   menu) onto Filters / Rows (output.rows = up to 4 groupings, a
-                                   string before) / Columns / Values; table, list, bar, stacked,
-                                   line, pie, heatmap (output.chart); live runs; sortable result
-                                   with move/hide; drill-down /worklists/api/drill
-                                   (compile_definition(drill=...): the cell's grouping expressions
-                                   as criteria).
+                                   One example report left (migration 0181). Every date filter also
+                                   takes days and times (windows of days, from → to, through
+                                   midnight: engine._windows_sql), for after-hours reports.
+                                   WRITTEN AS A SENTENCE since 2026-11-21 (operator: the left panel
+                                   of 11-20 and the pivot builder that followed were "still not user
+                                   friendly", spreadsheet words, no clear start; "even myself"):
+                                   a start screen ("What do you want to know?": a tile per dataset
+                                   with one-click questions, then the saved reports), then
+                                   "Show [number of exams] for each [Room] and [Month] during [last
+                                   month], [after hours only] using the [Scheduled for] date where
+                                   [Patient type is Emergency]", each blue word clicked to change it
+                                   (no field list, no drag and drop, no Rows/Columns/Values words);
+                                   the answer right below, live; views table / bars / stacked / line
+                                   / pie / heatmap / list. "for each" = output.rows (+ output.cols
+                                   when the last grouping goes across the top: a chart's colours, a
+                                   heatmap, a table when "Put … across the top" is ticked; up to 4).
+                                   The period is the criterion of the date "used" (WHEN in the
+                                   script), its days and times that criterion's windows, with
+                                   one-click choices: weekdays, weekends, after hours (the
+                                   customer's: Mon-Fri 19:00 → 07:00, Sat 13:00 → Mon 07:00), day
+                                   hours. More (…): save a copy, name / folder / sharing, versions,
+                                   scheduled emails, the SQL drawer, delete. Drill-down
+                                   /worklists/api/drill (compile_definition(drill=...): the cell's
+                                   grouping expressions as criteria). Page script
+                                   static/js/report_composer.js; the definition format is unchanged.
                                    REPLACED Custom Reports (custom_reports.py,
                                    report_widgets.py and 3 templates removed; same licence key +
                                    page permission `custom_reports`; /reports/custom redirects).

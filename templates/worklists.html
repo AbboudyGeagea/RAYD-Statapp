@@ -9,11 +9,13 @@
     <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    {# The reports' left panel look (rfp-*), jQuery and Select2, so the dropdowns are the same #}
+    {# The reports' look (rfp-*), jQuery and Select2, so the value dropdowns are the same #}
     {{ filter_panel_head() }}
     <style>
-        /* Report Composer as a pivot builder (operator, 2026-11-21: "more flexible"): a field list
-           on the left; Filters / Rows / Columns / Values bars; the result, live, below. The
+        /* Report Composer as a sentence (operator, 2026-11-21: the pivot builder was "still not
+           user friendly", its words were a spreadsheet's and a new report did not say where to
+           start). A start screen ("What do you want to know?"), then the report read as one
+           sentence whose words are clicked to change them; the answer right below. The
            reports' colours (Report 40, the Super Report). */
         :root {
             --rc-bg: #181f1c; --rc-card: #232b28; --rc-panel: #1a2420; --rc-line: #28332e; --rc-input: #181f1c;
@@ -33,7 +35,7 @@
         /* The body keeps the shell's light ink (the app sidebar stays dark in both themes); the
            page's own areas take the theme's. */
         body { font-family: 'Inter', system-ui, sans-serif; background: var(--rc-bg); color: #e2e8f0; }
-        main, .rc-panel, .rc-drawer, #modal, #rc-pop, .rc-toast { color: var(--rc-fg); }
+        main, .rc-drawer, #modal, #rc-pop, .rc-toast { color: var(--rc-fg); }
         body.light main { background: var(--rc-bg) !important; }
         .sidebar-item { transition: all 0.2s; border-radius: 0.75rem; margin-bottom: 0.25rem; cursor: pointer; text-decoration: none !important; color: #94a3b8; }
         .sidebar-item:hover { background: #1d2522; color: #60a5fa !important; }
@@ -48,134 +50,143 @@
         .rc-icon { border: 0; background: none; color: var(--rc-faint); cursor: pointer; padding: 0 3px; font-size: 12px; line-height: 1; }
         .rc-icon:hover { color: var(--rc-fg); }
         .rc-icon.danger:hover { color: var(--rc-bad); }
-
-        /* ── Left: report, what to count, the field list ────────────────────── */
-        .rc-panel { width: 17.5rem; }
-        .rc-panel .rfp-label { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-        .rc-panel select.rfp-input { appearance: auto; }
-        .rc-panel .rfp-input.missing { border-color: var(--rc-bad) !important; box-shadow: 0 0 0 2px rgba(248,113,113,.18); }
-        .rc-mini { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
-        .rc-mini button { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 8px; padding: 5px 0; font-size: 11px; font-weight: 700; color: var(--rc-muted); cursor: pointer; }
-        .rc-mini button:hover:not(:disabled) { color: var(--rc-fg); border-color: var(--rc-accent); }
-        .rc-mini button:disabled { opacity: .4; cursor: not-allowed; }
-        .rc-mini button.danger:hover:not(:disabled) { color: var(--rc-bad); border-color: var(--rc-bad); }
-        .rc-fields { flex: 1; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
-        .rc-fgroup + .rc-fgroup { margin-top: 2px; }
-        .rc-fhead { width: 100%; display: flex; align-items: center; gap: 6px; border: 0; background: none; cursor: pointer; padding: 7px 2px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: var(--rc-faint); }
-        .rc-fhead:hover { color: var(--rc-fg); }
-        .rc-fhead .n { margin-left: auto; font-weight: 700; letter-spacing: 0; }
-        .rc-fhead i { transition: transform .15s; }
-        .rc-fgroup[data-open="false"] .rc-fhead i { transform: rotate(-90deg); }
-        .rc-fgroup[data-open="false"] .rc-fitems { display: none; }
-        .rc-fitem { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 8px; font-size: 12px; cursor: grab; user-select: none; color: var(--rc-fg); }
-        .rc-fitem:hover { background: var(--rc-hover); }
-        .rc-fitem > i { color: var(--rc-faint); font-size: 12px; width: 14px; text-align: center; flex: none; }
-        .rc-fitem .l { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .rc-fitem .tags { display: flex; gap: 3px; flex: none; }
-        .rc-fitem .tag { font-size: 9px; font-weight: 900; text-transform: uppercase; border-radius: 4px; padding: 0 4px; background: var(--rc-soft); color: var(--rc-accent); }
-        .rc-fitem .more { opacity: 0; }
-        .rc-fitem:hover .more, .rc-fitem:focus-within .more { opacity: 1; }
-        .rc-fitem.dragging { opacity: .4; }
-
-        /* ── Header ──────────────────────────────────────────────────────────── */
-        .rc-title { field-sizing: content; min-width: 14ch; max-width: 100%; width: 100%; background: transparent; border: 0; border-bottom: 2px solid transparent; outline: none; font-size: 1.5rem; font-weight: 900; letter-spacing: -.01em; color: var(--rc-strong); padding: 0 0 2px; }
-        @supports (field-sizing: content) { .rc-title { width: auto; } }
-        .rc-title:hover { border-bottom-color: var(--rc-line); }
-        .rc-title:focus { border-bottom-color: var(--rc-accent); }
-        .rc-title::placeholder { color: var(--rc-faint); }
-        .rc-title.missing { border-bottom-color: var(--rc-bad); }
-        .rc-desc { background: transparent; border: 0; border-bottom: 1px solid transparent; outline: none; width: 100%; font-size: 13px; color: var(--rc-muted); padding: 2px 0; }
-        .rc-desc:hover { border-bottom-color: var(--rc-line); }
-        .rc-desc:focus { border-bottom-color: var(--rc-accent); }
-        .rc-desc::placeholder { color: var(--rc-faint); }
-        .rc-meta { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 8px; font-size: 12px; color: var(--rc-faint); }
-        .rc-seg { display: inline-flex; border: 1px solid var(--rc-line); border-radius: 8px; overflow: hidden; background: var(--rc-input); flex-wrap: wrap; }
-        .rc-seg button { border: 0; background: transparent; padding: 6px 12px; cursor: pointer; font-size: 12px; font-weight: 700; color: var(--rc-muted); display: inline-flex; align-items: center; gap: 5px; }
-        .rc-seg button + button { border-left: 1px solid var(--rc-line); }
-        .rc-seg button[aria-pressed="true"] { background: var(--rc-primary); color: #fff; }
-        .rc-seg button:disabled { opacity: .4; cursor: not-allowed; }
-        .rc-meta .rc-seg button { padding: 4px 10px; font-size: 11px; }
-        .rc-folder { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rc-line); border-radius: 8px; padding: 0 8px; background: var(--rc-input); }
-        .rc-folder input { background: transparent; border: 0; outline: none; width: 9rem; padding: 4px 0; font-size: 12px; color: var(--rc-fg); }
-        .rc-meta select { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 8px; padding: 4px 6px; font-size: 12px; color: var(--rc-fg); }
-        .rc-status.dirty { color: var(--rc-warn); font-weight: 700; }
-        .rc-missing { color: var(--rc-bad); font-weight: 700; }
         .rc-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rc-line); background: var(--rc-card); color: var(--rc-muted); border-radius: 10px; padding: 8px 13px; font-size: 12px; font-weight: 800; cursor: pointer; white-space: nowrap; }
         .rc-btn:hover:not(:disabled) { color: var(--rc-fg); border-color: var(--rc-accent); }
         .rc-btn:disabled { opacity: .4; cursor: not-allowed; }
         .rc-btn.primary { background: var(--rc-primary); border-color: var(--rc-primary); color: #fff; }
         .rc-btn.primary:hover:not(:disabled) { background: #3b82f6; color: #fff; }
-        .rc-btn.ghost { background: transparent; border-color: transparent; color: var(--rc-faint); padding: 8px 9px; }
+        .rc-btn.ghost { background: transparent; border-color: transparent; color: var(--rc-muted); }
         .rc-btn.ghost:hover:not(:disabled) { border-color: var(--rc-line); color: var(--rc-fg); }
         .rc-btn.small { padding: 5px 10px; font-size: 11px; }
-        .rc-live { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: var(--rc-faint); cursor: pointer; padding: 0 6px; }
-        .rc-live input { appearance: none; width: 30px; height: 17px; border-radius: 999px; background: var(--rc-line); position: relative; cursor: pointer; transition: background .15s; }
-        .rc-live input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #fff; transition: left .15s; }
-        .rc-live input:checked { background: var(--rc-good); }
-        .rc-live input:checked::after { left: 15px; }
-        .rc-live input:checked + span { color: var(--rc-good); }
+        .rc-seg { display: inline-flex; border: 1px solid var(--rc-line); border-radius: 8px; overflow: hidden; background: var(--rc-input); flex-wrap: wrap; }
+        .rc-seg button { border: 0; background: transparent; padding: 6px 12px; cursor: pointer; font-size: 12px; font-weight: 700; color: var(--rc-muted); display: inline-flex; align-items: center; gap: 5px; }
+        .rc-seg button + button { border-left: 1px solid var(--rc-line); }
+        .rc-seg button[aria-pressed="true"] { background: var(--rc-primary); color: #fff; }
+        .rc-seg button:disabled { opacity: .4; cursor: not-allowed; }
 
-        /* ── The builder: Show as, then one bar per zone ─────────────────────── */
-        .rc-zones { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: 8px 12px; align-items: center; }
-        .rc-zlabel { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: var(--rc-faint); display: flex; align-items: center; gap: 4px; }
-        .rc-zone { min-height: 38px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 6px; border: 1px dashed var(--rc-line); border-radius: 10px; transition: border-color .12s, background .12s; }
-        .rc-zone.over { border-color: var(--rc-accent); background: var(--rc-soft); }
-        .rc-zone.refuse { border-color: var(--rc-bad); }
-        .rc-zone .empty { font-size: 11px; color: var(--rc-faint); padding: 0 4px; }
-        .rc-chipz { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(96,165,250,.4); background: var(--rc-soft); color: var(--rc-fg); border-radius: 8px; padding: 4px 6px 4px 9px; font-size: 12px; max-width: 100%; cursor: grab; }
-        .rc-chipz b { color: var(--rc-accent); font-weight: 800; }
-        .rc-chipz .t { border: 0; background: none; color: inherit; cursor: pointer; padding: 0; display: inline-flex; gap: 6px; align-items: baseline; max-width: 30rem; font: inherit; }
-        .rc-chipz .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .rc-chipz .x { border: 0; background: none; color: var(--rc-faint); cursor: pointer; width: 18px; height: 18px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; }
-        .rc-chipz .x:hover { color: var(--rc-bad); background: rgba(248,113,113,.12); }
-        .rc-chipz select { background: transparent; border: 0; color: var(--rc-accent); font-size: 11px; font-weight: 800; outline: none; cursor: pointer; }
-        .rc-chipz select option { background: var(--rc-card); color: var(--rc-fg); }
-        .rc-chipz.ghost { border-style: dashed; border-color: var(--rc-line); background: transparent; color: var(--rc-muted); cursor: pointer; padding: 4px 9px; }
-        .rc-chipz.ghost:hover { border-color: var(--rc-accent); color: var(--rc-fg); }
-        .rc-chipz.ask { border-color: rgba(245,158,11,.5); background: rgba(245,158,11,.10); }
-        .rc-chipz.ask b { color: var(--rc-warn); }
-        .rc-chipz.dragging { opacity: .4; }
-        .rc-zadd { border: 1px dashed var(--rc-line); background: transparent; color: var(--rc-accent); border-radius: 8px; padding: 4px 9px; font-size: 11px; font-weight: 800; cursor: pointer; }
-        .rc-zadd:hover { border-color: var(--rc-accent); background: var(--rc-soft); }
-        .rc-zsort { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 11px; color: var(--rc-faint); }
-        .rc-zsort select { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 6px; padding: 3px 6px; font-size: 11px; color: var(--rc-fg); }
+        /* ── Start: what do you want to know? ────────────────────────────────── */
+        .rc-start { max-width: 1180px; margin: 0 auto; }
+        .rc-start h1 { font-size: 1.75rem; font-weight: 900; color: var(--rc-strong); letter-spacing: -.01em; display: flex; align-items: center; gap: 6px; }
+        .rc-start .lead { font-size: 14px; color: var(--rc-muted); margin-top: 4px; }
+        .rc-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 20px; }
+        .rc-tile { background: var(--rc-card); border: 1px solid var(--rc-line); border-radius: 1.1rem; display: flex; flex-direction: column; transition: border-color .12s, transform .12s; }
+        .rc-tile:hover { border-color: var(--rc-accent); }
+        .rc-tile-main { text-align: left; border: 0; background: none; color: var(--rc-fg); cursor: pointer; padding: 16px 16px 10px; display: flex; flex-direction: column; gap: 6px; flex: 1; border-radius: 1.1rem 1.1rem 0 0; }
+        .rc-tile-main i { font-size: 22px; color: var(--rc-accent); }
+        .rc-tile-main b { font-size: 15px; font-weight: 900; color: var(--rc-strong); }
+        .rc-tile-main span { font-size: 12px; color: var(--rc-muted); line-height: 1.45; }
+        .rc-tile-ex { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 4px; }
+        .rc-tile-ex button { text-align: left; border: 0; background: none; color: var(--rc-accent); cursor: pointer; padding: 0; font-size: 12px; font-weight: 700; }
+        .rc-tile-ex button:hover { text-decoration: underline; }
+        .rc-tile-ex button::before { content: '→ '; }
+        .rc-saved-head { display: flex; align-items: center; gap: 12px; margin-top: 34px; flex-wrap: wrap; }
+        .rc-saved-head h2 { font-size: 1.05rem; font-weight: 900; color: var(--rc-strong); }
+        .rc-saved-head input { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 10px; padding: 7px 11px; font-size: 13px; color: var(--rc-fg); outline: none; width: 18rem; max-width: 100%; }
+        .rc-saved-head input:focus { border-color: var(--rc-accent); }
+        .rc-saved-group { margin-top: 14px; }
+        .rc-saved-group h3 { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; color: var(--rc-faint); margin-bottom: 8px; }
+        .rc-saved-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+        .rc-saved-item { text-align: left; border: 1px solid var(--rc-line); background: var(--rc-card); border-radius: 12px; padding: 11px 13px; cursor: pointer; color: var(--rc-fg); display: flex; flex-direction: column; gap: 3px; }
+        .rc-saved-item:hover { border-color: var(--rc-accent); }
+        .rc-saved-item b { font-size: 13px; font-weight: 800; color: var(--rc-strong); }
+        .rc-saved-item .d { font-size: 12px; color: var(--rc-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rc-saved-item .m { font-size: 11px; color: var(--rc-faint); }
 
-        /* ── Popovers: a filter's editor, a field's menu, the column picker ──── */
-        #rc-pop { position: fixed; z-index: 65; width: 360px; max-width: calc(100vw - 24px); max-height: calc(100vh - 40px); overflow-y: auto; background: var(--rc-card); border: 1px solid var(--rc-line); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.45); padding: 14px; }
-        #rc-pop.menu { width: 230px; padding: 6px; }
+        /* ── The report: title bar ───────────────────────────────────────────── */
+        .rc-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+        .rc-titlebox { flex: 1; min-width: 16rem; display: flex; align-items: center; gap: 6px; }
+        .rc-title { field-sizing: content; min-width: 12ch; max-width: 100%; width: 100%; background: transparent; border: 0; border-bottom: 2px solid transparent; outline: none; font-size: 1.45rem; font-weight: 900; letter-spacing: -.01em; color: var(--rc-strong); padding: 0 0 2px; }
+        @supports (field-sizing: content) { .rc-title { width: auto; } }
+        .rc-title:hover { border-bottom-color: var(--rc-line); }
+        .rc-title:focus { border-bottom-color: var(--rc-accent); }
+        .rc-title::placeholder { color: var(--rc-faint); }
+        .rc-status { font-size: 11px; color: var(--rc-faint); white-space: nowrap; }
+        .rc-status.dirty { color: var(--rc-warn); font-weight: 800; }
+
+        /* ── The sentence: each blank is clicked to change it ────────────────── */
+        .rc-sentence-info { position: absolute; top: 12px; right: 14px; }
+        .rc-sentence { position: relative; padding: 16px 40px 16px 20px; display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 10px 14px; align-items: center; }
+        .rc-word { font-size: 14px; font-weight: 700; color: var(--rc-muted); text-align: right; }
+        .rc-slot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-height: 34px; font-size: 14px; }
+        .rc-slot .and { color: var(--rc-faint); font-size: 13px; }
+        .rc-blank { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(96,165,250,.38); background: var(--rc-soft); color: var(--rc-strong); border-radius: 9px; padding: 5px 7px 5px 11px; font-size: 14px; font-weight: 700; max-width: 100%; }
+        .rc-blank > .t { border: 0; background: none; color: inherit; font: inherit; cursor: pointer; padding: 0; display: inline-flex; align-items: center; gap: 6px; min-width: 0; text-align: left; }
+        .rc-blank > .t > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34rem; }
+        .rc-blank > .t > i { font-size: 11px; color: var(--rc-accent); }
+        .rc-blank .k { color: var(--rc-muted); font-weight: 600; }
+        .rc-blank .x { border: 0; background: none; color: var(--rc-faint); cursor: pointer; width: 20px; height: 20px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; }
+        .rc-blank .x:hover { color: var(--rc-bad); background: rgba(248,113,113,.12); }
+        .rc-blank select { background: transparent; border: 0; color: var(--rc-strong); font: inherit; font-weight: 700; outline: none; cursor: pointer; padding: 0; }
+        .rc-blank select option { background: var(--rc-card); color: var(--rc-fg); }
+        .rc-blank.quiet { border-style: dashed; border-color: var(--rc-line); background: transparent; color: var(--rc-muted); font-weight: 600; }
+        .rc-blank.ask { border-color: rgba(245,158,11,.5); background: rgba(245,158,11,.10); }
+        .rc-blank.dim { opacity: .5; }
+        .rc-add { border: 1px dashed var(--rc-line); background: transparent; color: var(--rc-accent); border-radius: 9px; padding: 5px 11px; font-size: 13px; font-weight: 800; cursor: pointer; }
+        .rc-add:hover { border-color: var(--rc-accent); background: var(--rc-soft); }
+        .rc-slot .note { font-size: 12px; color: var(--rc-faint); }
+        .rc-slot select.plain { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 8px; padding: 4px 8px; font-size: 13px; font-weight: 700; color: var(--rc-fg); }
+        @media (max-width: 720px) { .rc-sentence { grid-template-columns: minmax(0, 1fr); } .rc-word { text-align: left; } }
+
+        /* ── Popovers: what to show, a grouping, a condition's editor, days and times ── */
+        #rc-pop { position: fixed; z-index: 65; width: 380px; max-width: calc(100vw - 24px); max-height: calc(100vh - 40px); overflow-y: auto; background: var(--rc-card); border: 1px solid var(--rc-line); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.45); padding: 14px; }
+        #rc-pop.menu { width: 300px; padding: 6px; }
+        #rc-pop.what { width: 660px; padding: 0; overflow: hidden; display: flex; flex-direction: column; }
         .rc-pophead { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
         .rc-pophead b { font-size: 13px; font-weight: 900; color: var(--rc-strong); flex: 1; }
         .rc-popfoot { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rc-line); }
-        .rc-menu-item { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--rc-fg); text-align: left; padding: 7px 9px; border-radius: 8px; font-size: 12px; cursor: pointer; }
-        .rc-menu-item:hover { background: var(--rc-hover); }
+        .rc-menu-item { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--rc-fg); text-align: left; padding: 7px 9px; border-radius: 8px; font-size: 13px; cursor: pointer; }
+        .rc-menu-item:hover, .rc-menu-item:focus-visible { background: var(--rc-hover); }
         .rc-menu-item i { color: var(--rc-faint); width: 14px; }
         .rc-menu-item:disabled { opacity: .4; cursor: default; }
+        .rc-menu-item.danger { color: var(--rc-bad); }
+        .rc-menu-item .h { display: block; font-size: 11px; color: var(--rc-faint); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rc-menu-item .tx { min-width: 0; flex: 1; }
         .rc-menu-sep { height: 1px; background: var(--rc-line); margin: 4px 2px; }
-        .rc-menu-head { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: var(--rc-faint); padding: 6px 9px 4px; }
-        .rc-ask { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-        .rc-ask span { font-size: 10px; font-weight: 900; color: var(--rc-faint); text-transform: uppercase; }
-        .rc-ask input:checked + span { color: var(--rc-warn); }
+        .rc-menu-head { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: var(--rc-faint); padding: 8px 9px 4px; }
+        .rc-pick-q { margin: 2px 2px 6px; width: calc(100% - 4px); background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 8px; padding: 7px 10px; font-size: 13px; color: var(--rc-fg); outline: none; }
+        .rc-pick-q:focus { border-color: var(--rc-accent); }
+        .rc-what-top { padding: 12px 12px 8px; border-bottom: 1px solid var(--rc-line); }
+        .rc-what-top b { display: block; font-size: 13px; font-weight: 900; color: var(--rc-strong); margin-bottom: 8px; }
+        .rc-what-body { display: grid; grid-template-columns: 15rem minmax(0, 1fr); min-height: 0; max-height: min(460px, calc(100vh - 160px)); }
+        .rc-what-ds { border-right: 1px solid var(--rc-line); overflow-y: auto; padding: 6px; }
+        .rc-what-ds button { width: 100%; text-align: left; border: 0; background: none; color: var(--rc-fg); cursor: pointer; padding: 8px 10px; border-radius: 9px; display: flex; gap: 9px; align-items: flex-start; }
+        .rc-what-ds button i { color: var(--rc-accent); font-size: 15px; margin-top: 1px; }
+        .rc-what-ds button b { display: block; font-size: 13px; font-weight: 800; }
+        .rc-what-ds button .ab { display: block; font-size: 11px; color: var(--rc-faint); line-height: 1.35; margin-top: 1px; }
+        .rc-what-ds button b { color: var(--rc-strong); }
+        .rc-what-ds button:hover { background: var(--rc-hover); }
+        .rc-what-ds button[aria-pressed="true"] { background: var(--rc-soft); }
+        .rc-what-ms { overflow-y: auto; padding: 6px; }
         .rc-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-        .rc-chip { border: 1px solid var(--rc-line); background: var(--rc-input); color: var(--rc-muted); border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+        .rc-chip { border: 1px solid var(--rc-line); background: var(--rc-input); color: var(--rc-muted); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
         .rc-chip:hover { border-color: var(--rc-accent); color: var(--rc-fg); }
         .rc-chip[aria-pressed="true"] { background: var(--rc-primary); border-color: var(--rc-primary); color: #fff; }
         .rc-chip .cnt { opacity: .7; font-weight: 500; margin-left: 4px; font-variant-numeric: tabular-nums; }
+        .rc-ask { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--rc-muted); }
+        .rc-ask input:checked + span { color: var(--rc-warn); font-weight: 700; }
+        .rfp-input { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 10px; padding: 7px 10px; font-size: 13px; color: var(--rc-fg); width: 100%; outline: none; }
+        .rfp-input:focus { border-color: var(--rc-accent); }
         .rc-row { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
         .rc-row > * { min-width: 0; flex: 1 1 0; }
         .rc-row > .lbl, .rc-row > .fixed { flex: none; }
-        .rc-row .lbl { font-size: 10px; font-weight: 800; color: var(--rc-faint); text-transform: uppercase; }
+        .rc-row .lbl { font-size: 11px; font-weight: 800; color: var(--rc-faint); }
         .rc-win { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
         .rc-win-row { border: 1px solid var(--rc-line); border-radius: 10px; padding: 8px; }
         .rc-win-row .rc-row { margin-top: 6px; }
         .rc-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
-        .rc-day { border: 1px solid var(--rc-line); background: var(--rc-input); color: var(--rc-muted); border-radius: 6px; padding: 4px 0; font-size: 10px; font-weight: 800; cursor: pointer; }
+        .rc-day { border: 1px solid var(--rc-line); background: var(--rc-input); color: var(--rc-muted); border-radius: 6px; padding: 4px 0; font-size: 11px; font-weight: 800; cursor: pointer; }
         .rc-day:hover { border-color: var(--rc-accent); color: var(--rc-fg); }
         .rc-day[aria-pressed="true"] { background: var(--rc-primary); border-color: var(--rc-primary); color: #fff; }
         .rc-win-tools { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
-        .rc-win-tools .rc-link { font-size: 10px; }
         .rc-win-hint { margin-top: 6px; color: var(--rc-accent); font-weight: 700; }
         .rc-win-hint.bad { color: var(--rc-bad); }
-        /* Select2 (filter values): a value's count on the right, the page's colours */
+        .rc-presets { display: flex; flex-direction: column; gap: 6px; }
+        .rc-preset { text-align: left; border: 1px solid var(--rc-line); background: var(--rc-input); color: var(--rc-fg); border-radius: 10px; padding: 8px 11px; cursor: pointer; }
+        .rc-preset b { display: block; font-size: 13px; font-weight: 800; }
+        .rc-preset span { display: block; font-size: 11px; color: var(--rc-faint); margin-top: 1px; }
+        .rc-preset:hover { border-color: var(--rc-accent); }
+        .rc-preset[aria-pressed="true"] { border-color: var(--rc-primary); background: var(--rc-soft); }
+        /* Select2 (condition values): a value's count on the right, the page's colours */
         .rc-opt { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
         .rc-opt .cnt { color: #94a3b8; font-size: 11px; font-variant-numeric: tabular-nums; }
         .select2-container--default .select2-results__option--highlighted .rc-opt .cnt { color: inherit; opacity: .8; }
@@ -189,28 +200,23 @@
         .select2-container--default .select2-results__option--highlighted.select2-results__option--selectable { background: #2563eb; color: #fff; }
         .select2-container--default .select2-results > .select2-results__options { max-height: 280px; }
         .select2-container--default .select2-results__option { font-size: 13px; padding: 6px 10px; }
-        .select2-results__group { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: #64748b; }
-        #rc-pop .select2-container--default .select2-selection--multiple,
-        .rfp .select2-container--default .select2-selection--multiple { background: var(--rc-input) !important; border: 1px solid var(--rc-line) !important; min-height: 40px !important; border-radius: 10px !important; font-size: 12px; }
+        #rc-pop .select2-container--default .select2-selection--multiple { background: var(--rc-input) !important; border: 1px solid var(--rc-line) !important; min-height: 40px !important; border-radius: 10px !important; font-size: 12px; }
         #rc-pop .select2-container--default .select2-selection--multiple .select2-selection__choice { background: var(--rc-hover); border-color: var(--rc-line); color: var(--rc-fg); }
         #rc-pop .select2-container--default .select2-search--inline .select2-search__field { font-size: 12px; margin-left: 8px; }
-        .rfp .select2-container--default .select2-selection--single { background: #181f1c; border: 1px solid #28332e; border-radius: 10px; height: 38px; }
-        .rfp .select2-container--default .select2-selection--single .select2-selection__rendered { color: #e2e8f0; line-height: 36px; font-size: 12px; font-weight: 700; }
-        .rfp .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
-        body.light .rfp .select2-container--default .select2-selection--single { background: #fff; border-color: #e2e8f0; }
-        body.light .rfp .select2-container--default .select2-selection--single .select2-selection__rendered { color: #1a202c; }
 
-        /* ── The result ──────────────────────────────────────────────────────── */
+        /* ── The answer ──────────────────────────────────────────────────────── */
+        .rc-reshead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+        .rc-views button { padding: 6px 11px; }
+        .rc-across { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--rc-muted); cursor: pointer; }
         .rc-resmeta { font-size: 11px; color: var(--rc-faint); display: flex; align-items: center; gap: 8px; }
         .rc-resmeta .busy { color: var(--rc-accent); font-weight: 800; }
-        .rc-resmeta .stale { color: var(--rc-warn); font-weight: 800; }
         #results.busy { opacity: .5; transition: opacity .2s; }
         .rc-empty { color: var(--rc-faint); font-size: 13px; padding: 28px 16px; text-align: center; }
         .rc-note { font-size: 12px; padding: 8px 12px; border-radius: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         .rc-note.warn { color: var(--rc-warn); background: rgba(245,158,11,.12); }
         .rc-note.bad { color: var(--rc-bad); background: rgba(248,113,113,.12); }
         .rc-note.info { color: var(--rc-muted); background: var(--rc-soft); }
-        .rc-table-wrap { overflow: auto; border: 1px solid var(--rc-line); border-radius: 12px; max-height: calc(100vh - 230px); min-height: 120px; }
+        .rc-table-wrap { overflow: auto; border: 1px solid var(--rc-line); border-radius: 12px; max-height: calc(100vh - 250px); min-height: 120px; }
         .rc-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
         .rc-table th { position: sticky; top: 0; z-index: 1; background: var(--rc-card); white-space: nowrap; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; color: var(--rc-faint); padding: .55rem .7rem; text-align: right; border-bottom: 1px solid var(--rc-line); cursor: pointer; user-select: none; }
         .rc-table th:hover { color: var(--rc-fg); }
@@ -230,10 +236,10 @@
         .rc-table tr.total td { font-weight: 900; border-top: 2px solid var(--rc-line); color: var(--rc-strong); }
         .rc-table td.drill { cursor: pointer; }
         .rc-table td.drill:hover { color: var(--rc-accent); text-decoration: underline; }
-        .rc-chart { width: 100%; height: calc(100vh - 300px); min-height: 360px; }
+        .rc-chart { width: 100%; height: calc(100vh - 340px); min-height: 360px; }
         .rc-toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); background: var(--rc-card); border: 1px solid var(--rc-line); color: var(--rc-fg); border-radius: 10px; padding: 10px 16px; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.35); z-index: 90; }
 
-        /* ── The SQL drawer: closed unless asked for ─────────────────────────── */
+        /* ── The SQL drawer: closed unless asked for (More > Show the SQL) ───── */
         .rc-drawer-back { position: fixed; inset: 0; background: rgba(4,8,6,.45); z-index: 60; }
         .rc-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 100vw); background: var(--rc-card); border-left: 1px solid var(--rc-line); z-index: 61; display: flex; flex-direction: column; box-shadow: -20px 0 50px rgba(0,0,0,.4); }
         .rc-drawer-head { display: flex; align-items: center; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--rc-line); flex-wrap: wrap; }
@@ -248,7 +254,7 @@
         .params { padding: 10px 12px; background: var(--rc-input); border-top: 1px solid var(--rc-line); font-family: var(--mono); font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
         .params .pk { color: var(--param); } .params .pv { color: var(--rc-muted); word-break: break-word; }
 
-        /* ── Dialogs: ask when run, add a filter, drill-down, SQL reference, emails ── */
+        /* ── Dialogs: save, ask when run, drill-down, versions, SQL reference, emails ── */
         .modal-back { position: fixed; inset: 0; background: rgba(4,8,6,.6); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; z-index: 70; }
         .modal { background: var(--rc-card); border: 1px solid var(--rc-line); border-radius: 1.25rem; width: min(640px, 100%); max-height: 86vh; overflow: auto; box-shadow: 0 24px 60px rgba(0,0,0,.5); }
         .modal.wide { width: min(1180px, 100%); }
@@ -271,8 +277,9 @@
         .label, .field > label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: var(--rc-faint); }
         .input { background: var(--rc-input); border: 1px solid var(--rc-line); border-radius: 8px; padding: 7px 9px; width: 100%; min-width: 0; font-size: 13px; outline: none; color: var(--rc-fg); }
         .input:focus { border-color: var(--rc-accent); }
+        .input.missing { border-color: var(--rc-bad); }
         .hint { font-size: 12px; color: var(--rc-faint); }
-        .inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .rc-inl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         .checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
         .checks label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-size: 13px; }
         .table-wrap { overflow: auto; border: 1px solid var(--rc-line); border-radius: 12px; max-height: 620px; }
@@ -291,17 +298,6 @@
         .ref td { white-space: normal; }
         .ref td.col { font-family: var(--mono); white-space: nowrap; }
         .ref pre.sql { border: 1px solid var(--rc-line); border-radius: 10px; white-space: pre-wrap; }
-        .addf-group { display: flex; flex-direction: column; gap: 6px; }
-        .addf-group h3 { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: var(--rc-accent); margin: 6px 0 0; }
-        .addf-group .src { font-size: 11px; color: var(--rc-faint); }
-        .addf-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
-        @media (min-width: 640px) { .addf-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        .addf-item { text-align: left; border: 1px solid var(--rc-line); background: var(--rc-input); border-radius: 10px; padding: 8px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; color: var(--rc-fg); }
-        .addf-item:hover:not(:disabled) { border-color: var(--rc-accent); }
-        .addf-item:disabled { opacity: .45; cursor: default; }
-        .addf-item .t { font-weight: 700; font-size: 13px; display: flex; gap: 8px; align-items: center; }
-        .addf-item .ty { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: var(--rc-faint); border: 1px solid var(--rc-line); border-radius: 4px; padding: 0 4px; }
-        .addf-item .h { font-size: 11px; color: var(--rc-faint); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .sc td { white-space: normal; }
         .sc .run-failed { color: var(--rc-bad); font-weight: 700; }
         .sc .run-partial { color: var(--rc-warn); font-weight: 700; }
@@ -309,6 +305,9 @@
         .sc a.btn { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
         .sc .note a { color: inherit; text-decoration: underline; font-weight: 700; }
         .sc .pick { flex-direction: column; flex-wrap: nowrap; max-height: 200px; overflow-y: auto; border: 1px solid var(--rc-line); border-radius: 8px; padding: 8px 10px; background: var(--rc-input); }
+        .rc-radio { display: flex; flex-direction: column; gap: 6px; }
+        .rc-radio label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; font-size: 13px; }
+        .rc-radio label span.h { display: block; font-size: 11px; color: var(--rc-faint); }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden {{ 'light' if ui_theme == 'light' }}">
@@ -317,103 +316,77 @@
     <div class="rc flex flex-1 overflow-hidden" id="rc" data-mail-url="{{ url_for('email_server.page') }}">
         {% include '_sidebar.html' %}
 
-        <!-- Left: which report, what it counts, and every field to build it with -->
-        <aside class="rfp rc-panel p-4 flex flex-col gap-4 overflow-hidden flex-shrink-0" aria-label="Report fields">
-            <div>
-                <label class="rfp-label" for="rc-report">Report</label>
-                <select id="rc-report" class="rfp-input" aria-label="Open a saved report"></select>
-                <div class="rc-mini">
-                    <button type="button" id="btn-new" title="Start an empty report">New</button>
-                    <button type="button" id="btn-dup" title="Copy this report into your personal folder">Duplicate</button>
-                    <button type="button" id="btn-del" class="danger" title="Delete this report">Delete</button>
-                </div>
-            </div>
-            <div>
-                <label class="rfp-label" for="f-ds">What to count</label>
-                <select id="f-ds" class="rfp-input"></select>
-                <p class="rc-hint mt-2" id="ds-hint"></p>
-            </div>
-            <div class="flex flex-col min-h-0 flex-1">
-                <label class="rfp-label" for="rc-fq">Fields<i class="bi bi-info-circle chart-info-icon" data-explain="rc-fields" role="button" tabindex="0" aria-label="About the fields" title="About the fields"></i></label>
-                <input id="rc-fq" type="search" class="rfp-input mb-2" placeholder="Find a field: room, radiologist, TAT…" autocomplete="off">
-                <div class="rc-fields" id="rc-fields"></div>
-                <p class="rc-hint mt-2">Drag a field onto Filters, Rows, Columns or Values, or click it for its menu.</p>
-            </div>
-        </aside>
-
         <main class="flex-1 overflow-y-auto bg-[#181f1c] p-6 min-w-0">
-            <div class="flex items-start gap-4 mb-4 flex-wrap">
-                <div class="flex-1 min-w-[18rem]">
-                    <div class="flex items-center gap-1">
-                        <input id="f-name" class="rc-title" placeholder="Name this report" aria-label="Report name" autocomplete="off">
-                        <i class="bi bi-info-circle chart-info-icon" data-explain="rc-report" role="button" tabindex="0" aria-label="About the Report Composer" title="About the Report Composer"></i>
-                    </div>
-                    <input id="f-desc" class="rc-desc" placeholder="Add a description: what it is for, who uses it" aria-label="Description" autocomplete="off">
-                    <div class="rc-meta">
-                        <div class="rc-seg" id="f-vis" role="group" aria-label="Who sees it">
-                            <button type="button" data-v="personal" title="Only you see it">Personal</button><button type="button" data-v="shared" title="Everyone with access to this page sees it">Shared</button>
-                        </div>
-                        <label class="rc-folder" title="Folder in the report list"><i class="bi bi-folder2" aria-hidden="true"></i><input id="f-folder" list="folders" placeholder="General" aria-label="Folder" autocomplete="off"><datalist id="folders"></datalist></label>
-                        <select id="f-history" aria-label="Version history"></select>
-                        <span id="owner-hint"></span>
+            <!-- Start: what do you want to know? Then the saved reports -->
+            <section class="rc-start" id="rc-start" aria-label="Start a report" hidden>
+                <h1>What do you want to know?<i class="bi bi-info-circle chart-info-icon" data-explain="rc-start" role="button" tabindex="0" aria-label="About the Report Composer" title="About the Report Composer"></i></h1>
+                <p class="lead">Pick what to count. You get an answer straight away, then change it by clicking the blue words.</p>
+                <div class="rc-tiles" id="rc-tiles"></div>
+                <div class="rc-saved-head">
+                    <h2>Saved reports</h2>
+                    <input id="rc-saved-q" type="search" placeholder="Find a saved report…" aria-label="Find a saved report" autocomplete="off">
+                </div>
+                <div id="rc-saved"></div>
+            </section>
+
+            <!-- A report: its name, the sentence that builds it, the answer -->
+            <section id="rc-view" aria-label="Report" hidden>
+                <div class="rc-top">
+                    <button type="button" class="rc-btn ghost" id="btn-home" title="Back to the start: a new report or a saved one"><i class="bi bi-arrow-left" aria-hidden="true"></i> All reports</button>
+                    <div class="rc-titlebox">
+                        <input id="f-name" class="rc-title" placeholder="Untitled report" aria-label="Report name" autocomplete="off">
+                        <i class="bi bi-info-circle chart-info-icon" data-explain="rc-report" role="button" tabindex="0" aria-label="About this report" title="About this report"></i>
                         <span id="bar-status" class="rc-status"></span>
-                        <span id="bar-missing" class="rc-missing"></span>
                     </div>
+                    <button type="button" class="rc-btn primary" id="btn-save" title="Save (Ctrl+S)"><i class="bi bi-check2" aria-hidden="true"></i> <span id="save-label">Save</span></button>
+                    <button type="button" class="rc-btn" id="btn-csv" title="Download the answer as a CSV file (opens in Excel)"><i class="bi bi-download" aria-hidden="true"></i> Download</button>
+                    <button type="button" class="rc-btn ghost" id="btn-more" title="More: copy, sharing, versions, emails, SQL, delete" aria-label="More" aria-haspopup="menu"><i class="bi bi-three-dots" aria-hidden="true"></i></button>
                 </div>
-                <div class="flex items-center gap-2 flex-wrap">
-                    <label class="rc-live" title="Update the result as you build"><input type="checkbox" id="rc-live"><span>Live</span></label>
-                    <button type="button" class="rc-btn primary" id="btn-run" title="Run the report (Ctrl+Enter)"><i class="bi bi-play-fill" aria-hidden="true"></i> Generate</button>
-                    <button type="button" class="rc-btn ghost" id="btn-csv" title="Download the result as CSV"><i class="bi bi-download" aria-hidden="true"></i> CSV</button>
-                    <button type="button" class="rc-btn ghost" id="btn-sql" title="The SQL this report runs"><i class="bi bi-code-slash" aria-hidden="true"></i> SQL</button>
-                    <button class="rc-btn" id="btn-sched" type="button" hidden><i class="bi bi-envelope" aria-hidden="true"></i> Scheduled emails</button>
-                    <button type="button" class="rc-btn primary" id="btn-save" title="Save (Ctrl+S)"><i class="bi bi-check2" aria-hidden="true"></i> Save</button>
-                </div>
-            </div>
 
-            <div id="rc-handnote" class="mb-4" hidden></div>
+                <div id="rc-handnote" class="mb-4" hidden></div>
 
-            <!-- The builder: how to show it, and what goes where -->
-            <div class="card p-4 mb-4" id="rc-builder">
-                <div class="rc-zones">
-                    <span class="rc-zlabel">Show as<i class="bi bi-info-circle chart-info-icon" data-explain="rc-show-as" role="button" tabindex="0" aria-label="About the builder" title="About the builder"></i></span>
-                    <div><div class="rc-seg" id="rc-show" role="group" aria-label="Show as"></div></div>
-                    <span class="rc-zlabel">Filters<i class="bi bi-info-circle chart-info-icon" data-explain="rc-filters" role="button" tabindex="0" aria-label="About the filters" title="About the filters"></i></span>
-                    <div class="rc-zone" id="z-filters" data-zone="filters"></div>
-                    <span class="rc-zlabel" data-for="rows">Rows</span>
-                    <div class="rc-zone" id="z-rows" data-zone="rows"></div>
-                    <span class="rc-zlabel" data-for="cols">Columns</span>
-                    <div class="rc-zone" id="z-cols" data-zone="cols"></div>
-                    <span class="rc-zlabel" data-for="values">Values</span>
-                    <div class="rc-zone" id="z-values" data-zone="values"></div>
-                    <span class="rc-zlabel" data-for="listcols">Columns</span>
-                    <div class="rc-zone" id="z-listcols" data-zone="listcols"></div>
+                <!-- The report as a sentence: click a blue word to change it -->
+                <div class="card rc-sentence mb-4" id="rc-sentence" aria-label="What the report shows">
+                    <i class="bi bi-info-circle chart-info-icon rc-sentence-info" data-explain="rc-sentence" role="button" tabindex="0" aria-label="How to change the report" title="How to change the report"></i>
+                    <span class="rc-word" id="w-what">Show</span>
+                    <div class="rc-slot" id="s-what"></div>
+                    <span class="rc-word" id="w-by">for each</span>
+                    <div class="rc-slot" id="s-by"></div>
+                    <span class="rc-word">during</span>
+                    <div class="rc-slot" id="s-when"></div>
+                    <span class="rc-word">where</span>
+                    <div class="rc-slot" id="s-where"></div>
                 </div>
-            </div>
 
-            <!-- The result -->
-            <div class="card p-4" id="rc-result-card">
-                <div class="flex items-center gap-3 mb-3 flex-wrap">
-                    <p class="section-title"><span id="res-title">Result</span><i class="bi bi-info-circle chart-info-icon" data-explain="rc-result" role="button" tabindex="0" aria-label="About the result" title="About the result"></i></p>
-                    <span class="rc-resmeta" id="res-meta"></span>
+                <!-- The answer -->
+                <div class="card p-4" id="rc-result-card">
+                    <div class="rc-reshead">
+                        <div class="rc-seg rc-views" id="rc-views" role="group" aria-label="Show the answer as"></div>
+                        <label class="rc-across" id="rc-across-box" hidden><input type="checkbox" id="rc-across"><span id="rc-across-label"></span></label>
+                        <span class="flex-1"></span>
+                        <span class="rc-resmeta" id="res-meta"></span>
+                        <button type="button" class="rc-icon" id="btn-run" title="Run it again (Ctrl+Enter)" aria-label="Run it again"><i class="bi bi-arrow-clockwise"></i></button>
+                        <i class="bi bi-info-circle chart-info-icon" data-explain="rc-result" role="button" tabindex="0" aria-label="About the answer" title="About the answer"></i>
+                    </div>
+                    <div id="results"></div>
                 </div>
-                <div id="results"><div class="rc-empty">Choose what to count on the left.</div></div>
-            </div>
+            </section>
         </main>
     </div>
 
-    <!-- The SQL, on a click: what runs, and for the settings capability, SQL written by hand -->
+    <!-- The SQL, on a click (More > Show the SQL): what runs, and for the settings capability, SQL written by hand -->
     <div id="sql-drawer" hidden>
         <div class="rc-drawer-back" id="sql-back"></div>
         <section class="rc-drawer rc" role="dialog" aria-modal="true" aria-label="SQL">
             <div class="rc-drawer-head">
                 <p class="section-title">SQL</p>
                 <div class="rc-seg" id="sql-seg" role="group" aria-label="How this report gets its data" hidden>
-                    <button type="button" data-mode="gen" aria-pressed="true">Built from the builder</button>
+                    <button type="button" data-mode="gen" aria-pressed="true">Built from the sentence</button>
                     <button type="button" data-mode="hand" aria-pressed="false">Written by hand</button>
                 </div>
                 <span class="flex-1"></span>
                 <button class="rc-btn small" id="btn-ref" type="button"><i class="bi bi-book" aria-hidden="true"></i> SQL reference</button>
-                <button class="rc-btn small" id="btn-sql-run" type="button"><i class="bi bi-play-fill" aria-hidden="true"></i> Generate</button>
+                <button class="rc-btn small" id="btn-sql-run" type="button"><i class="bi bi-play-fill" aria-hidden="true"></i> Run</button>
                 <button class="rc-btn small" id="sql-close" type="button" aria-label="Close"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
             </div>
             <div class="rc-drawer-body">
@@ -421,7 +394,7 @@
                 <div class="sql-wrap" id="sql-wrap">
                     <div class="sql-bar">
                         <span class="grow" id="sql-caption"></span>
-                        <button class="rc-btn small" id="btn-start-gen" type="button" hidden>Start from the builder's SQL</button>
+                        <button class="rc-btn small" id="btn-start-gen" type="button" hidden>Start from the sentence's SQL</button>
                         <button class="rc-btn small" id="btn-copy-sql" type="button"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy</button>
                     </div>
                     <pre class="sql" id="sql-view"></pre>
@@ -432,6 +405,7 @@
         </section>
     </div>
 
+    <datalist id="folders"></datalist>
     <div id="rc-pop" class="rc" hidden></div>
     <div class="rc" id="modal"></div>
     <div class="rc-toast" id="toast" hidden></div>

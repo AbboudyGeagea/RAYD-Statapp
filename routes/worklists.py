@@ -8,10 +8,12 @@ NLP findings, storage, CRN). Ported 2026-11-02, replacing Custom Reports.
 What people read says Report Composer and "report". The code keeps the word worklist
 (tables, modules, API paths): renaming those would change nothing anyone sees.
 
-    /report-composer           the editor, laid out like every report since the revamp of
-                               2026-11-20: left panel (report, dataset, date range, the
-                               filters as dropdowns with their counts, Generate, CSV),
-                               results in cards; the SQL opens on a click, in a drawer.
+    /report-composer           the editor, written as a sentence since 2026-11-21 (the pivot
+                               builder was "still not user friendly"): a start screen (one
+                               tile per kind of data, the saved reports), then the report as
+                               "Show [number of exams] for each [room] during [last month,
+                               after hours] where [...]", each word clicked to change it, the
+                               answer below; the SQL opens from More, in a drawer.
                                Page script: static/js/report_composer.js
     /worklists/api/...         catalog, list, load, save, delete, versions,
                                compile, run, csv, options, sql-reference,
@@ -167,8 +169,8 @@ def api_catalog():
 def api_list():
     _require_access()
     rows = db.session.execute(text("""
-        SELECT w.id, w.name, w.folder, w.visibility, w.dataset, w.version, w.owner_id,
-               w.updated_at, u.username AS owner_name
+        SELECT w.id, w.name, w.description, w.folder, w.visibility, w.dataset, w.version,
+               w.owner_id, w.updated_at, u.username AS owner_name
           FROM worklists w
           LEFT JOIN users u ON u.id = w.owner_id
          WHERE w.visibility = 'shared' OR w.owner_id = :me

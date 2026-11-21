@@ -10,6 +10,7 @@ own rules added (the RIS MRN, sites, pickers bounded to a year).
     sandbox             the rpt_ role reads rpt.* only, read-only, time-limited
     API                 page permission, personal / shared, admin-only SQL
 """
+import json
 import os
 import re
 import shutil
@@ -1181,24 +1182,52 @@ def test_page_renders_for_a_viewer(client):
     assert 'href="/report-composer"' in html        # the sidebar
 
 
-def test_page_is_a_pivot_builder_with_the_sql_behind_a_click(client):
-    """2026-11-21 (operator: "more flexible"): a field list on the left (the reports' panel
-    look), Filters / Rows / Columns / Values bars, Live and Generate, the result below; the
-    SQL in a drawer that is closed until the SQL button opens it."""
+def test_page_is_a_sentence_with_a_start_screen(client):
+    """2026-11-21 (operator: the pivot builder was "still not user friendly": spreadsheet
+    words, and a new report did not say where to start): a start screen ("What do you want
+    to know?", one tile per kind of data, the saved reports), then the report as a sentence
+    (Show / for each / during / where) with the answer below; no field list, no drag and
+    drop, no Rows / Columns / Values; the SQL in a drawer, closed until More opens it."""
     users()
     html = h(client, 'get', '/report-composer', uid=VIEWER).get_data(as_text=True)
-    assert html.count('aria-label="Report fields"') == 1 and 'class="rfp ' in html
-    assert 'id="rc-fields"' in html and 'id="rc-fq"' in html and 'select2' in html
-    for zone in ('filters', 'rows', 'cols', 'values', 'listcols'):
-        assert f'id="z-{zone}" data-zone="{zone}"' in html, zone
-    assert 'id="rc-show"' in html and 'id="rc-live"' in html
-    assert re.search(r'id="btn-run"[^>]*>.*?Generate</button>', html)
-    assert re.search(r'<div id="sql-drawer" hidden>', html)
-    assert 'id="btn-sql"' in html and 'id="sql-view"' in html
+    assert 'What do you want to know?' in html and 'id="rc-tiles"' in html and 'id="rc-saved"' in html
+    for slot in ('what', 'by', 'when', 'where'):
+        assert f'id="s-{slot}"' in html, slot
+    for word in ('>Show<', '>for each<', '>during<', '>where<'):
+        assert word in html, word
+    for gone in ('id="rc-fields"', 'data-zone=', 'id="rc-live"', '>Rows<', '>Values<', 'draggable'):
+        assert gone not in html, gone
+    assert 'id="rc-views"' in html and 'id="results"' in html and 'select2' in html
+    assert html.index('id="rc-sentence"') < html.index('id="rc-result-card"')    # the answer right below
+    assert re.search(r'<div id="sql-drawer" hidden>', html) and 'id="sql-view"' in html
+    assert 'id="btn-more"' in html and 'id="btn-sql"' not in html            # the SQL is behind More
     assert html.index('id="sql-drawer"') > html.index('</main>')     # not part of the page
     assert 'js/report_composer.js" defer></script>' in html
-    for key in ('rc-report', 'rc-fields', 'rc-filters', 'rc-show-as', 'rc-result'):
+    for key in ('rc-start', 'rc-report', 'rc-sentence', 'rc-result'):
         assert f'data-explain="{key}"' in html, key
+
+
+def test_page_script_speaks_plainly_and_offers_after_hours():
+    """The sentence's words, the start tiles, and the customer's after-hours windows as one
+    click (2026-11-20: Mon-Fri 19:00 -> 07:00, Saturday 13:00 -> Sunday 07:00, Sunday 07:00 ->
+    Monday 07:00), each window valid for the engine."""
+    js = open(os.path.join(ROOT, 'static', 'js', 'report_composer.js'), encoding='utf-8').read()
+    for word in ('List every', 'for each', 'with columns', '+ add a condition', '+ another number',
+                 'Which days and times?', 'After hours only', 'Put “'):
+        assert word in js, word
+    for pivot_word in ("'Rows'", "'Values'", 'Add to Rows', 'Split Columns', 'dragstart'):
+        assert pivot_word not in js, pivot_word
+    m = re.search(r"id: 'after_hours'.*?wins: (\[.*?\])\}", js, re.S)
+    wins = json.loads(re.sub(r'\b(days|from|to):', r'"\1":', m.group(1)).replace("'", '"'))
+    assert wins == [{'days': [1, 2, 3, 4, 5], 'from': '19:00', 'to': '07:00'},
+                    {'days': [6], 'from': '13:00', 'to': '07:00'},
+                    {'days': [7], 'from': '07:00', 'to': '07:00'}]
+    defn = {'dataset': 'exams', 'criteria': {'scheduled_at': {'mode': 'quick', 'quick': 'last_month', 'windows': wins}},
+            'output': {'kind': 'table', 'rows': ['modality'], 'measures': ['count']}}
+    assert 'isodow' in engine.compile_definition(defn)['sql']
+    # every kind of data has its words on the start screen
+    for k in cat.DATASETS:
+        assert re.search(rf"\n  {k}: +\{{icon: 'bi-", js), k
 
 
 def _node_check(script):

@@ -565,35 +565,29 @@ const ChartExplanations = {
       interpretation: 'Compare a room or procedure with the others: a high median with many reschedules points at a capacity or scheduling problem there. Long lists show their largest rows; the Excel download has every exam.'
     },
     // ── Report Composer (/report-composer) ──────────────────────────────────────
-    'rc-report': {
+    'rc-start': {
       title: 'Report Composer',
-      purpose: 'Build your own report on the RIS and PACS data without writing SQL, like a pivot table: choose what to count on the left (RIS exams, PACS studies, series, reports, NLP findings, storage or CRN), then drag fields onto Filters, Rows, Columns and Values. With Live on, the result follows every change.',
-      valueMeaning: 'Every report counts as the numbered reports do: structured reports (SR) are left out, the modality comes from the device mapping, times are hospital time. Save keeps it in the Report list, Personal (only you) or Shared (everyone with access to this page); every save is kept in History.',
-      interpretation: 'Start from the shared example or a colleague’s report with Duplicate. A date range keeps a report fast: a year of studies with many filters can take a few seconds. Turn Live off to build a heavy report and press Generate when it is ready.'
+      purpose: 'Make your own report on the RIS and PACS data, without writing SQL. Pick what to count (exams on the RIS, studies in PACS, reports, critical result notifications …) or one of the questions under a tile: an answer comes straight away.',
+      valueMeaning: 'Every report counts as the numbered reports do: structured reports (SR) are left out, the modality comes from the device mapping, times are hospital time. Below the tiles: the reports saved, those shared with everyone first, then your own.',
+      interpretation: 'Start from the closest question, then change it: every blue word in the sentence is clicked to change it. Save keeps it; More (…) shares it, copies it or sends it by email on a schedule.'
     },
-    'rc-fields': {
-      title: 'Fields',
-      purpose: 'Everything the chosen dataset can be filtered, grouped or measured by, in the same groups as the source (patient, RIS exam, study, report, NLP, series, CRN), with the measures (or, for a list, its columns) at the top.',
-      valueMeaning: 'Drag a field onto Filters to narrow the report, onto Rows or Columns to group by it, a measure onto Values to count or time it. Click a field for the same choices. A tag shows where a field is used: filter, row, col, value.',
-      interpretation: 'Type in the search box to find a field by its name or what it holds (TAT, room, protocol). A field that cannot be grouped (a free text, an exact time) can still filter.'
+    'rc-report': {
+      title: 'This report',
+      purpose: 'Its name (click to change it), whether it is saved, and what you can do with it: Save, Download the answer as a file Excel opens, and More (…): save a copy, name, folder and who can open it, earlier versions, scheduled emails, the SQL it runs, delete.',
+      valueMeaning: '“Only me”: in your saved reports only. “Everyone”: everyone who can open the Report Composer can open it and save a copy; only an administrator can share or change a shared report. Every save is kept as a version.',
+      interpretation: 'All reports (top left) goes back to the start. A shared report you cannot change says “Save a copy”: your copy is yours to change.'
     },
-    'rc-filters': {
-      title: 'Filters',
-      purpose: 'What narrows the report: the dataset’s date range and usual filters are always in the bar (dashed while unused); click one to set it, or “+ Filter” for any other field.',
-      valueMeaning: 'A filter with several values keeps rows with any of them (CT or MR). Different filters all apply together (CT or MR, and in room CT1). (blank) = rows where the value is missing. Days and times keep the rows whose time falls in one of the windows listed: “Sat 13:00 → 07:00 next day” is Saturday 13:00 to Sunday 07:00 (the start is included, the end is not). A filter marked “asked” is asked for each time the report is generated, its saved value as the default.',
-      interpretation: 'The × on a chip takes the filter off. With no date range the report reads all the data, which is slow for the large datasets.'
-    },
-    'rc-show-as': {
-      title: 'The builder',
-      purpose: 'How the result is laid out (Show as) and what goes where: Rows group the lines (up to 4 fields, e.g. modality then room), Columns split the values across columns (one field, e.g. month), Values are the measures shown.',
-      valueMeaning: 'Table: one line per combination of the Rows, with a subtotal per value of the first and a Total where the measure adds up (counts, gigabytes; not medians or averages). List: one line per exam, study, report ... with the columns chosen. Bar, Stacked, Line: the table as a chart, one series per value or per column. Pie: the first value per row. Heatmap: Rows × Columns coloured by the first value (e.g. weekday × hour).',
-      interpretation: 'Drag a chip to reorder it or move it between Rows and Columns; a date chip says its period (day, week, month, quarter, year). A split by Columns, a pie and a heatmap show the first value only.'
+    'rc-sentence': {
+      title: 'The sentence',
+      purpose: 'The report, read as one sentence. Click any blue word to change it. Show: what is counted or timed (+ another number puts a second one next to it). For each: what the numbers are broken down by, up to 4 (room, then month …). During: the period, and the days and times (weekdays, weekends, after hours, or your own). Where: the conditions (only CT and MR, only emergency patients …).',
+      valueMeaning: 'Several values in one condition count any of them (CT or MR); several conditions all apply together (CT or MR, and in room CT1). (blank) = the value is missing. A window of days and times keeps what falls inside it: “Sat 13:00 → 07:00 next day” is Saturday 13:00 to Sunday 07:00, the start included, the end not. After hours = Monday to Friday 19:00 → 07:00, and Saturday 13:00 → Monday 07:00. “Using the … date” picks which date the period is on (booked, scanned, done, signed …).',
+      interpretation: 'The × takes a word out. A condition marked “asked” is asked for each time the report is opened or run again, its saved value first. Without a period the report reads all the data, which is slow.'
     },
     'rc-result': {
-      title: 'Result',
-      purpose: 'The report as built above, from the data RAYD holds (the nightly ETL from the RIS and PACS, the HL7 reports, CRN). The line beside the title gives its rows and how long the database took.',
-      valueMeaning: 'Counts are rows of the dataset chosen: an exam is one RIS worklist entry, a study one PACS study, a series one PACS series. Times are in hospital time; turnarounds and waits are in the unit their name says (minutes or hours). (blank) = no value recorded. The page shows the first 2,000 lines; CSV holds up to 100,000.',
-      interpretation: 'Click a header to sort, use its arrows to move a column and its × to take it out; click any number, bar or slice to list the exams or studies behind it. Data reach RAYD overnight, so today is incomplete for anything read from the RIS or PACS.'
+      title: 'The answer',
+      purpose: 'The sentence above, answered from the data RAYD holds (the nightly copy from the RIS and PACS, the HL7 reports, CRN), updated each time the sentence changes. Show it as a table, bars, stacked bars, a line, a pie, a heatmap, or the list itself (one line per exam, study …).',
+      valueMeaning: 'A count counts the kind of data chosen: an exam is one RIS worklist entry, a study one PACS study. Turnarounds and waits are in the unit their name says (minutes or hours). The table adds a subtotal and a Total where the number adds up (counts, gigabytes; not medians or averages). Bars and lines colour by the last “for each”; a heatmap puts it across the top. The page shows the first 2,000 lines; Download holds up to 100,000.',
+      interpretation: 'Click a column title to sort; click any number, bar, slice or cell to list the exams or studies behind it. Data reach RAYD overnight, so today is incomplete for anything read from the RIS or PACS.'
     },
     'r32-addendum': {
       title: 'Addendum Rate by Radiologist',

@@ -770,7 +770,9 @@ def test_a_colleague_may_keep_what_a_schedule_holds(client, relay):
 def test_the_editor_offers_scheduling_to_admins_only(client):
     users()
     html = h(client, 'get', '/report-composer', uid=VIEWER).get_data(as_text=True)
-    assert 'id="btn-sched" type="button" hidden' in html
+    assert 'id="btn-more"' in html          # since 2026-11-21 an entry of More (…), not a button
+    js = open(os.path.join(ROOT, 'static', 'js', 'report_composer.js'), encoding='utf-8').read()
+    assert "CAT.me.can_schedule && {act: 'sched'" in js
     assert h(client, 'get', '/worklists/api/catalog', uid=VIEWER).get_json()['me']['can_schedule'] is False
 
 

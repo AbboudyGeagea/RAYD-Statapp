@@ -7,9 +7,34 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 
 ---
 
-## Where we stopped (2026-11-20, evening) — START HERE in a new session
+## Where we stopped (2026-11-21, afternoon) — START HERE in a new session
 
-**Now: the Report Composer revamp** (operator, 20 Nov: "a huge task before this migration").
+**The Report Composer as a sentence (operator, 21 Nov: "sorry to tell you this, but report composer
+is still not user friendly"; what bothered: the pivot words and not knowing where to start; who
+uses it: "all, even myself i was facing hard time to understand it"; chose the sentence builder).**
+Replaces the pivot builder below (same definitions, engine, emails, CSV, drill-down). The page:
+- a **start screen**: "What do you want to know?", one tile per dataset in plain words (Exams on
+  the RIS, Studies in PACS, Radiology reports, Critical result notifications, Findings in reports,
+  Series in PACS, PACS storage), each with one-click questions (exams per room last month, exams
+  after hours by modality, studies per modality month by month, report turnaround by radiologist
+  …), then the saved reports (shared first, searchable);
+- the **report as a sentence**, each blue word clicked to change it: Show [number of exams]
+  [+ another number] / for each [Room] and [Month] [+ add] / during [last month], [after hours
+  only] using the [Scheduled for] date / where [Patient type is Emergency] [+ add a condition].
+  A list reads "List every [study] with columns [...]". Days and times: one click for weekdays,
+  weekends, **after hours (the customer's windows)**, day hours, or your own windows;
+- the **answer right below**, live; Table / Bars / Stacked bars / Line / Pie / Heatmap / List of …;
+  "Put [X] across the top" on a table with 2+ groupings; click any number for the rows behind it;
+- title bar: name, Saved / Unsaved, **Save** (asks name, purpose, Only me / Everyone, folder the
+  first time), **Download**, **More (…)**: save a copy, name and sharing, earlier versions,
+  scheduled emails, the SQL (drawer), delete.
+`api/list` also returns the description (cards). Tests: the page and script tests in
+`test_worklists.py` (no Rows / Values / drag words; the after-hours windows compile), the schedule
+entry in `test_worklist_email.py`. Checked in headless Edge on the local stack (start, a tile
+question, every picker, a dataset switch, views, across, save → back → reopen → delete, light
+theme). **Next:** deploy, the operator tries it.
+
+**Before that (20 Nov): the Report Composer revamp** (operator, 20 Nov: "a huge task before this migration").
 **Spec points 1–4 built 20 Nov evening** (operator's spec: "1- UI unification with the rest of the
 app, 2- make the SQL tab inaccessible easily, add a click for it, 3- all the filters (modality,
 room, radiologist ...) need better visualisation, 4- remove the existing templates, keep one only";
@@ -32,7 +57,7 @@ Page script moved to `static/js/report_composer.js`. The definition format, the 
 sandbox, permissions, versions and schedules are unchanged. **Next:** the operator looks at it on
 the server after the deploy and gives the next points.
 
-**The pivot builder (operator, 21 Nov: "report composer layout is still not very practical, i am
+**The pivot builder (replaced the same day by the sentence above; operator, 21 Nov: "report composer layout is still not very practical, i am
 looking for something more flexible"; chose the pivot builder and all four of: more than 2
 groupings, more chart types, live result, work in the result table).** The page is now: a field
 list on the left (report, what to count, search, Measures or List columns, then the fields by
@@ -81,21 +106,20 @@ fixes; update.sh refuses while a move runs). Confirm with
 `cd /opt/rayd && git log --oneline -1 && sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 4;"`
 (expect 0180 on top).
 
-**Pending table (20 Nov evening)** — show it, kept current, at the end of each reply:
+**Pending table (21 Nov afternoon)** — show it, kept current, at the end of each reply:
 
 | # | Item | Status |
 |---|------|--------|
-| **New** | **Report Composer revamp**, spec points 1–4 (above), migration 0181 | Built and tested 20 Nov evening; deploy, then the operator looks and gives the next points |
-| **New** | Report Composer: days and times in the date filter (done) → the customer's after-hours report | Waiting on the operator: what to count and by what; production's PACS times (query above) |
-| **New** | Report Composer as a pivot builder (21 Nov) | Built and tested; in the next deploy, then the operator tries it |
+| **New** | **Report Composer as a sentence** (21 Nov afternoon, replaces the pivot builder) | Built and tested; deploy, then the operator tries it |
+| **New** | Report Composer: the customer's after-hours report ("After hours only" is now one click) | Waiting on the operator: what to count and by what; production's PACS times (query above) |
 | 1 | HIS vs RIS: 19 Nov MRI on Report 27's HIS tab (query in the 20 Nov morning checklist below) | Waiting on the operator (booked room closed: 1,472 / 1,472) |
 | — | Deployed 20 Nov ~23:00 (9e5305fd: Composer revamp, days and times, copy fixes). Open the Super Report, Report AI, Report 27 (Peak Hours), the Report Composer | Done; checks when convenient |
 | 17 | BRAYN: per-modality breakdown (query in item 17, "The breakdown") → mark arrival/start not expected where the RIS never sends them → operator switches on the stall rules (ORPHAN_ORDER suggested off); the 7 approved-without-report accessions to Mirth | Waiting on the operator |
 | **SJH DB preparation** (parked, separate task, after the revamp) | | |
 | 13-1…13-6 | Old timer stopped, SJH off, partial copy dropped, deploy, `check`, `copy` | Done 20–21 Nov: copy verified 01:28, 177,949 studies, nothing deleted from RH |
 | 13-7 | SJH's reports on a past period (October): Report 22 and the Super Report side by side (account holding both sites); note RH's figures for the same period | Saturday |
-| 13-8a | Deploy the key-set and check fixes before the move: `cd /opt/rayd && sudo bash update.sh LAUMC` | Saturday, before the move |
-| 13-8 | `sudo bash /opt/rayd/scripts/sjh_move.sh move` (one `--move`: copies what is new, verifies, deletes from RH), by hand or a Saturday 23:00 timer; a fresh backup advised (remove the 20 Nov dump first) | Saturday night |
+| 13-8a | Deploy the key-set and check fixes before the move (`_missing_sql` in the container) | 21 Nov: the operator's first try did not reach the move (newest log was still the copy's); the one-line rerun (stop timer, deploy if needed, `systemd-run … sjh_move.sh move`, tail) given 21 Nov afternoon |
+| 13-8 | `sudo bash /opt/rayd/scripts/sjh_move.sh move` (one `--move`: copies what is new, verifies, deletes from RH), as `systemd-run --unit=rayd-sjh-move-HHMM` (operator: now, no timer) | Running or about to; done when the log ends "DONE (move)" |
 | 13-9 | SJH's mail server (SJH in the header → Administration → Email Server) | After 13-8 |
 | 4, 9, 37 | Open items (below) | Later |
 | 21, 33, 35 | Operator checks (below) | Waiting on the operator |
