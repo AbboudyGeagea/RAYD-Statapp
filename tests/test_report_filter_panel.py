@@ -133,6 +133,37 @@ def test_the_export_button_posts_with_the_csrf_token():
     assert "setAttribute('method', 'POST')" in body and "'csrf_token'" in body
 
 
+def test_every_date_box_reads_dd_mm_yyyy():
+    """Operator, 2026-11-21: Report 40's dates showed the browser's own format (mm/dd/yyyy on
+    most PCs) while every other report shows dd/mm/yyyy. Every page with a date box sets up
+    flatpickr with altFormat d/m/Y itself, or gets it from the shared panel head or the CRN
+    head; the panel leaves alone a box its page already set up; the Report Composer's From/To
+    boxes too, and a click in their calendar does not close the popover."""
+    import os
+    import re
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    tdir = os.path.join(root, 'templates')
+    dmy = re.compile(r"altFormat:\s*'d/m/Y'")
+    read = lambda *p: open(os.path.join(*p), encoding='utf-8').read()
+    panel_src, crn_src = read(tdir, '_report_filter_panel.html'), read(tdir, '_crn_head.html')
+    head = panel_src[panel_src.index('macro filter_panel_head'):panel_src.index('endmacro')]
+    assert 'flatpickr' in head and dmy.search(panel_src) and '!el._flatpickr' in panel_src
+    assert 'flatpickr' in crn_src and dmy.search(crn_src)
+    plain = []
+    for name in sorted(os.listdir(tdir)):
+        if not name.endswith('.html') or name.startswith('_'):
+            continue
+        src = read(tdir, name)
+        if 'type="date"' not in src and 'filter_panel(' not in src:
+            continue
+        if dmy.search(src) or 'filter_panel_head()' in src or "'_crn_head.html'" in src:
+            continue
+        plain.append(name)
+    assert not plain, f'date boxes without dd/mm/yyyy: {plain}'
+    js = read(root, 'static', 'js', 'report_composer.js')
+    assert dmy.search(js) and 'initDates(pop)' in js and '.flatpickr-calendar' in js
+
+
 def test_panel_filters_reads_what_sidebar_filters_reads():
     """One name per parameter: the panel and the SQL filter cannot drift apart."""
     from werkzeug.datastructures import MultiDict

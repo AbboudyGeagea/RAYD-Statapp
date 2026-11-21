@@ -29,12 +29,18 @@
   extra       HTML placed in the form after the dropdowns, for a report's own controls
   after_dates HTML placed right under the date range (the Super Report's comparison period,
               2026-11-20), for controls that belong with the dates
+
+  The dates read dd/mm/yyyy on every report (operator, 2026-11-21): the panel turns its own date
+  boxes into flatpickr pickers (d/m/Y shown, yyyy-mm-dd sent, so the routes are unchanged). A
+  page that sets up flatpickr itself keeps its own; the panel only does the boxes left plain.
 #}
 
 {% macro filter_panel_head() %}
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <style>
     .rfp { background: #1a2420; border-right: 1px solid #28332e; }
     .rfp-label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; display: block; }
@@ -117,6 +123,16 @@
 </aside>
 <script>
     $(function () { $('.rfp .select2-js').select2({ width: '100%' }); });
+    // dd/mm/yyyy like every report. After the page's own DOMContentLoaded handlers (setTimeout):
+    // a page that sets up flatpickr, or fills a date in its script first, keeps doing so.
+    document.addEventListener('DOMContentLoaded', function () {
+        setTimeout(function () {
+            if (typeof window.flatpickr !== 'function') return;
+            document.querySelectorAll('.rfp input[type="date"]').forEach(function (el) {
+                if (!el._flatpickr) window.flatpickr(el, { dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y', allowInput: true, disableMobile: true });
+            });
+        }, 0);
+    });
     // The Excel download: the same filters as Generate, as a POST with the CSRF token
     // (the form itself is a GET, which the page's CSRF helper leaves alone).
     function rfpExport(url) {

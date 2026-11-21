@@ -490,7 +490,18 @@ function applyInput(criteria, t) {
 }
 
 // ── Select2 dropdowns of values ──────────────────────────────────────────────
+// Day boxes read dd/mm/yyyy like every report's filters (flatpickr, loaded by the panel head);
+// the box underneath keeps yyyy-mm-dd and fires its change, so the definition is unchanged.
+const DATE_PICKER = {dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y', allowInput: true, disableMobile: true};
+function initDates(root) {
+  if (!root || typeof window.flatpickr !== 'function') return;
+  root.querySelectorAll('input[type="date"]').forEach(el => { if (!el._flatpickr) window.flatpickr(el, DATE_PICKER); });
+}
+function destroyDates(root) {
+  if (root) root.querySelectorAll('input').forEach(el => { if (el._flatpickr) el._flatpickr.destroy(); });
+}
 function destroySelects(root) {
+  destroyDates(root);
   if (!root || !hasS2()) return;
   root.querySelectorAll('select.rc-s2').forEach(sel => { if (jq(sel).data('select2')) jq(sel).select2('destroy'); });
 }
@@ -871,7 +882,7 @@ function renderFilterPop() {
       <span class="flex-1"></span>
       ${!when ? `<button type="button" class="rc-link" style="color:var(--rc-bad)" data-act="remove" data-f="${f.id}">Remove</button>` : ''}
       <button type="button" class="rc-btn small primary" data-act="pop-close">Done</button></div>`;
-  initSelects(pop);
+  initSelects(pop); initDates(pop);
 }
 function openAt(anchor) {
   if (toggled('at', anchor)) return;
@@ -936,13 +947,13 @@ pop.addEventListener('input', e => {
 document.addEventListener('mousedown', e => {
   if (!popKind) return;
   const t = e.target;
-  if (pop.contains(t) || t.closest('.select2-container, .swal2-container') || (popAnchor && popAnchor.isConnected && popAnchor.contains(t))) return;
+  if (pop.contains(t) || t.closest('.select2-container, .swal2-container, .flatpickr-calendar') || (popAnchor && popAnchor.isConnected && popAnchor.contains(t))) return;
   closePop();
 }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && popKind && !document.querySelector('.swal2-container')) closePop(); });
 window.addEventListener('resize', closePop);
 $('rc-view').closest('main').addEventListener('scroll', () => { if (popKind && popKind !== 'filter' && popKind !== 'at') closePop(); });
-function closeModal() { $('modal').innerHTML = ''; }
+function closeModal() { destroyDates($('modal')); $('modal').innerHTML = ''; }
 
 // ── The title bar: name, status, save, download, more ────────────────────────
 function renderTop() {
@@ -1212,8 +1223,9 @@ async function runNow(asked) {
   body.addEventListener('click', e => {
     const b = e.target.closest('[data-act]'); if (!b || !applyClick(temp.criteria, b)) return;
     if (b.dataset.act === 'chip') b.setAttribute('aria-pressed', String((temp.criteria[b.dataset.f].values || []).includes(JSON.parse(b.dataset.v))));
-    else body.querySelector(`[data-ask-f="${b.dataset.f}"]`).innerHTML = fieldHtml(b.dataset.f);
+    else { const box = body.querySelector(`[data-ask-f="${b.dataset.f}"]`); destroyDates(box); box.innerHTML = fieldHtml(b.dataset.f); initDates(box); }
   });
+  initDates(body);
   body.addEventListener('input', e => applyInput(temp.criteria, e.target));
   body.addEventListener('change', e => applyInput(temp.criteria, e.target));
   $('ask-cancel').onclick = () => { closeModal(); run(D()); };

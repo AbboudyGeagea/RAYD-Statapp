@@ -63,6 +63,7 @@
 {% include '_header.html' %}
 
 {% macro num(v, suffix='') %}{% if v is none %}–{% else %}{{ v }}{{ suffix }}{% endif %}{% endmacro %}
+{% macro dmy(s) %}{{ s[8:10] }}/{{ s[5:7] }}/{{ s[:4] }}{% endmacro %}
 {% macro info(key, what='this figure') %}<i class="bi bi-info-circle chart-info-icon ml-1" data-explain="{{ key }}" role="button" tabindex="0" aria-label="About {{ what }}" title="About {{ what }}"></i>{% endmacro %}
 
 <div class="flex flex-1 overflow-hidden">
@@ -71,7 +72,7 @@
     <main class="flex-1 overflow-y-auto bg-[#181f1c] p-8">
         <div class="mb-6">
             <h1 class="text-2xl font-black text-white tracking-tight">Patient Schedule Lead Time{{ info('r40-report', 'this report') }}</h1>
-            <p class="text-slate-400 text-sm">How far ahead {{ site }}'s exams are booked: from when the order was created on the RIS to the appointment, for the appointments from {{ start }} to {{ end }}.</p>
+            <p class="text-slate-400 text-sm">How far ahead {{ site }}'s exams are booked: from when the order was created on the RIS to the appointment, for the appointments from {{ dmy(start) }} to {{ dmy(end) }}.</p>
         </div>
 
         {% if not run_report %}

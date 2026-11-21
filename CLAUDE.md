@@ -394,7 +394,8 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    application to be like a workaround for every feature") — a feature that shows data is a
    numbered report: `routes/report_NN.py` calling `register_report()`, its `report_template`
    row and licence entry added by migration (see 0147), per-user report access, opened at
-   `/viewer/NN`. Its left filter panel is `templates/_report_filter_panel.html` (dates,
+   `/viewer/NN`. Its left filter panel is `templates/_report_filter_panel.html` (dates shown
+   dd/mm/yyyy by flatpickr like every date box, yyyy-mm-dd sent; tests/test_report_filter_panel.py,
    multi-select dropdowns each with an "Apply filter" tick named like `sidebar_filters` reads
    them, one **Generate** button; optional hidden fields, Excel button posting with the CSRF
    token, Include/Exclude per filter). `utils/report_filters.panel_filters()` builds the

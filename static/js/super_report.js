@@ -272,7 +272,7 @@ function render(d) {
     const cur = d.current, prev = d.previous;
 
     document.getElementById('period-label').textContent =
-        `${d.delta_days} days · comparing to ${d.cmp_start} → ${d.cmp_end}`;
+        `${d.delta_days} days · comparing to ${dmy(d.cmp_start)} → ${dmy(d.cmp_end)}`;
 
     // Split Clinical Insights out of narrative before typewriter renders it
     const insightsSection = (d.narrative || []).find(s => s.title === 'Clinical Insights');
@@ -475,7 +475,7 @@ function srLeadTime(lt, plt, d) {
             rows.map(r => `<tr style="border-top:1px solid #1e2a26;">${td(escHtml(r.value), true, true)}${td(fmt(r.exams))}${td(srDays(r.median_days))}${td(srDays(r.p90_days))}${td(pctTxt(r.same_day_pct))}${td(pctTxt(r.ahead_pct))}${td(pctTxt(r.cancelled_pct))}</tr>`).join('')}</tbody></table>`
         : '<p class="text-slate-600 text-xs" style="padding:8px">No data</p>';
 
-    const notes = [`RIS appointments from ${escHtml($start().value || '')} to ${escHtml($end().value || '')}: from the order's creation on the RIS to the appointment, in days. Changes against ${escHtml(d.cmp_start)} → ${escHtml(d.cmp_end)}.`];
+    const notes = [`RIS appointments from ${escHtml(dmy($start().value))} to ${escHtml(dmy($end().value))}: from the order's creation on the RIS to the appointment, in days. Changes against ${escHtml(dmy(d.cmp_start))} → ${escHtml(dmy(d.cmp_end))}.`];
     if (k.after) notes.push(`${fmt(k.after)} booked after the appointment (registered afterwards) are counted aside, not in the lead times.`);
     notes.push(lt.modality_filter ? 'The Modality filter applies here; the other filters on the left are the PACS study\'s and do not.'
                                   : 'Of the filters on the left, only Modality applies here (the others are the PACS study\'s).');
@@ -720,7 +720,7 @@ function _srExportElemPdf(el, title, filename) {
         doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(226,232,240);
         doc.text(title, mg, mg+5);
         doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(100,116,139);
-        doc.text(`${$start().value} – ${$end().value}`, mg, mg+10);   // the period shown
+        doc.text(`${dmy($start().value)} – ${dmy($end().value)}`, mg, mg+10);   // the period shown
         let srcY = 0, destY = mg + 14;
         while (srcY < canvas.height) {
             const availH = ph - destY - mg;
@@ -915,6 +915,8 @@ function pct(a, b) {
     return (b && Number.isFinite(a) && Number.isFinite(b)) ? _round((a-b)/b*100, 1) : null;
 }
 function fmt(n)  { const v = parseInt(n, 10); return Number.isFinite(v) ? v.toLocaleString('en-US') : '—'; }
+// yyyy-mm-dd as dd/mm/yyyy, the way every date filter reads (anything else unchanged)
+function dmy(s)  { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(s || ''); }
 function fmtD(n) { const v = parseFloat(n);   return Number.isFinite(v) ? _round(v, 1).toFixed(1) : '—'; }
 
 function row(label, val, pctVal) {
