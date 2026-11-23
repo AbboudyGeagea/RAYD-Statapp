@@ -324,6 +324,45 @@ def route_site(rh_engine, site_engine, site_id, *, delete=False, dry_run=False, 
             dst.close()
 
 
+# The device tables: what the Mapping page changes (aetitle_modality_map, its weekly schedule
+# and exceptions) and the RIS's per-device schedules.
+DEVICE_TABLES = tuple(t for t in TABLES if t.where == _DEVICE)
+
+
+def copy_devices(rh_engine, site_engine, site_id):
+    """The site's devices and their schedules from RH's database into the site's, at once.
+    RH's database is their master: the RIS modality ETL writes it, and since 2026-11-23 the
+    Mapping page too (utils/site_db.device_write), which calls this after every change; the
+    nightly route copies the same tables. A device RH's database now gives to another site
+    leaves the site's database; one the site's database holds alone (created there before
+    2026-11-23) is left as it is. Returns {'tables': [...], 'removed': n}."""
+    src = rh_engine.raw_connection()
+    dst = site_engine.raw_connection()
+    try:
+        cur, dcur = src.cursor(), dst.cursor()
+        cur.execute("DROP TABLE IF EXISTS _r_devices")
+        cur.execute("CREATE TEMP TABLE _r_devices AS " + dict(KEY_SETS)['_r_devices'], {'site': site_id})
+        tables = [_copy(cur, dcur, t) for t in DEVICE_TABLES]
+        cur.execute("""SELECT UPPER(TRIM(aetitle)) FROM aetitle_modality_map
+                       WHERE site_id IS NOT NULL AND site_id <> %(site)s""", {'site': site_id})
+        elsewhere = [r[0] for r in cur.fetchall()]
+        removed = 0
+        if elsewhere:
+            dcur.execute("DELETE FROM aetitle_modality_map WHERE site_id = %(site)s "
+                         "AND UPPER(TRIM(aetitle)) = ANY(%(aes)s)", {'site': site_id, 'aes': elsewhere})
+            removed = dcur.rowcount
+        dst.commit()
+        src.rollback()
+        return {'tables': tables, 'removed': removed}
+    except Exception:
+        src.rollback()
+        dst.rollback()
+        raise
+    finally:
+        src.close()
+        dst.close()
+
+
 def _key_sets(cur, params):
     for name, sql in KEY_SETS:
         t0 = time.monotonic()

@@ -219,6 +219,71 @@ def shared_write(view):
     return wrapper
 
 
+def device_write(view):
+    """A view that changes devices: aetitle_modality_map and their schedules (the Mapping
+    page). The main database is their master: the RIS modality ETL writes it, and the nightly
+    site route copies each site's devices from it into the site's database, rewriting what
+    differs, so a change made in a site's database alone was undone that night (2026-11-23).
+    The change goes to the main database (device_site() says which site was picked: a device
+    created then is that site's), and each site database's copy of its devices is brought in
+    line as soon as it succeeds."""
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        from flask import g
+        g.rayd_device_site = current_site_id()
+        with use_site(default_site_id()):
+            response = view(*args, **kwargs)
+        status = response[1] if isinstance(response, tuple) and len(response) > 1 \
+            else getattr(response, 'status_code', 200)
+        if isinstance(status, int) and status < 400:
+            sync_site_devices()
+        return response
+    return wrapper
+
+
+def device_site():
+    """Inside a device_write view: the site picked in the header, or None for the default."""
+    from flask import g
+    site = getattr(g, 'rayd_device_site', None)
+    return None if site == default_site_id() else site
+
+
+def sync_site_devices():
+    """Each site database's devices and schedules, from the main database
+    (ETL_JOBS/etl_site_route.copy_devices). A failure is logged: the nightly route copies them
+    again."""
+    if not _engines:
+        return
+    from db import db
+    from ETL_JOBS.etl_site_route import copy_devices
+    default = default_site_id()
+    for site in each_site_id():
+        if site == default:
+            continue
+        try:
+            copy_devices(db.engine, engine_for(site), site)
+        except Exception:
+            logger.exception(f"site {_codes.get(site, site)}: devices not copied from the main database")
+
+
+def remove_device(aetitle):
+    """A device deleted on the Mapping page leaves every site database too (its schedule and
+    exceptions with it, by cascade)."""
+    if not _engines:
+        return
+    from sqlalchemy import text
+    default = default_site_id()
+    for site in each_site_id():
+        if site == default:
+            continue
+        try:
+            with engine_for(site).begin() as conn:
+                conn.execute(text("DELETE FROM aetitle_modality_map WHERE UPPER(TRIM(aetitle)) = :ae"),
+                             {'ae': aetitle.strip().upper()})
+        except Exception:
+            logger.exception(f"site {_codes.get(site, site)}: device {aetitle} not removed")
+
+
 # ── which engine ──────────────────────────────────────────────────────────────
 
 def engine_for(site_id):

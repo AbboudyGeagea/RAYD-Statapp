@@ -688,3 +688,101 @@ def test_the_move_script_keeps_the_apps_log_when_sjh_is_not_ready():
     src = open(os.path.join(os.path.dirname(__file__), '..', 'scripts', 'sjh_move.sh'), encoding='utf-8').read()
     assert 'up -d --force-recreate rayd-app' in src
     assert 'not set up"; then' in src and src.count('app_log; switch_off') == 2
+
+
+# ── devices: the Mapping page keeps them on the main database (2026-11-23) ─────
+# The nightly site route copies each site's devices from the main database into the site's,
+# rewriting what differs, so a change made with SJH picked used to be undone that night.
+
+@pytest.fixture
+def devices(app):
+    """Device rows on the main database (AE titles SD_*), removed after each test."""
+    from db import db
+
+    def run(statement, **params):
+        with app.app_context():
+            res = db.session.execute(text(statement), params)
+            rows = res.fetchall() if res.returns_rows else None
+            db.session.commit()
+            return rows
+    run("DELETE FROM aetitle_modality_map WHERE aetitle LIKE 'SD\_%'")
+    yield run
+    run("DELETE FROM aetitle_modality_map WHERE aetitle LIKE 'SD\_%'")
+
+
+def _device(run, ae, modality, site_id):
+    run("INSERT INTO aetitle_modality_map (aetitle, modality, site_id) VALUES (:a, :m, :s)",
+        a=ae, m=modality, s=site_id)
+
+
+def test_a_device_changed_with_sjh_picked_is_kept_and_reaches_sjh_at_once(client, app, people, sjh, ids, devices):
+    from ETL_JOBS.etl_site_route import copy_devices
+    from utils import site_db
+    _device(devices, 'SD_SHIM', 'RF', ids['SJH'])
+    _device(sjh, 'SD_SHIM', 'RF', ids['SJH'])                  # as the nightly route copied it
+    uid = people('devmap', 'cht', ('RH', 'SJH'))
+    pick(client, uid, ids['SJH'])
+
+    r = client.post('/mapping/ae/update', json={'aetitle': 'sd_shim', 'modality': 'DX'}, headers=hdr(uid))
+
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert devices("SELECT modality FROM aetitle_modality_map WHERE aetitle = 'SD_SHIM'") == [('DX',)]
+    assert sjh("SELECT modality FROM aetitle_modality_map WHERE aetitle = 'SD_SHIM'") == [('DX',)]
+    with app.app_context():                                   # the night's copy changes nothing back
+        copy_devices(app.extensions['sqlalchemy'].engine, site_db.engine_for(ids['SJH']), ids['SJH'])
+    assert sjh("SELECT modality FROM aetitle_modality_map WHERE aetitle = 'SD_SHIM'") == [('DX',)]
+
+
+def test_a_device_deleted_with_sjh_picked_leaves_both_databases(client, app, people, sjh, ids, devices):
+    _device(devices, 'SD_GONE', 'CT', ids['SJH'])
+    _device(sjh, 'SD_GONE', 'CT', ids['SJH'])
+    uid = people('devdel', 'cht', ('RH', 'SJH'))
+    pick(client, uid, ids['SJH'])
+
+    r = client.post('/mapping/ae/delete', json={'aetitle': 'SD_GONE'}, headers=hdr(uid))
+
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert devices("SELECT COUNT(*) FROM aetitle_modality_map WHERE aetitle = 'SD_GONE'") == [(0,)]
+    assert sjh("SELECT COUNT(*) FROM aetitle_modality_map WHERE aetitle = 'SD_GONE'") == [(0,)]
+
+
+def test_a_device_added_with_sjh_picked_is_sjhs(client, app, people, sjh, ids, devices):
+    import io
+    uid = people('devadd', 'cht', ('RH', 'SJH'))
+    pick(client, uid, ids['SJH'])
+    csv = b"aetitle,modality,daily_capacity_minutes,room_name\nSD_NEW,DX,600,New X-ray room\n"
+
+    r = client.post('/mapping/upload/modality', data={'file': (io.BytesIO(csv), 'devices.csv')},
+                    content_type='multipart/form-data', headers=hdr(uid))
+
+    assert r.status_code == 302
+    assert devices("SELECT modality, site_id, room_name FROM aetitle_modality_map WHERE aetitle = 'SD_NEW'") == \
+        [('DX', ids['SJH'], 'New X-ray room')]
+    assert sjh("SELECT modality, site_id FROM aetitle_modality_map WHERE aetitle = 'SD_NEW'") == [('DX', ids['SJH'])]
+    assert sjh("SELECT COUNT(*) FROM device_weekly_schedule WHERE aetitle = 'SD_NEW'") == [(7,)]
+
+
+def test_a_device_only_sjhs_database_holds_is_still_changed_there(client, app, people, sjh, ids, devices):
+    _device(sjh, 'SD_ONLY', 'MR', ids['SJH'])                  # created there before 2026-11-23
+    uid = people('devonly', 'cht', ('RH', 'SJH'))
+    pick(client, uid, ids['SJH'])
+
+    r = client.post('/mapping/ae/update', json={'aetitle': 'SD_ONLY', 'modality': 'CT'}, headers=hdr(uid))
+
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert sjh("SELECT modality FROM aetitle_modality_map WHERE aetitle = 'SD_ONLY'") == [('CT',)]
+    assert devices("SELECT COUNT(*) FROM aetitle_modality_map WHERE aetitle = 'SD_ONLY'") == [(0,)]
+
+
+def test_a_device_the_main_database_gives_to_rh_leaves_sjhs_database(app, sjh, ids, devices):
+    from ETL_JOBS.etl_site_route import copy_devices
+    from utils import site_db
+    _device(devices, 'SD_MOVED', 'US', ids['RH'])
+    _device(sjh, 'SD_MOVED', 'US', ids['SJH'])
+    _device(devices, 'SD_STAYS', 'US', ids['SJH'])
+
+    with app.app_context():
+        out = copy_devices(app.extensions['sqlalchemy'].engine, site_db.engine_for(ids['SJH']), ids['SJH'])
+
+    assert out['removed'] == 1
+    assert sjh("SELECT aetitle FROM aetitle_modality_map WHERE aetitle LIKE 'SD\_%' ORDER BY 1") == [('SD_STAYS',)]

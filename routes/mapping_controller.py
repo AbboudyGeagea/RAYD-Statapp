@@ -2,12 +2,15 @@ from flask import Blueprint, request, render_template, flash, redirect, url_for,
 from flask_login import login_required, current_user
 from utils.roles import can
 # Procedure codes are shared by both sites: written on the main database, copied to each
-# site database (utils/site_db.py, item 13e). AE mappings stay per site.
-from utils.site_db import shared_write
+# site database (utils/site_db.py, item 13e). Devices (AE mappings and their schedules) are each
+# site's, kept on the main database and copied to the site's (device_write, 2026-11-23): a change
+# made in a site's database alone was undone by the nightly site route.
+from utils.site_db import shared_write, device_write, device_site, remove_device, use_site
 # Import the CLASS names from your db file
 from db import db, AETitleModalityMap, ProcedureDurationMap, DeviceException, DeviceWeeklySchedule, user_has_page
 from utils.permissions import permission_required
 import pandas as pd
+from sqlalchemy import text as _text
 from datetime import datetime, timedelta
 import json
 import csv
@@ -245,6 +248,7 @@ def procedures_tab():
 
 @mapping_bp.route('/upload/modality', methods=['POST'])
 @login_required
+@device_write
 def upload_modality_map():
     if not can(current_user, 'implementation'): return abort(403)
     file = request.files.get('file')
@@ -285,6 +289,12 @@ def upload_modality_map():
             if not parent:
                 parent = AETitleModalityMap(aetitle=ae, modality=mod, room_name=room, daily_capacity_minutes=cap, description=desc)
                 db.session.add(parent)
+                if device_site() is not None:
+                    # added while a site is picked in the header: that site's device
+                    db.session.flush()
+                    db.session.execute(_text("UPDATE aetitle_modality_map SET site_id = :s "
+                                             "WHERE aetitle = :ae AND site_id IS NULL"),
+                                       {'s': device_site(), 'ae': ae})
             else:
                 parent.modality = mod
                 parent.daily_capacity_minutes = cap
@@ -388,6 +398,7 @@ def upload_procedure_map():
 
 @mapping_bp.route('/device/grid/save', methods=['POST'])
 @login_required
+@device_write
 def save_grid_changes():
     if not can(current_user, 'implementation'): return abort(403)
     data = request.get_json(force=True)
@@ -743,15 +754,31 @@ def add_cluster():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+def _on_site_if_missing(change, ae, data):
+    """Run change(ae, data) on the main database; a device it does not find there but the
+    picked site's database holds alone (created there before 2026-11-23) is changed there."""
+    response = change(ae, data)
+    if isinstance(response, tuple) and response[1] == 404 and device_site() is not None:
+        with use_site(device_site()):
+            return change(ae, data)
+    return response
+
+
 @mapping_bp.route('/ae/delete', methods=['POST'])
 @login_required
+@device_write
 def delete_ae_entry():
-    """Delete an AE title and its associated schedule / exceptions (CASCADE)."""
+    """Delete an AE title and its associated schedule / exceptions (CASCADE), on the main
+    database and in every site database."""
     if not can(current_user, 'implementation'): return abort(403)
     data = request.get_json(force=True)
     ae = str(data.get('aetitle', '')).strip().upper()
     if not ae:
         return jsonify({"status": "error", "message": "aetitle required"}), 400
+    return _on_site_if_missing(_delete_device, ae, data)
+
+
+def _delete_device(ae, data):
     try:
         # Case-insensitive lookup — see upload_modality_map() for why an exact-case
         # filter_by() can silently miss a pre-existing mixed-case row.
@@ -761,10 +788,11 @@ def delete_ae_entry():
             return jsonify({"status": "error", "message": "AE title not found"}), 404
         db.session.delete(entry)
         db.session.commit()
+        remove_device(ae)
         from utils.audit import log_event
         log_event('ae_deleted', category='config', resource_type='aetitle_modality_map',
                   detail={'aetitle': ae})
-        return jsonify({"status": "success"})
+        return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -772,12 +800,19 @@ def delete_ae_entry():
 
 @mapping_bp.route('/ae/update', methods=['POST'])
 @login_required
+@device_write
 def update_ae_entry():
-    """Inline update for an AE title row (modality, room_name, description)."""
+    """Inline update for an AE title row (modality, room_name, description), on the main
+    database; the site's database gets it at once (device_write)."""
     if not can(current_user, 'implementation'): return abort(403)
     data = request.get_json(force=True)
+    if not str(data.get('aetitle') or '').strip():
+        return jsonify({"status": "error", "message": "aetitle required"}), 400
+    return _on_site_if_missing(_update_device, str(data['aetitle']).strip().upper(), data)
+
+
+def _update_device(ae, data):
     try:
-        ae = str(data['aetitle']).strip().upper()
         # Case-insensitive lookup — see upload_modality_map() for why an exact-case
         # filter_by() can silently miss a pre-existing mixed-case row.
         from sqlalchemy import func as _f
@@ -798,7 +833,7 @@ def update_ae_entry():
         if 'description' in data:
             entry.description = str(data['description']).strip() or None
         db.session.commit()
-        return jsonify({"status": "success"})
+        return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
