@@ -116,12 +116,6 @@ const ChartExplanations = {
     // Rows: Rizk Hospital studies in the dates and filters chosen that have a report time
     // and a reading radiologist. TAT = report time (last composed, else PACS final, else
     // the ORU result) minus the PACS insert time (else midnight of the study date).
-    'r25-class-tat': {
-      title: 'TAT per Patient Class',
-      purpose: 'Average turnaround per patient class code, for Rizk Hospital studies in the period that have a report time and a reading radiologist.',
-      valueMeaning: 'TAT runs from the moment the study reached the PACS to the report time (last composed, else PACS final, else the HL7 result), in minutes. The bars use the raw class codes; the strip above groups the same studies into inpatient, urgent (ER) and outpatient and scores them against the reporting targets (24 h, 24 h and 48 h unless changed in settings). Green = 90% or more within target.',
-      interpretation: 'A class code that shows in the bars but not in the strip is not mapped to a target, and its studies are counted as unscored. Averages are pulled up by a few very late reports; read them with the TAT percentiles above.'
-    },
     'r25-hourly-arrivals': {
       title: 'Hourly Arrival Pattern',
       purpose: 'RIS orders linked to the period’s studies, by the hour they were scheduled for.',
@@ -194,12 +188,6 @@ const ChartExplanations = {
       valueMeaning: 'X = average utilization % from the matrix, Y = technical RVU; larger dots = higher utilization.',
       interpretation: 'Bottom right (busy, low RVU) = time spent on low-value work; top left (quiet, high RVU) = capacity that pays off if filled.'
     },
-    'r25-tat-hist': {
-      title: 'TAT Distribution',
-      purpose: 'How the period’s reported studies spread across turnaround bands.',
-      valueMeaning: 'Bar = number of studies whose TAT (PACS arrival to report time) falls in that band; 360m+ = over 6 hours.',
-      interpretation: 'Most studies should sit in the first bands. A tall 360m+ bar is usually reports written the next day; check which patient classes they are, since outpatients have a 48 h target.'
-    },
     'r25-rvu-tat': {
       title: 'RVU vs TAT',
       purpose: 'Each reported study placed by its RVU against its turnaround, in two series: clinical and technical RVU.',
@@ -229,24 +217,6 @@ const ChartExplanations = {
       purpose: 'For each radiologist who signed at least 5 final reports in the period, the share of studies that carry an addendum.',
       valueMeaning: 'Rate = studies flagged with an addendum ÷ studies with a PACS final signer and time. Names are merged through the physician aliases. The overall rate covers the listed radiologists only.',
       interpretation: 'An addendum is a correction or an addition after signing. A rate well above the others is worth a quality review; a rate of 0 for everyone usually means the PACS does not set the addendum flag.'
-    },
-    'r25-tat-daily': {
-      title: 'Daily Avg TAT — PACS vs RIS',
-      purpose: 'Average turnaround per study date, measured twice: from the PACS arrival and from the RIS exam done.',
-      valueMeaning: 'Blue starts the clock when the study reached the PACS; green when the technologist set the exam to done on the RIS. Both stop at the report time (last composed, else PACS final). Hours. Rizk Hospital only; structured reports, gateways and bone densitometry are left out.',
-      interpretation: 'Green should sit just under blue: the gap is the time between the images arriving and the exam being closed on the RIS. A day with no RIS exam done for its studies has no green point, and the line bridges over it.'
-    },
-    'r25-tat-pacs': {
-      title: 'TAT from PACS arrival — by Modality / Class',
-      purpose: 'Turnaround from the moment the study reached the PACS to the report time, per modality and patient class.',
-      valueMeaning: 'Studies = reported studies with both times, report after arrival. Class: ER = patient location ER, then inpatient and outpatient by class code; Other has no target. 0–3 h, 3–5 h, 5 h+ = how many studies fell in each band. Within target = studies at or under the class’s target; the % leaves out Other.',
-      interpretation: 'Use the median to compare rows. A row with few studies can swing a lot from one month to the next.'
-    },
-    'r25-tat-ris': {
-      title: 'TAT from RIS exam done — by Modality / Class',
-      purpose: 'Turnaround from the RIS exam done (the latest of the study’s exams) to the report time, per modality and patient class.',
-      valueMeaning: 'Same columns as the PACS table. Only studies linked to a RIS exam done through the RIS performed procedure step are counted, so the totals are lower than the PACS table.',
-      interpretation: 'This is the clock the radiologists control most directly. A modality much slower here than on the PACS table has exams closed on the RIS long after the images arrived.'
     },
 
     // ── Report 23 — Population Analytics ────────────────────────────────────────
@@ -383,6 +353,12 @@ const ChartExplanations = {
       purpose: 'Reported Rizk Hospital studies per reader, broken down by modality, room, procedure or month.',
       valueMeaning: 'Cell = distinct studies with a report time. Reader = the PACS signing physician’s name, else who last composed the report, else the PACS final signer, merged through the physician aliases. The procedure view covers the 60 most frequent procedures.',
       interpretation: 'Shows who carries which modality and how the load moves month to month. Unknown readers are left out, so the total can be below the page total.'
+    },
+    'r32-per-day': {
+      title: 'Reports per Radiologist per Day',
+      purpose: 'How many reports each radiologist approved each day, for every modality or one, and how many wet reads each resident signed.',
+      valueMeaning: 'Each study once, on the day of its first approval (or first wet read) in the PACS audit trail. Days = days with at least one; Per day = the total divided by those days. Over 62 days the columns become weeks. The CSV has every person, day and modality.',
+      interpretation: 'Shows who carries the daily load, and on which days. A radiologist with few days but a high per-day figure reports in bursts. Weekend days are greyed in the header.'
     },
     'r36-sign-exam': {
       title: 'RIS exam done → signature',
@@ -770,6 +746,30 @@ const ChartExplanations = {
       purpose: 'How the measured studies spread over time windows, for all studies and for those with and without a wet read.',
       valueMeaning: 'Share of measured studies approved within 1 hour, 1 to 3 hours, 3 to 5 hours and over 5 hours of the radiologist\'s first open after the wet read. Approved = every approved study of the group; Measured = those with a start.',
       interpretation: 'A growing red band (over 5 hours) means studies are left open long before approval. With and without a wet read show whether studies read by a resident first are approved faster.'
+    },
+    'r36-bands-clock': {
+      title: 'Where the clock starts',
+      purpose: 'Chooses the moment the turnaround starts: when the technologist marks the exam done on the RIS, or when the images reach PACS.',
+      valueMeaning: 'RIS exam done is the study\'s first Exam Done on the RIS; Images reach PACS is the time PACS received the study. A study without that moment, or whose moment comes after the wet read or approval, is left out of that clock only.',
+      interpretation: 'The two clocks usually differ by a few minutes. A large gap means images reach PACS long after the exam is marked done, or the reverse. Use RIS exam done for the hospital\'s targets.'
+    },
+    'r36-bands-wet': {
+      title: 'Wet read: turnaround in time bands',
+      purpose: 'How long after the exam the first wet read (the resident\'s first reading) was signed in PACS, counted in time bands, per resident, modality and patient type.',
+      valueMeaning: 'Each study once, for its first wet read in the PACS audit trail and who signed it. Studies = studies measured with the chosen clock; Median and 90th pct = half, and 9 in 10, were wet-read within that time; each band = the share of studies (and how many) whose wet read fell in that window.',
+      interpretation: 'Read the first bands: the larger their share, the faster the wet reads. Compare residents on the same modality and patient type; ER studies should sit in the first band.'
+    },
+    'r36-bands-approve': {
+      title: 'Approval: turnaround in time bands',
+      purpose: 'How long after the exam the radiologist approved the report (the final signature at LAUMC), counted in time bands, per radiologist, modality and patient type.',
+      valueMeaning: 'Each study once, for its first approval in the PACS audit trail and the radiologist who approved it. Studies = studies measured with the chosen clock; Median and 90th pct = half, and 9 in 10, were approved within that time; each band = the share (and number) of studies approved in that window.',
+      interpretation: 'The last band holds the studies approved later than the longest limit. Set the limits to the hospital\'s targets (24 h inpatient and ER, 48 h outpatient) to see who, and which modality, misses them.'
+    },
+    'r36-bands-edit': {
+      title: 'Time bands',
+      purpose: 'Sets the windows the studies are counted in, as upper limits in hours.',
+      valueMeaning: 'Limits 3, 5, 12, 24 give five bands: up to 3 hours, 3 to 5, 5 to 12, 12 to 24 and over 24 hours. Apply changes the table at once, for you only; Everyone\'s bands goes back to the saved ones; Save for everyone (administrators) makes yours the bands everyone starts with.',
+      interpretation: 'Use the hospital\'s own targets as limits, so the first bands mean on time and the last band means late.'
     },
     'r36-reading-by-rad': {
       title: 'Reading TAT by approving radiologist',

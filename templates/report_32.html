@@ -338,6 +338,127 @@
                 </div>
             </div>
 
+            <!-- ── Reports per Radiologist per Day (item 14b, the hospital's July request) ── -->
+            {% set pd = data.per_day %}
+            <div class="data-card !h-auto" id="r32-day-card">
+                <div class="card-header">
+                    <span><i class="bi bi-calendar3"></i> Reports per Radiologist per Day<i class="bi bi-info-circle chart-info-icon" data-explain="r32-per-day" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></span>
+                    {% if pd and pd.days %}
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                        <div role="group" aria-label="What to count" style="display:inline-flex;border:1px solid #2d3733;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
+                            <button type="button" data-r32-kind="0" aria-pressed="true" style="padding:4px 12px;border:none;cursor:pointer;">Approved reports</button>
+                            <button type="button" data-r32-kind="1" aria-pressed="false" style="padding:4px 12px;border:none;cursor:pointer;">Wet reads</button>
+                        </div>
+                        <select id="r32-day-mod" aria-label="Modality" style="background:#0b0f0e;border:1px solid #2d3733;color:#e2e8f0;border-radius:5px;padding:3px 6px;font-size:10px;outline:none;">
+                            <option value="">All modalities</option>
+                        </select>
+                        <button type="button" onclick="r32DayCsv()" title="Download every radiologist, day and modality as CSV" class="export-img-btn"><i class="bi bi-download"></i> CSV</button>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="card-desc">Each study once, on the day of its first approval in PACS (radiologists) or its first wet read (residents), for the modality chosen.{% if pd and pd.from %} From the PACS audit trail: {{ pd.from[8:10] }}/{{ pd.from[5:7] }}/{{ pd.from[:4] }} to {{ pd.to[8:10] }}/{{ pd.to[5:7] }}/{{ pd.to[:4] }}.{% endif %}</div>
+                <div class="p-5">
+                    {% if not pd or not pd.coverage %}
+                    <p class="text-sm text-slate-500 italic">The PACS audit trail copy holds nothing yet.</p>
+                    {% elif not pd.days %}
+                    <p class="text-sm text-slate-500 italic">The PACS audit trail copy starts on {{ pd.coverage.from[8:10] }}/{{ pd.coverage.from[5:7] }}/{{ pd.coverage.from[:4] }}: no day of this period is in it.</p>
+                    {% else %}
+                    <div id="r32-day-wrap" style="overflow:auto;max-height:560px;border:1px solid #1a211f;border-radius:8px;"></div>
+                    <p id="r32-day-note" style="font-size:10px;color:#64748b;margin-top:8px;"></p>
+                    {% endif %}
+                </div>
+            </div>
+            {% if pd and pd.days %}
+            <style>
+                #r32-day-card [data-r32-kind] { background:transparent; color:#64748b; }
+                #r32-day-card [data-r32-kind][aria-pressed="true"] { background:rgba(129,140,248,0.15); color:#818cf8; }
+                .r32-day-tbl { border-collapse:collapse; font-size:11px; font-variant-numeric:tabular-nums; }
+                .r32-day-tbl th, .r32-day-tbl td { padding:4px 6px; border-bottom:1px solid #1a211f; text-align:right; white-space:nowrap; }
+                .r32-day-tbl thead th { position:sticky; top:0; z-index:2; background:#141a18; font-size:9px; color:#64748b; font-weight:900; text-transform:uppercase; }
+                .r32-day-tbl th.name, .r32-day-tbl td.name { position:sticky; left:0; z-index:1; background:#141a18; text-align:left; font-weight:800; color:#e2e8f0; }
+                .r32-day-tbl thead th.name { z-index:3; }
+                .r32-day-tbl th.we { color:#475569; }
+                .r32-day-tbl td.tot { font-weight:900; color:#e2e8f0; border-left:1px solid #2d3733; }
+                .r32-day-tbl tr.all td { font-weight:900; border-top:1px solid #2d3733; color:#e2e8f0; }
+                .r32-day-tbl .role { font-size:9px; color:#64748b; margin-left:6px; font-weight:600; }
+                body.light .r32-day-tbl thead th, body.light .r32-day-tbl th.name, body.light .r32-day-tbl td.name { background:#fff; color:#1a202c; }
+                body.light .r32-day-tbl td.tot, body.light .r32-day-tbl tr.all td { color:#1a202c; }
+            </style>
+            <script>
+            (function () {
+                const PD = {{ pd | tojson }};
+                const WEEKLY = PD.days.length > 62;        // a long period reads by week
+                const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                const esc = v => (typeof escHtml === 'function' ? escHtml(v) : String(v == null ? '' : v));
+                const dm = s => `${s.slice(8, 10)}/${s.slice(5, 7)}`;
+                const dayOf = s => new Date(s + 'T12:00:00');
+                let kind = 0;
+                const modSel = document.getElementById('r32-day-mod');
+                PD.modalities.map((m, i) => [m, i]).sort((a, b) => a[0].localeCompare(b[0]))
+                    .forEach(([m, i]) => modSel.add(new Option(m, String(i))));
+                // columns: each day, or each week (Monday) for a long period
+                const cols = [], colOfDay = [];
+                PD.days.forEach((d, i) => {
+                    const dt = dayOf(d);
+                    if (!WEEKLY) { cols.push({head: `${DOW[dt.getDay()]}<br>${dm(d)}`, csv: d, weekend: dt.getDay() === 0 || dt.getDay() === 6}); colOfDay.push(i); return; }
+                    const monday = new Date(dt); monday.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
+                    const key = monday.toISOString().slice(0, 10);
+                    if (!cols.length || cols[cols.length - 1].key !== key) cols.push({key, head: `Week of<br>${dm(key)}`, csv: 'week of ' + key});
+                    colOfDay.push(cols.length - 1);
+                });
+                function grid() {
+                    const mod = modSel.value === '' ? null : +modSel.value;
+                    const people = new Map();
+                    PD.rows.forEach(([k, p, d, m, n]) => {
+                        if (k !== kind || (mod !== null && m !== mod)) return;
+                        if (!people.has(p)) people.set(p, {cells: new Array(cols.length).fill(0), days: new Set(), total: 0});
+                        const r = people.get(p);
+                        r.cells[colOfDay[d]] += n; r.days.add(d); r.total += n;
+                    });
+                    return [...people.entries()].sort((a, b) => b[1].total - a[1].total);
+                }
+                function draw() {
+                    const rows = grid(), wrap = document.getElementById('r32-day-wrap');
+                    document.querySelectorAll('#r32-day-card [data-r32-kind]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.r32Kind === kind)));
+                    if (!rows.length) { wrap.innerHTML = '<p style="padding:16px;font-size:12px;color:#64748b;">Nothing counted for this choice.</p>'; document.getElementById('r32-day-note').textContent = ''; return; }
+                    const max = Math.max(1, ...rows.flatMap(([, r]) => r.cells));
+                    const colTot = new Array(cols.length).fill(0);
+                    let html = `<table class="r32-day-tbl"><thead><tr><th class="name">${kind === 0 ? 'Radiologist' : 'Wet read by'}</th>` +
+                        cols.map(c => `<th class="${c.weekend ? 'we' : ''}">${c.head}</th>`).join('') +
+                        '<th>Total</th><th>Days</th><th>Per day</th></tr></thead><tbody>';
+                    rows.forEach(([p, r]) => {
+                        const person = PD.people[p] || {};
+                        r.cells.forEach((n, i) => { colTot[i] += n; });
+                        html += `<tr><td class="name">${esc(person.name)}${person.role ? `<span class="role">${esc(person.role)}</span>` : ''}</td>` +
+                            r.cells.map(n => `<td style="${n ? `background:rgba(129,140,248,${(0.08 + 0.5 * n / max).toFixed(2)})` : ''}">${n || ''}</td>`).join('') +
+                            `<td class="tot">${r.total.toLocaleString()}</td><td>${r.days.size}</td><td>${(r.total / r.days.size).toFixed(1)}</td></tr>`;
+                    });
+                    const all = colTot.reduce((a, b) => a + b, 0);
+                    html += `<tr class="all"><td class="name">All</td>${colTot.map(n => `<td>${n ? n.toLocaleString() : ''}</td>`).join('')}<td class="tot">${all.toLocaleString()}</td><td></td><td></td></tr>`;
+                    wrap.innerHTML = html + '</tbody></table>';
+                    document.getElementById('r32-day-note').textContent =
+                        `${rows.length} ${kind === 0 ? 'radiologists' : 'readers'}, ${all.toLocaleString()} ${kind === 0 ? 'approved studies' : 'wet reads'}` +
+                        (WEEKLY ? '; more than 62 days, so the columns are weeks. Days = days with at least one, Per day = total ÷ those days.' : '. Days = days with at least one, Per day = total ÷ those days.');
+                }
+                document.querySelectorAll('#r32-day-card [data-r32-kind]').forEach(b => b.addEventListener('click', () => { kind = +b.dataset.r32Kind; draw(); }));
+                modSel.addEventListener('change', draw);
+                window.r32DayCsv = function () {
+                    const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+                    const lines = [['Count', 'Person', 'Role', 'Day', 'Modality', 'Studies']];
+                    PD.rows.forEach(([k, p, d, m, n]) => {
+                        const person = PD.people[p] || {};
+                        lines.push([k === 0 ? 'Approved' : 'Wet read', person.name, person.role || '', PD.days[d], PD.modalities[m], n]);
+                    });
+                    const blob = new Blob(['﻿' + lines.map(r => r.map(q).join(',')).join('\n')], {type: 'text/csv;charset=utf-8;'});
+                    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+                    a.download = `reports_per_radiologist_per_day_${PD.from}_to_${PD.to}.csv`;
+                    document.body.appendChild(a); a.click(); a.remove();
+                };
+                draw();
+            })();
+            </script>
+            {% endif %}
+
             {# The signature turnaround card moved to Report 36, tab TAT comparison (operator
                2026-11-19: Report 36 holds every TAT, Report 32 performance and counts). #}
 

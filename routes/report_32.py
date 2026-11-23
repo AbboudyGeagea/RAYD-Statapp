@@ -509,6 +509,17 @@ def get_radiologist_performance_data(form_data):
     # The signature turnaround (utils/sign_tat.py) moved to Report 36, tab TAT comparison
     # (operator 2026-11-19: Report 36 holds every TAT, Report 32 performance and counts).
 
+    # ── Reports per radiologist per day per modality (item 14b) ───────────
+    # From the PACS audit trail: each study once, on the day of its first approval (or wet
+    # read), same Modality / Patient Class filters and site devices (utils/tat_bands.per_day).
+    per_day = None
+    try:
+        from utils import tat_bands
+        per_day = tat_bands.per_day(start, end, params, sec_filters)
+    except Exception:
+        logger.exception("Failed to count reports per radiologist per day")
+        db.session.rollback()
+
     result = ({
         "summary": summary,
         "rad_cards": rad_cards,
@@ -516,6 +527,7 @@ def get_radiologist_performance_data(form_data):
         "addendum_data": addendum_data,
         "shift_patterns": shift_patterns,
         "sla": sla_summary,
+        "per_day": per_day,
     }, start, end)
     cache_put(32, form_data, result)
     return result

@@ -52,7 +52,16 @@ routes/
                                    on the page's period, the comparison's headline beside it, a
                                    narrative section; only the Modality filter applies (the others
                                    are PACS study filters); links to Report 40 when it may be opened
-  report_25.py                  — shift & device utilization
+  report_25.py                  — shift & device utilization (its four turnaround copies went to
+                                   Report 36 on 2026-11-23, item 14c: a note links there)
+  report_36.py                  — Report 36, Radiology Reporting Analytics: every TAT (operator
+                                   2026-11-19), each tab loaded alone. Tab "Time bands" (item 14a,
+                                   utils/tat_bands.py): wet read and approval per person, modality
+                                   and patient type, from RIS exam done or PACS arrival, in bands
+                                   the hospital sets (settings tat_bands_wetread / _approve, saved
+                                   from the tab with the settings capability), PACS audit trail.
+                                   Report 32's "Reports per Radiologist per Day" (14b) comes from
+                                   the same module. Check against PACS: scripts/sql/item14_validate_oracle.sql
   report_38.py                  — Report 38, the ER dashboard (until 2026-11-14 the page /er,
                                    routes/er_dashboard.py; /er redirects): TAT, target compliance,
                                    unread ER studies; migration 0150

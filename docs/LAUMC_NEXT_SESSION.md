@@ -117,17 +117,46 @@ fixes; update.sh refuses while a move runs). Confirm with
 `cd /opt/rayd && git log --oneline -1 && sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 4;"`
 (expect 0180 on top).
 
+**Item 14, 23 Nov (operator: "let's continue a,b,c and d"; Report 25: remove the 4 copies only).**
+Built from the PACS audit trail copy (utils/tat_bands.py, tests/test_tat_bands.py, migration 0182
+index on kind and day):
+- **a. Report 36, tab "Time bands"**: wet read (residents) and approval (radiologists), each study
+  once for its first event, timed from RIS exam done or PACS arrival, per person / modality /
+  patient type (six "Show by" choices), median, 90th percentile and the share and count in each
+  band. Bands change on screen at once; "Save for everyone" (settings capability) stores
+  settings tat_bands_wetread / tat_bands_approve; defaults 3, 5, 12, 24 h and 6, 24, 48 h. CSV.
+- **b. Report 32, "Reports per Radiologist per Day"**: approved reports per radiologist, or wet
+  reads per resident, per day (weeks past 62 days), all modalities or one; Report 32's Modality /
+  Patient Class filters; CSV of every person, day and modality.
+- **c. Report 25**: the "TAT: PACS vs RIS" tab, "TAT per Patient Class" (with its target strip,
+  also on Report 32), "Avg TAT by Modality" and "TAT Distribution" removed, each with a note
+  linking to Report 36's tab; its two queries are gone. The device and radiologist charts stay.
+- **d. Check against PACS (needs the VPN)**: pick a working day, put it in both RAYD commands and in
+  `scripts/sql/item14_validate_oracle.sql` (DEFINE day). Command 1, approvals and wet reads per
+  login on that day, both hospitals (add them up; the PACS audit names no hospital):
+  ```bash
+  Q="WITH f AS (SELECT DISTINCT ON (kind, study_instance_uid) kind, study_instance_uid, user_name, event_at FROM etl_pacs_audit_events WHERE kind IN ('approve', 'wetread') ORDER BY kind, study_instance_uid, event_at, log_dbid) SELECT kind, user_name AS login, COUNT(*) AS studies FROM f WHERE event_at >= DATE '2026-11-17' AND event_at < DATE '2026-11-18' GROUP BY 1, 2 ORDER BY 1, 3 DESC, 2;"; for d in etl_db etl_db_sjh; do echo "== $d"; sudo docker exec rayd_db psql -U etl_user -d $d -c "$Q"; done
+  ```
+  Command 2, ten approved RH studies of that day with RAYD's times, and the lines to paste into
+  steps 2 and 3 of the Oracle file:
+  ```bash
+  sudo docker exec rayd_db psql -U etl_user -d etl_db -c "CREATE TEMP TABLE pick AS WITH f AS (SELECT DISTINCT ON (kind, study_instance_uid) kind, study_instance_uid, user_name, event_at FROM etl_pacs_audit_events WHERE kind IN ('approve', 'wetread') ORDER BY kind, study_instance_uid, event_at, log_dbid), appr AS (SELECT * FROM f WHERE kind = 'approve' AND event_at >= DATE '2026-11-17' AND event_at < DATE '2026-11-18' ORDER BY random() LIMIT 10) SELECT s.accession_number, to_char(a.event_at, 'YYYY-MM-DD HH24:MI:SS') AS approved_at, a.user_name AS approved_by, to_char(w.event_at, 'YYYY-MM-DD HH24:MI:SS') AS wet_read_at, w.user_name AS wet_read_by, (SELECT to_char(MIN(x.exam_done_at), 'YYYY-MM-DD HH24:MI:SS') FROM etl_orders o JOIN std_worklist_exam_done x ON x.site_worklist_key = o.order_dbid WHERE o.study_db_uid = s.study_db_uid) AS ris_exam_done, (SELECT string_agg(o.order_dbid::text, ',') FROM etl_orders o WHERE o.study_db_uid = s.study_db_uid) AS ris_worklist_keys FROM appr a JOIN etl_didb_studies s ON BTRIM(s.study_instance_uid) = a.study_instance_uid LEFT JOIN f w ON w.kind = 'wetread' AND w.study_instance_uid = a.study_instance_uid;" -c "SELECT * FROM pick ORDER BY 1;" -c "SELECT string_agg(quote_literal(accession_number), ', ') AS for_oracle_step_2, string_agg(ris_worklist_keys, ',') AS for_oracle_step_3 FROM pick;"
+  ```
+  Pass: the same count per login (a few more in PACS for studies RAYD keeps out: structured
+  reports, cardiology), and the ten studies' first wet read, first approval and RIS exam done the
+  same to the second, same login.
+
 **Pending table (23 Nov)** — show it, kept current, at the end of each reply. Deadline Sun 30 Nov.
 
 | # | Item | Who | Status |
 |---|------|-----|--------|
-| 13-8b | SJH on in .env + `update.sh LAUMC` (HEAD cfb8e9d0: SJH in the app, startup lock fix, Report Composer sentence, footer, Super Report lead time card, dates dd/mm/yyyy) + `grep "site SJH" logs/app/SITE_DB.log` | operator | **Before the department opens Tue 24 Nov**; until then SJH's new rows wait safely on RH |
-| 13-8c | VACUUM ANALYZE on RH after the move | operator | Was running 21 Nov; check it finished (`pg_stat_progress_vacuum` empty) |
-| 13-V | Validate SJH: volumes by year / October by modality / no-site devices (operator expects SJH close to RH; so far 48 % all years, ~70 % October); October Report 22 RH (~5,419) and SJH; Super Report sites side by side; first 05:00 ETL after SJH on (no SJH rows on RH); PACS per device when the VPN is back | operator, then me | After 13-8b |
+| 13-8b | SJH on in .env + `update.sh LAUMC` (13ce2d70) | operator | **Done** 23 Nov 15:38: "site SJH: database etl_db_sjh ready", migrations 0 s |
+| 13-8c | VACUUM ANALYZE on RH after the move | operator | **Done** (nothing in `pg_stat_progress_vacuum`, 23 Nov) |
+| 13-V | Validate SJH. **23 Nov:** nothing lost: SJH's PACS history starts 13 Apr 2021, so all years read 48 %; full years SJH = 69 % (2023), 79 % (2024), 76 % (2025), 74 % (2026) of RH, October 3,967 vs 5,394 (74 %), the same in every modality (CT 85 %, MG 86 %, US 78 %, X-ray 76 %, MR 70 %); HIS orders 18 Nov 68 %. RH's October 5,394 vs 5,419 on 5 Nov. No site: 9,247 on LAUMCWFM1AR (PACS site 2, ~110/month) + 4. **Found:** SJH's X-rays read RF (1,778 RF, 182 DX in October) → device query sent, then fix the mapping. Still: RIS exams per hospital (query sent), October Report 22 in the app, Tue 24 05:00 run, PACS per site when the VPN is back | operator, then me | In progress |
 | 20 | CRN go-live, this month: Email Server with the gateway's domain allowed (SJH's set 21 Nov), provider "Email to SMS" + gateway address, CRN gateway URL / API key + IT firewall, fallback contact + mobiles, SMS wording, test SMS, Live | operator + IT | Built and deployed; go-live steps not confirmed |
 | 37 | CRN workflow with the department | operator | To discuss |
 | 35 | Report AI accuracy: Mon 23 Nov (holiday) predicted vs came, read Tue 24 after 06:30 (`ai_forecast_check`); verdict on ~20 weekdays ~18 Dec; then maybe predicted-vs-came list, weekday-only error, week-ahead accuracy | operator | Waiting on the data; build nothing before |
-| 14 | Radiologists TAT, the rest: Report 25's TAT duplicates; per-resident adjustable threshold bands; reports per radiologist per day per modality (Report 32); validation against Oracle | me | Waiting on the operator's go (planned December) |
+| 14 | Radiologist TAT, the rest. **a, b, c built 23 Nov** (see "Item 14, 23 Nov" below): Report 36 tab Time bands, Report 32 Reports per Radiologist per Day, Report 25's four copies out; **d** (check against PACS) waits for the VPN: `scripts/sql/item14_validate_oracle.sql` + the two RAYD commands below | me / operator (VPN) | a-c next deploy; d after the VPN |
 | 1 | HIS vs RIS: 19 Nov MRI on Report 27's HIS tab | operator | Check |
 | 9 | Report 39: "Show them as Former staff" switch, after the manager checks (Tanios Jalkh; Jessica Saad's PACS account); SJH's own switch now that it has its database | operator + manager | Waiting |
 | 21 | Report 40 for October: median and same-day share look right? | operator | Check |
@@ -138,8 +167,8 @@ fixes; update.sh refuses while a move runs). Confirm with
 | 30 | Amended reports (AAP after FAP) | chief radiologist | On hold |
 | — | Live Department board: further fixes beyond item 38 (built 19 Nov) | operator | Ask for the list when convenient |
 
-Closed 21–23 Nov: the SJH move (13-8, 21 Nov 14:49, verified); dates dd/mm/yyyy on every date
-box (cfb8e9d0, operator 21 Nov).
+Closed 21–23 Nov: the SJH move (13-8, 21 Nov 14:49, verified); SJH on and deployed (13-8b,
+23 Nov 15:38); VACUUM (13-8c); dates dd/mm/yyyy on every date box (cfb8e9d0, operator 21 Nov).
 
 Closed 21 Nov (operator): SJH's mail server set (13-9); the Report Composer as a sentence approved;
 the customer's after-hours report approved (built in the Report Composer); the footer reads

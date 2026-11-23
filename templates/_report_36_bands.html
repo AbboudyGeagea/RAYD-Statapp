@@ -1,0 +1,221 @@
+{# Report 36, tab Time bands (loaded alone, routes/report_36.part_context): the hospital's July
+   request (item 14a): turnaround to the wet read (residents) and to the approval (radiologists),
+   per person, modality and patient type, counted in time bands the hospital sets. One row per
+   study and stage comes from utils/tat_bands.bands(); the page groups and bands them, so a
+   change of bands shows at once. "Save for everyone" needs the settings capability. #}
+{% from '_report_36_macros.html' import info %}
+{% set bd = bands_data %}
+<style>
+    .r36b-bar { display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px; margin-bottom:16px; }
+    .r36b-bar label { font-size:10px; font-weight:900; color:#64748b; text-transform:uppercase; letter-spacing:.06em; }
+    .r36b-seg { display:inline-flex; border:1px solid #3f3f46; border-radius:8px; overflow:hidden; }
+    .r36b-seg button { padding:5px 12px; font-size:11px; font-weight:800; color:#94a3b8; background:transparent; border:none; cursor:pointer; }
+    .r36b-seg button[aria-pressed="true"] { background:rgba(96,165,250,.15); color:#60a5fa; }
+    .r36b-sel, .r36b-limits { background:#181f1c; border:1px solid #28332e; color:#e2e8f0; border-radius:8px; padding:5px 10px; font-size:12px; outline:none; }
+    .r36b-limits { width:150px; font-variant-numeric:tabular-nums; }
+    .r36b-limits:focus, .r36b-sel:focus { border-color:#60a5fa; }
+    .r36b-meta { font-size:12px; color:#94a3b8; margin:-4px 0 12px; }
+    .r36b-err { font-size:11px; color:#f87171; }
+    .r36b-tbl td.band { text-align:center; padding:3px 4px; }
+    .r36b-tbl td.band span { display:block; border-radius:5px; padding:3px 4px; font-weight:800; color:#e2e8f0; }
+    .r36b-tbl td.band small { display:block; font-size:10px; font-weight:600; color:#94a3b8; }
+    .r36b-tbl tr.all td { font-weight:900; border-bottom:1px solid #3f3f46; }
+    .r36b-tbl th.band { text-align:center; }
+    .r36b-tbl .role { font-size:10px; color:#64748b; margin-left:6px; }
+    body.light .r36b-sel, body.light .r36b-limits { background:#fff; border-color:#cbd5e1; color:#1a202c; }
+    body.light .r36b-tbl td.band span { color:#1a202c; }
+</style>
+
+<p class="section-desc">
+    The hospital's turnaround request: for each study, the time from the start clock to the
+    <strong>wet read</strong> (the resident's first reading) and to the <strong>approval</strong> (the
+    radiologist's signature), counted in time bands, per person, modality and patient type. From the
+    PACS audit trail{% if bd and bd.coverage %}, studies that reached PACS since {{ bd.coverage.from[8:10] }}/{{ bd.coverage.from[5:7] }}/{{ bd.coverage.from[:4] }}{% endif %}.
+    Change the bands and the tables follow at once{% if can_save_bands %}; "Save for everyone" makes them everyone's starting bands{% endif %}.
+</p>
+
+{% if not bd or not bd.coverage %}
+<div class="glass-card text-center py-10 text-zinc-500">The PACS audit trail copy holds nothing for these dates yet.</div>
+{% elif not bd.wetread and not bd.approve %}
+<div class="glass-card text-center py-10 text-zinc-500">No study in this range was wet-read or approved in PACS (of {{ '{:,}'.format(bd.studies) }} studies).</div>
+{% else %}
+<div class="r36b-bar">
+    <span><label>Clock starts at{{ info('r36-bands-clock', 'the start clock') }}</label>
+        <span class="r36b-seg" role="group" aria-label="Clock starts at">
+            <button type="button" data-clock="3" aria-pressed="true">RIS exam done</button>
+            <button type="button" data-clock="4" aria-pressed="false">Images reach PACS</button>
+        </span></span>
+    <span><label for="r36b-by">Show by</label>
+        <select id="r36b-by" class="r36b-sel">
+            <option value="p">Person</option>
+            <option value="pm">Person and modality</option>
+            <option value="pmc">Person, modality and patient type</option>
+            <option value="m">Modality</option>
+            <option value="c">Patient type</option>
+            <option value="mc">Modality and patient type</option>
+        </select></span>
+</div>
+
+{% for stage, title, who, key in [('wetread', 'Wet read', 'Resident', 'r36-bands-wet'), ('approve', 'Approval', 'Radiologist', 'r36-bands-approve')] %}
+<div class="glass-card mb-8" id="r36b-{{ stage }}">
+    <div class="chart-card-header" style="padding:0 0 10px 0;">
+        <span class="chart-card-title" style="color:{{ '#34d399' if stage == 'wetread' else '#60a5fa' }};">{{ title }}: turnaround in time bands{{ info(key, 'this table') }}</span>
+        <button type="button" class="r36-mini-btn" data-csv="{{ stage }}" title="Download this table as CSV"><i class="bi bi-download"></i> CSV</button>
+    </div>
+    <p class="r36b-meta" data-meta="{{ stage }}"></p>
+    <div class="r36b-bar">
+        <span><label for="r36b-limits-{{ stage }}">Bands, upper limits in hours{{ info('r36-bands-edit', 'the bands') }}</label>
+            <input id="r36b-limits-{{ stage }}" class="r36b-limits" data-limits="{{ stage }}" inputmode="decimal" aria-describedby="r36b-err-{{ stage }}"></span>
+        <button type="button" class="r36-mini-btn" data-apply="{{ stage }}">Apply</button>
+        <button type="button" class="r36-mini-btn" data-reset="{{ stage }}" title="Back to everyone's bands">Everyone's bands</button>
+        {% if can_save_bands %}<button type="button" class="r36-mini-btn" data-save="{{ stage }}" title="Make these everyone's starting bands">Save for everyone</button>{% endif %}
+        <span class="r36b-err" id="r36b-err-{{ stage }}" role="status"></span>
+    </div>
+    <div style="max-height:520px;overflow:auto;">
+        <table class="r36-tbl r36b-tbl" data-table="{{ stage }}" data-who="{{ who }}"></table>
+    </div>
+</div>
+{% endfor %}
+
+<script>
+(function () {
+    const D = {{ bd | tojson }};
+    const DEFAULTS = {{ bands_default | tojson }};
+    const limits = {wetread: DEFAULTS.wetread.slice(), approve: DEFAULTS.approve.slice()};
+    let clock = 3, by = 'p';
+    const root = document.getElementById('r36-part-bands') || document;
+    const $ = sel => root.querySelector(sel);
+    const esc = v => (typeof escHtml === 'function' ? escHtml(v) : String(v == null ? '' : v));
+    const fmtH = h => (h < 1 ? Math.round(h * 60) + ' min' : (Math.round(h * 10) / 10) + ' h');
+    const fmtMin = m => m == null ? '–' : fmtH(m / 60);
+
+    function bandLabels(lim) {
+        return lim.map((h, i) => i === 0 ? `≤ ${fmtH(h)}` : `${fmtH(lim[i - 1])}–${fmtH(h)}`)
+                  .concat([`> ${fmtH(lim[lim.length - 1])}`]);
+    }
+    function bandColour(i, n) {                         // green (fast) to red (slow)
+        const hue = n > 1 ? 145 - i * 145 / (n - 1) : 145;
+        return a => `hsla(${hue}, 70%, 45%, ${a})`;
+    }
+    function stats(mins) {
+        const v = mins.slice().sort((a, b) => a - b), n = v.length;
+        if (!n) return {n: 0, median: null, p90: null};
+        const median = n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
+        return {n, median, p90: v[Math.min(n - 1, Math.floor(n * 0.9))]};
+    }
+    function counts(mins, lim) {                        // (previous limit, limit], the first from 0
+        const edges = lim.map(h => h * 60), out = new Array(edges.length + 1).fill(0);
+        mins.forEach(m => { let i = edges.findIndex(e => m <= e); out[i < 0 ? edges.length : i]++; });
+        return out;
+    }
+    function groupKey(r) {
+        return by.split('').map(k => k === 'p' ? r[0] : k === 'm' ? r[1] : r[2]).join('|');
+    }
+    function groupCells(key) {
+        const parts = key.split('|');
+        return by.split('').map((k, i) => {
+            const v = +parts[i];
+            if (k === 'p') { const p = D.people[v] || {}; return esc(p.name) + (p.role ? `<span class="role">${esc(p.role)}</span>` : ''); }
+            return esc(k === 'm' ? D.modalities[v] : D.classes[v]);
+        });
+    }
+    function groupText(key) {
+        const parts = key.split('|');
+        return by.split('').map((k, i) => { const v = +parts[i];
+            return k === 'p' ? (D.people[v] || {}).name : k === 'm' ? D.modalities[v] : D.classes[v]; });
+    }
+    function table(stage) {
+        const rows = (D[stage] || []).filter(r => r[clock] != null);
+        const groups = new Map();
+        rows.forEach(r => { const k = groupKey(r); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r[clock]); });
+        const order = [...groups.entries()].sort((a, b) => {
+            if (by === 'c' || by === 'mc') { const ca = +a[0].split('|').pop(), cb = +b[0].split('|').pop();
+                if (by === 'c') return ca - cb; }
+            return b[1].length - a[1].length || String(groupText(a[0])).localeCompare(String(groupText(b[0])));
+        });
+        return {all: rows.map(r => r[clock]), order};
+    }
+    function heads(stage) {
+        const who = $(`[data-table="${stage}"]`).dataset.who;
+        return by.split('').map(k => k === 'p' ? who : k === 'm' ? 'Modality' : 'Patient type');
+    }
+    function draw(stage) {
+        const lim = limits[stage], labels = bandLabels(lim), {all, order} = table(stage);
+        const total = (D[stage] || []).length;
+        const missing = total - all.length;
+        $(`[data-meta="${stage}"]`).textContent =
+            `${total.toLocaleString()} studies ${stage === 'wetread' ? 'wet-read' : 'approved'} of ${D.studies.toLocaleString()} in these dates` +
+            (missing ? `; ${missing.toLocaleString()} without ${clock === 3 ? 'a RIS exam done' : 'a PACS arrival'} before it, left out of this clock.` : '.');
+        $(`[data-limits="${stage}"]`).value = lim.join(', ');
+        const colours = labels.map((_, i) => bandColour(i, labels.length));
+        const hd = heads(stage);
+        const cellsFor = mins => {
+            const s = stats(mins), c = counts(mins, lim);
+            return `<td>${s.n.toLocaleString()}</td><td>${fmtMin(s.median)}</td><td>${fmtMin(s.p90)}</td>` +
+                c.map((n, i) => { const pct = s.n ? 100 * n / s.n : 0;
+                    return `<td class="band"><span style="background:${colours[i](0.12 + 0.6 * pct / 100)}">${s.n ? Math.round(pct) + '%' : '–'}<small>${n.toLocaleString()}</small></span></td>`; }).join('');
+        };
+        let html = `<thead><tr>${hd.map(h => `<th>${esc(h)}</th>`).join('')}<th>Studies</th><th>Median</th><th>90th pct</th>` +
+                   labels.map((l, i) => `<th class="band"><span style="display:inline-block;padding:1px 6px;border-radius:4px;background:${colours[i](0.55)};color:#0b1220">${esc(l)}</span></th>`).join('') +
+                   `</tr></thead><tbody>`;
+        html += `<tr class="all"><td colspan="${hd.length}">All</td>${cellsFor(all)}</tr>`;
+        order.forEach(([k, mins]) => { html += `<tr>${groupCells(k).map(c => `<td>${c}</td>`).join('')}${cellsFor(mins)}</tr>`; });
+        $(`[data-table="${stage}"]`).innerHTML = html + '</tbody>';
+    }
+    function drawAll() { draw('wetread'); draw('approve'); }
+
+    function readLimits(stage) {
+        const err = $(`#r36b-err-${stage}`);
+        const raw = $(`[data-limits="${stage}"]`).value.split(/[,;\s]+/).filter(Boolean).map(Number);
+        const bad = !raw.length || raw.length > 8 || raw.some(v => !(v > 0 && v <= 720)) || raw.some((v, i) => i && v <= raw[i - 1]);
+        err.textContent = bad ? 'Hours going up, for example 3, 5, 12, 24 (1 to 8 limits, at most 720).' : '';
+        return bad ? null : raw;
+    }
+    root.querySelectorAll('[data-clock]').forEach(b => b.addEventListener('click', () => {
+        clock = +b.dataset.clock;
+        root.querySelectorAll('[data-clock]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+        drawAll();
+    }));
+    $('#r36b-by').addEventListener('change', e => { by = e.target.value; drawAll(); });
+    root.querySelectorAll('[data-apply]').forEach(b => b.addEventListener('click', () => {
+        const v = readLimits(b.dataset.apply); if (v) { limits[b.dataset.apply] = v; draw(b.dataset.apply); }
+    }));
+    root.querySelectorAll('[data-limits]').forEach(inp => inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); root.querySelector(`[data-apply="${inp.dataset.limits}"]`).click(); }
+    }));
+    root.querySelectorAll('[data-reset]').forEach(b => b.addEventListener('click', () => {
+        const s = b.dataset.reset; limits[s] = DEFAULTS[s].slice(); $(`#r36b-err-${s}`).textContent = ''; draw(s);
+    }));
+    root.querySelectorAll('[data-save]').forEach(b => b.addEventListener('click', () => {
+        const s = b.dataset.save, v = readLimits(s); if (!v) return;
+        fetch('/report/36/bands', {method: 'POST', credentials: 'same-origin',
+                                   headers: {'Content-Type': 'application/json'},
+                                   body: JSON.stringify({stage: s, limits: v})})
+            .then(r => r.json().then(j => ({ok: r.ok, j})))
+            .then(({ok, j}) => {
+                const err = $(`#r36b-err-${s}`);
+                if (!ok) { err.textContent = j.error || 'Not saved.'; return; }
+                DEFAULTS[s] = j.limits.slice(); limits[s] = j.limits.slice(); draw(s);
+                err.style.color = '#34d399'; err.textContent = 'Saved: everyone now starts with these bands.';
+                setTimeout(() => { err.textContent = ''; err.style.color = ''; }, 4000);
+            })
+            .catch(() => { $(`#r36b-err-${s}`).textContent = 'Not saved: the server could not be reached.'; });
+    }));
+    root.querySelectorAll('[data-csv]').forEach(b => b.addEventListener('click', () => {
+        const s = b.dataset.csv, lim = limits[s], labels = bandLabels(lim), {all, order} = table(s);
+        const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+        const hours = m => m == null ? '' : (m / 60).toFixed(2);
+        const line = (names, mins) => { const st = stats(mins), c = counts(mins, lim);
+            return [...names, st.n, hours(st.median), hours(st.p90), ...c.flatMap(n => [n, st.n ? (100 * n / st.n).toFixed(1) : ''])]; };
+        const head = [...heads(s), 'Studies', 'Median (h)', '90th pct (h)', ...labels.flatMap(l => [l + ' n', l + ' %'])];
+        const body = [line(heads(s).map((_, i) => i ? '' : 'All'), all), ...order.map(([k, mins]) => line(groupText(k), mins))];
+        const csv = [head, ...body].map(r => r.map(q).join(',')).join('\n');
+        const blob = new Blob(['﻿' + csv], {type: 'text/csv;charset=utf-8;'});
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+        a.download = `report36_${s}_bands_${clock === 3 ? 'ris' : 'pacs'}_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a); a.click(); a.remove();
+    }));
+    drawAll();
+})();
+</script>
+{% endif %}

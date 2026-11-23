@@ -1,4 +1,16 @@
 {% from '_report_filter_panel.html' import filter_panel_head, filter_panel %}
+{# Where a turnaround chart Report 36 also shows used to be (item 14c, operator 2026-11-23: the
+   four copies go, Report 36 holds every TAT): what it was and a link to the Report 36 tab. #}
+{% macro moved_to_36(what, tab, cls) %}
+<div class="{{ cls }}" style="display:flex;align-items:center;justify-content:center;min-height:180px;">
+    <div class="text-center p-6">
+        <i class="bi bi-signpost-split text-3xl block opacity-40 mb-2" aria-hidden="true"></i>
+        <p class="text-sm font-black text-white">{{ what }}: now on Report 36</p>
+        <p class="text-xs text-zinc-500 mt-1">Every turnaround is on Report 36, Radiology Reporting Analytics, timed from the signatures in PACS.</p>
+        {% if can_open_36 %}<a href="/report/36?start_date={{ display_start }}&amp;end_date={{ display_end }}#{{ tab }}" class="inline-block mt-3 text-xs font-black uppercase tracking-wider" style="color:#60a5fa;">Open Report 36 <i class="bi bi-arrow-right" aria-hidden="true"></i></a>{% endif %}
+    </div>
+</div>
+{% endmacro %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -98,7 +110,6 @@
                 <div onclick="switchTab('infra')"    class="tab-btn shrink-0" id="btn-infra">Infrastructure</div>
                 <div onclick="switchTab('efficiency')"  class="tab-btn shrink-0" id="btn-efficiency">Efficiency Intel</div>
                 <div onclick="switchTab('journey')"       class="tab-btn shrink-0" id="btn-journey">Patient Journey</div>
-                <div onclick="switchTab('tat-anchor')"    class="tab-btn shrink-0" id="btn-tat-anchor">TAT: PACS vs RIS</div>
 
             </nav>
 
@@ -278,54 +289,7 @@
 
                 <!-- Charts Row 1 -->
                 <div class="grid grid-cols-2 gap-8">
-                    <div class="chart-card">
-                        <div class="chart-card-header">
-                            <span class="chart-card-title">TAT per Patient Class<i class="bi bi-info-circle chart-info-icon" data-explain="r25-class-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
-                            <button class="export-png-btn" onclick="exportChart('chart-1', 'tat_per_class')">
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                                PNG
-                            </button>
-                            <button class="export-pdf-btn" onclick="exportChartPdf('chart-1','TAT per Patient Class','tat_per_class')">
-                                <i class="bi bi-file-earmark-pdf"></i> PDF
-                            </button>
-                        </div>
-                        <div class="chart-card-desc">
-                            Average Turnaround Time (minutes from study order to report) broken down by patient class. Higher bars indicate longer waits — compare Emergency vs. Outpatient to spot service-level gaps.
-                            The strip below scores the same studies against the department's reporting targets
-                            (24h inpatient, 24h urgent, 48h outpatient by default; set via the
-                            <code class="text-zinc-400">rad_tat_sla_hours:&lt;IN|URG|OUT&gt;</code> settings rows).
-                        </div>
-                        {# The chart groups on the RAW patient_class codes this install emits; the strip
-                           groups the same rows into the three classes the targets are written against.
-                           Both are kept: a code visible in the chart but absent from the strip is how an
-                           unmapped patient class makes itself known. #}
-                        {% if data.sla and data.sla.by_bucket %}
-                        <div class="px-5 pb-2 flex items-stretch gap-3 flex-wrap">
-                            {% for b in data.sla.by_bucket %}
-                            <div class="flex-1 min-w-[130px] rounded-lg px-3 py-2" style="background:rgba(148,163,184,0.06);border:1px solid rgba(255,255,255,0.06);">
-                                <div class="flex items-baseline justify-between gap-2">
-                                    <span class="text-[9px] font-black uppercase tracking-wider text-zinc-400">{{ b.label }}</span>
-                                    <span class="text-[9px] font-bold text-zinc-600">{% if b.target is not none %}&le; {{ b.target_label }}{% else %}no target{% endif %}</span>
-                                </div>
-                                <p class="text-xl font-black mt-1 {% if b.pct is not none and b.pct < 90 %}text-rose-400{% elif b.pct is not none %}text-emerald-400{% else %}text-zinc-500{% endif %}">
-                                    {% if b.pct is not none %}{{ b.pct }}<span class="text-xs text-zinc-500">%</span>{% else %}&mdash;{% endif %}
-                                </p>
-                                <p class="text-[10px] font-mono text-zinc-500">
-                                    {% if b.within is not none %}{{ "{:,}".format(b.within) }} / {{ "{:,}".format(b.n) }}{% if b.breached %} &middot; <span class="text-rose-400">{{ "{:,}".format(b.breached) }} over</span>{% endif %}
-                                    {% else %}{{ "{:,}".format(b.n) }} studies, unscored{% endif %}
-                                </p>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {% if data.sla.unclassified %}
-                        <p class="px-5 pb-2 text-[10px] text-amber-400/80 italic">
-                            <i class="bi bi-exclamation-triangle"></i>
-                            {{ "{:,}".format(data.sla.unclassified) }} study(ies) matched no patient class above and are excluded from these figures.
-                        </p>
-                        {% endif %}
-                        {% endif %}
-                        <div class="chart-card-body"><div id="chart-1" class="h-80"></div></div>
-                    </div>
+                    {{ moved_to_36('TAT per Patient Class', 'compare', 'chart-card') }}
 
                     <div class="chart-card">
                         <div class="chart-card-header">
@@ -616,18 +580,7 @@
                     <div id="chart-ae-tat" class="w-full" style="height:320px;"></div>
                 </div>
 
-                <!-- Modality TAT -->
-                {% if data.modality_tat %}
-                <div class="chart-card">
-                    <div class="chart-card-header">
-                        <span class="chart-card-title">Avg TAT by Modality<i class="bi bi-info-circle chart-info-icon" data-explain="r25-modality-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
-                    </div>
-                    <div class="chart-card-desc">Average and median turnaround time per modality. Sorted fastest to slowest.</div>
-                    <div class="chart-card-body">
-                        <div id="chart-mod-tat" style="height:280px;"></div>
-                    </div>
-                </div>
-                {% endif %}
+                {{ moved_to_36('Avg TAT by Modality', 'modality', 'glass-card') }}
             </div>
 
             <!-- ── RADIOLOGISTS TAB ───────────────────────────────────────── -->
@@ -673,13 +626,7 @@
 
                 <!-- Row 2: TAT Histogram + RVU vs TAT scatter -->
                 <div class="grid grid-cols-2 gap-6">
-                    <div class="glass-card">
-                        <div class="flex items-center justify-between mb-4">
-                            <p class="text-xs font-black text-blue-500 uppercase">TAT Distribution<i class="bi bi-info-circle chart-info-icon" data-explain="r25-tat-hist" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></p>
-                            <p class="text-[9px] text-zinc-500 uppercase">Studies per TAT bucket</p>
-                        </div>
-                        <div id="chart-tat-hist" class="w-full" style="height:280px;"></div>
-                    </div>
+                    {{ moved_to_36('TAT Distribution', 'bands', 'glass-card') }}
                     <div class="glass-card">
                         <div class="flex items-center justify-between mb-4">
                             <div class="flex items-center gap-2">
@@ -861,211 +808,6 @@
 
             </div>
 
-            <!-- ── TAT: PACS vs RIS TAB ───────────────────────────────────── -->
-            <div id="tab-tat-anchor" class="tab-content hidden space-y-6">
-
-                <p class="section-desc">
-                    Same TAT (exam &rarr; signed), computed two ways: <strong class="text-blue-400">PACS</strong>
-                    anchors the clock on <code>insert_time</code> (when PACS itself ingested the study — a proxy
-                    for exam time); <strong class="text-emerald-400">RIS</strong> anchors it on the RIS's own
-                    "Exam Done" status transition (<code>WORKLIST_STATUS_HISTORY</code> status_key=100) — the
-                    technologist actually marking the exam complete. RH only — SJH excluded (operator, 2026-07-31):
-                    SJH images route through a PACS-side gateway before landing in the queried PACS DB, so
-                    PACS-side timestamps aren't trustworthy for SJH from here, and SJH is phase 2 anyway.
-                </p>
-
-                {# A failed query is reported as a failure, never as an empty panel — see
-                   _tat_anchor_result_shell. Rendered ahead of the n-based guard so it
-                   shows even when BOTH anchors error and there are no numbers at all. #}
-                {% for anchor, d in [('PACS insert_time', tat_pacs_data), ('RIS Exam Done', tat_ris_data)] %}
-                    {% if d and d.error %}
-                    <div class="glass-card border-l-4 border-rose-500 mb-4">
-                        <p class="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-1">
-                            <i class="bi bi-exclamation-octagon mr-1"></i>{{ anchor }} — query failed
-                        </p>
-                        <p class="text-[11px] text-zinc-400 font-mono break-all">{{ d.error }}</p>
-                        <p class="text-[10px] text-zinc-600 mt-1 italic">
-                            This side is blank because the query errored, not because there is no data.
-                            Full traceback is in the app log.
-                        </p>
-                    </div>
-                    {% endif %}
-                {% endfor %}
-
-                {% if tat_pacs_data and tat_pacs_data.summary and tat_pacs_data.summary.n or tat_ris_data and tat_ris_data.summary and tat_ris_data.summary.n %}
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="glass-card">
-                        <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-3">PACS insert_time</p>
-                        <div class="grid grid-cols-3 gap-3">
-                            <div><p class="text-[9px] text-zinc-500 uppercase font-black">Studies</p><p class="text-lg font-black text-white">{{ tat_pacs_data.summary.n }}</p></div>
-                            <div><p class="text-[9px] text-zinc-500 uppercase font-black">Avg TAT</p><p class="text-lg font-black text-white">{{ tat_pacs_data.summary.avg_tat_h }}h</p></div>
-                            <div><p class="text-[9px] text-zinc-500 uppercase font-black">Median TAT</p><p class="text-lg font-black text-white">{{ tat_pacs_data.summary.median_tat_h }}h</p></div>
-                        </div>
-                    </div>
-                    <div class="glass-card">
-                        <p class="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-3">RIS Exam Done</p>
-                        <div class="grid grid-cols-3 gap-3">
-                            <div><p class="text-[9px] text-zinc-500 uppercase font-black">Studies</p><p class="text-lg font-black text-white">{{ tat_ris_data.summary.n }}</p></div>
-                            <div><p class="text-[9px] text-zinc-500 uppercase font-black">Avg TAT</p><p class="text-lg font-black text-white">{{ tat_ris_data.summary.avg_tat_h }}h</p></div>
-                            <div><p class="text-[9px] text-zinc-500 uppercase font-black">Median TAT</p><p class="text-lg font-black text-white">{{ tat_ris_data.summary.median_tat_h }}h</p></div>
-                        </div>
-                    </div>
-                </div>
-
-                {# Only offer the "ETL hasn't run" explanation when the query actually
-                   succeeded and found nothing. When it errored, the banner above already
-                   said what really happened and this line would send the reader chasing
-                   an ETL job that is running perfectly well. #}
-                {% if not tat_ris_data.summary.n and not (tat_ris_data and tat_ris_data.error) %}
-                <p class="text-[9px] text-amber-500/80 italic">⚠ No RIS Exam Done data yet — std_worklist_exam_done is populated by ETL_JOBS/etl_ris_worklist_exam_done.py (Phase 17), which needs at least one ETL run since migration 0090 before this side fills in.</p>
-                {% endif %}
-
-                <div class="glass-card">
-                    <div class="chart-card-header">
-                        <span class="chart-card-title">Daily Avg TAT — PACS vs RIS<i class="bi bi-info-circle chart-info-icon" data-explain="r25-tat-daily" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
-                    </div>
-                    <div id="chart-tat-anchor-trend" style="height:280px;"></div>
-                </div>
-
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="glass-card">
-                        <div class="chart-card-header">
-                            <span class="chart-card-title" style="color:#60a5fa;">PACS insert_time — by Modality/Class<i class="bi bi-info-circle chart-info-icon" data-explain="r25-tat-pacs" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
-                            <button onclick="r25ExportTatAnchorCsv('pacs')" title="Export as CSV"
-                                style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
-                                onmouseover="this.style.borderColor='#60a5fa';this.style.color='#60a5fa';"
-                                onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
-                                <i class="bi bi-download"></i> CSV
-                            </button>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-[10px] border-collapse whitespace-nowrap">
-                                <thead>
-                                    <tr class="text-zinc-500 uppercase text-[9px]">
-                                        <th class="text-left py-1 pr-3 font-black">Modality</th>
-                                        <th class="text-left py-1 pr-3 font-black">Class</th>
-                                        <th class="text-right py-1 px-2 font-black">N</th>
-                                        <th class="text-right py-1 px-2 font-black">Avg (h)</th>
-                                        <th class="text-right py-1 px-2 font-black">Median (h)</th>
-                                        <th class="text-right py-1 px-2 font-black">0-3h</th>
-                                        <th class="text-right py-1 px-2 font-black">3-5h</th>
-                                        <th class="text-right py-1 pl-2 font-black">5h+</th>
-                                        <th class="text-right py-1 px-2 font-black" title="Reporting target for this patient class">Target</th>
-                                        <th class="text-right py-1 pl-2 font-black text-white" title="Share of studies at or under the target">Within</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for row in tat_pacs_data.matrix %}
-                                    <tr class="border-t border-white/5">
-                                        <td class="py-1 pr-3 text-zinc-300">{{ row.modality }}</td>
-                                        <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.n }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.avg_tat_h }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-white font-bold">{{ row.median_tat_h }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_3h }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_3_5h }}</td>
-                                        <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_5h_plus }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.sla_target_label }}</td>
-                                        {# 'Other' (unclassified) rows have no target, so they show a dash
-                                           rather than a 0% that would read as total failure. #}
-                                        <td class="py-1 pl-2 text-right font-mono {% if row.sla_pct is none %}text-zinc-700{% elif row.sla_pct < 90 %}text-rose-400{% else %}text-emerald-400{% endif %}"
-                                            title="{{ row.within_sla }} within / {{ row.breached_sla }} over">
-                                            {% if row.sla_pct is not none %}{{ row.sla_pct }}%{% else %}&mdash;{% endif %}
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <div class="glass-card">
-                        <div class="chart-card-header">
-                            <span class="chart-card-title" style="color:#34d399;">RIS Exam Done — by Modality/Class<i class="bi bi-info-circle chart-info-icon" data-explain="r25-tat-ris" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
-                            <button onclick="r25ExportTatAnchorCsv('ris')" title="Export as CSV"
-                                style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:transparent;border:1px solid #3f3f46;border-radius:6px;color:#71717a;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;"
-                                onmouseover="this.style.borderColor='#34d399';this.style.color='#34d399';"
-                                onmouseout="this.style.borderColor='#3f3f46';this.style.color='#71717a';">
-                                <i class="bi bi-download"></i> CSV
-                            </button>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-[10px] border-collapse whitespace-nowrap">
-                                <thead>
-                                    <tr class="text-zinc-500 uppercase text-[9px]">
-                                        <th class="text-left py-1 pr-3 font-black">Modality</th>
-                                        <th class="text-left py-1 pr-3 font-black">Class</th>
-                                        <th class="text-right py-1 px-2 font-black">N</th>
-                                        <th class="text-right py-1 px-2 font-black">Avg (h)</th>
-                                        <th class="text-right py-1 px-2 font-black">Median (h)</th>
-                                        <th class="text-right py-1 px-2 font-black">0-3h</th>
-                                        <th class="text-right py-1 px-2 font-black">3-5h</th>
-                                        <th class="text-right py-1 pl-2 font-black">5h+</th>
-                                        <th class="text-right py-1 px-2 font-black" title="Reporting target for this patient class">Target</th>
-                                        <th class="text-right py-1 pl-2 font-black text-white" title="Share of studies at or under the target">Within</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for row in tat_ris_data.matrix %}
-                                    <tr class="border-t border-white/5">
-                                        <td class="py-1 pr-3 text-zinc-300">{{ row.modality }}</td>
-                                        <td class="py-1 pr-3 text-zinc-400">{{ row.patient_class_bucket }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.n }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-400">{{ row.avg_tat_h }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-white font-bold">{{ row.median_tat_h }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_0_3h }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.bucket_3_5h }}</td>
-                                        <td class="py-1 pl-2 text-right font-mono text-zinc-500">{{ row.bucket_5h_plus }}</td>
-                                        <td class="py-1 px-2 text-right font-mono text-zinc-500">{{ row.sla_target_label }}</td>
-                                        <td class="py-1 pl-2 text-right font-mono {% if row.sla_pct is none %}text-zinc-700{% elif row.sla_pct < 90 %}text-rose-400{% else %}text-emerald-400{% endif %}"
-                                            title="{{ row.within_sla }} within / {{ row.breached_sla }} over">
-                                            {% if row.sla_pct is not none %}{{ row.sla_pct }}%{% else %}&mdash;{% endif %}
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <script>
-                (function(){
-                    const TAT_ANCHOR_DATA = {
-                        pacs: {{ (tat_pacs_data.matrix if tat_pacs_data else []) | tojson }},
-                        ris:  {{ (tat_ris_data.matrix if tat_ris_data else []) | tojson }}
-                    };
-                    function _downloadCsv(csv, filename) {
-                        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-                        const url  = URL.createObjectURL(blob);
-                        const a    = document.createElement('a');
-                        a.href = url; a.download = filename;
-                        document.body.appendChild(a); a.click();
-                        document.body.removeChild(a); URL.revokeObjectURL(url);
-                    }
-                    window.r25ExportTatAnchorCsv = function(anchor) {
-                        const rows = TAT_ANCHOR_DATA[anchor] || [];
-                        if (!rows.length) return;
-                        const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
-                        const lines = [
-                            ['Modality','Patient Class','N','Avg TAT (h)','Median TAT (h)','0-3h','3-5h','5h+',
-                             'Target (h)','Within Target','Over Target','Within %'].map(q).join(','),
-                            ...rows.map(r => [r.modality, r.patient_class_bucket, r.n, r.avg_tat_h, r.median_tat_h,
-                                              r.bucket_0_3h, r.bucket_3_5h, r.bucket_5h_plus,
-                                              r.sla_target_h, r.within_sla, r.breached_sla, r.sla_pct].map(q).join(','))
-                        ];
-                        _downloadCsv(lines.join('\n'), `tat_anchor_${anchor}_${new Date().toISOString().slice(0,10)}.csv`);
-                    };
-                })();
-                </script>
-                {% elif run_report %}
-                <div class="glass-card text-center py-12 text-zinc-600">
-                    <i class="bi bi-clock-history text-4xl mb-3 block opacity-40"></i>
-                    <p class="italic">No TAT anchor comparison data for this range.</p>
-                </div>
-                {% endif %}
-
-            </div>
 
             <!-- ── SHIFT CONFIG MODAL ─────────────────────────────────────── -->
             <div id="shift-config-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);" class="flex items-center justify-center">
@@ -1274,24 +1016,11 @@
         // ── Chart rendering ──────────────────────────────────────────────────
         function initCharts() {
             const d = {{ data|tojson|safe if data else "{}" }};
-            const tatAnchorTrendPacs = {{ (tat_pacs_data.trend if tat_pacs_data else []) | tojson }};
-            const tatAnchorTrendRis  = {{ (tat_ris_data.trend if tat_ris_data else []) | tojson }};
             const axisStyle = {
                 axisLabel: { color: '#52525b', fontWeight: 600, fontSize: 12 },
                 splitLine:  { lineStyle: { color: '#1f1f23' } }
             };
 
-            // Chart 1 — TAT per Class
-            if (document.getElementById('chart-1') && !$('#tab-ops').hasClass('hidden')) {
-                const c1 = echarts.init(document.getElementById('chart-1'));
-                c1.setOption({
-                    tooltip: { trigger: 'axis' },
-                    xAxis: { type: 'category', data: Object.keys(d.class_tat || {}), ...axisStyle },
-                    yAxis: { type: 'value', name: 'Minutes', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
-                    series: [{ type: 'bar', data: Object.values(d.class_tat || {}), itemStyle: { color: '#60a5fa', borderRadius: [5,5,0,0] }, label: { show: true, position: 'top', color: '#fff', fontSize: 12 } }]
-                });
-                registerChart('chart-1', c1);
-            }
 
             // Chart 6 — Hourly Arrivals
             if (document.getElementById('chart-6') && !$('#tab-ops').hasClass('hidden')) {
@@ -1365,32 +1094,6 @@
                 registerChart('chart-7', c7);
             }
 
-            // Chart — TAT Anchor Trend (PACS insert_time vs RIS Exam Done, daily avg)
-            if (document.getElementById('chart-tat-anchor-trend') && !$('#tab-tat-anchor').hasClass('hidden')) {
-                const days = Array.from(new Set([
-                    ...tatAnchorTrendPacs.map(r => r.day),
-                    ...tatAnchorTrendRis.map(r => r.day)
-                ])).sort();
-                const pacsByDay = Object.fromEntries(tatAnchorTrendPacs.map(r => [r.day, r.avg_tat_h]));
-                const risByDay  = Object.fromEntries(tatAnchorTrendRis.map(r => [r.day, r.avg_tat_h]));
-                const cTatAnchor = echarts.init(document.getElementById('chart-tat-anchor-trend'));
-                cTatAnchor.setOption({
-                    tooltip: { trigger: 'axis' },
-                    legend: { data: ['PACS insert_time', 'RIS Exam Done'], textStyle: { color: '#71717a', fontSize: 11 }, top: 0 },
-                    grid: { top: 36 },
-                    xAxis: { type: 'category', data: days, ...axisStyle },
-                    yAxis: { type: 'value', name: 'Avg TAT (h)', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
-                    series: [
-                        { name: 'PACS insert_time', type: 'line', smooth: true, connectNulls: true,
-                          data: days.map(day => pacsByDay[day] ?? null),
-                          lineStyle: { width: 3, color: '#60a5fa' }, itemStyle: { color: '#60a5fa' } },
-                        { name: 'RIS Exam Done', type: 'line', smooth: true, connectNulls: true,
-                          data: days.map(day => risByDay[day] ?? null),
-                          lineStyle: { width: 3, color: '#34d399' }, itemStyle: { color: '#34d399' } }
-                    ]
-                });
-                registerChart('chart-tat-anchor-trend', cTatAnchor);
-            }
 
             // ── EFFICIENCY INTEL CHARTS ──────────────────────────────────────
             if (!$('#tab-efficiency').hasClass('hidden') && d.matrix) {
@@ -1486,24 +1189,6 @@
                     registerChart('chart-stress-scatter', cScatter);
                 }
 
-                // TAT Histogram
-                if (document.getElementById('chart-tat-hist') && d.tat_hist) {
-                    const cTH = echarts.init(document.getElementById('chart-tat-hist'));
-                    cTH.setOption({
-                        tooltip: { trigger: 'axis' },
-                        xAxis: { type: 'category', data: d.tat_hist.map(r => r.label), ...axisStyle },
-                        yAxis: { type: 'value', name: 'Studies', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
-                        series: [{
-                            type: 'bar', data: d.tat_hist.map(r => r.count),
-                            itemStyle: { borderRadius: [5,5,0,0], color: p => {
-                                const colors = ['#22c55e','#22c55e','#60a5fa','#60a5fa','#f59e0b','#f59e0b','#ef4444','#ef4444'];
-                                return colors[p.dataIndex] || '#60a5fa';
-                            }},
-                            label: { show: true, position: 'top', color: '#71717a', fontSize: 10 }
-                        }]
-                    });
-                    registerChart('chart-tat-hist', cTH);
-                }
 
                 // 24h usage heatmap — weekday x hour, one modality at a time.
                 // Out-of-hours cells get an amber border rather than a different colour
@@ -1645,36 +1330,6 @@
                 }
             }
 
-            // Modality TAT (Infrastructure tab)
-            if (!$('#tab-infra').hasClass('hidden') && d.modality_tat && d.modality_tat.length > 0 && document.getElementById('chart-mod-tat')) {
-                const cModTat = echarts.init(document.getElementById('chart-mod-tat'));
-                cModTat.setOption({
-                    tooltip: { trigger: 'axis', formatter: p => {
-                        let s = `<b>${p[0].name}</b>`;
-                        p.forEach(i => { s += `<br>${i.seriesName}: ${i.value}m`; });
-                        return s;
-                    }},
-                    legend: { data: ['Avg TAT', 'Median TAT'], textStyle: { color: '#71717a', fontSize: 11 }, bottom: 0 },
-                    grid: { left: 60, right: 60, top: 10, bottom: 40 },
-                    xAxis: { type: 'value', name: 'Minutes', nameTextStyle: { color: '#52525b', fontSize: 11 }, ...axisStyle },
-                    yAxis: { type: 'category', data: d.modality_tat.map(r => r.mod), ...axisStyle },
-                    series: [
-                        {
-                            name: 'Avg TAT', type: 'bar',
-                            data: d.modality_tat.map(r => r.avg),
-                            itemStyle: { borderRadius: [0,5,5,0], color: '#60a5fa' },
-                            label: { show: true, position: 'right', color: '#71717a', fontSize: 10, formatter: p => p.value + 'm' }
-                        },
-                        {
-                            name: 'Median TAT', type: 'scatter',
-                            data: d.modality_tat.map(r => r.median),
-                            symbolSize: 8,
-                            itemStyle: { color: '#f59e0b' }
-                        }
-                    ]
-                });
-                registerChart('chart-mod-tat', cModTat);
-            }
 
             // AE by TAT (Infrastructure tab)
             if (!$('#tab-infra').hasClass('hidden') && d.ae_tat && document.getElementById('chart-ae-tat')) {

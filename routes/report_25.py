@@ -92,225 +92,9 @@ def _load_shift_config():
 
 
 
-def _tat_anchor_result_shell():
-    # `error` distinguishes "the query ran and found nothing" from "the query blew up",
-    # which this shell used to render identically. That cost roughly seven weeks on
-    # LAUMC: the RIS side was failing with a Postgres /dev/shm exhaustion (parallel
-    # Gather over std_worklist_exam_done x std_pps x etl_didb_studies, container stuck
-    # on Docker's 64MB default -- see docker-compose.yml's shm_size) and the panel just
-    # showed an empty state blaming the ETL, which had in fact run fine.
-    return {
-        "summary": {"n": 0, "avg_tat_h": None, "median_tat_h": None,
-                    "within_sla": 0, "breached_sla": 0, "sla_pct": None},
-        "matrix": [], "trend": [], "error": None,
-    }
-
-
-# The TAT-anchor CTEs label patient class in SQL ('ER'/'Inpatient'/'Outpatient'/
-# 'Other'), so the reporting targets are applied in SQL too rather than pulling
-# every row back into pandas just to score it. 'Other' maps to no bucket, so its
-# target is NULL and both FILTERs skip it -- unclassified studies are never
-# counted as compliant OR as breaches.
-_TAT_ANCHOR_SLA_LABELS = {
-    'Inpatient':  tat_sla.BUCKET_IN,
-    'ER':         tat_sla.BUCKET_URG,
-    'Outpatient': tat_sla.BUCKET_OUT,
-}
-
-
-def _tat_anchor_sla_case():
-    """Per-row SLA target in HOURS — tat_hours in these CTEs is already hours."""
-    return tat_sla.sla_hours_case_sql('patient_class_bucket', _TAT_ANCHOR_SLA_LABELS)
-
-
-def _tat_anchor_summary_sql():
-    sla = _tat_anchor_sla_case()
-    return f"""
-    SELECT
-        COUNT(*) AS n,
-        ROUND(AVG(tat_hours)::numeric, 2) AS avg_tat_h,
-        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tat_hours))::numeric, 2) AS median_tat_h,
-        COUNT(*) FILTER (WHERE tat_hours <= ({sla})) AS within_sla,
-        COUNT(*) FILTER (WHERE tat_hours >  ({sla})) AS breached_sla
-    FROM tat
-"""
-
-
-def _tat_anchor_matrix_sql():
-    # Built per call, not a module constant, because the targets come from
-    # settings and an administrator can change them between requests.
-    sla = _tat_anchor_sla_case()
-    return f"""
-    SELECT
-        modality, patient_class_bucket,
-        COUNT(*) AS n,
-        ROUND(AVG(tat_hours)::numeric, 2) AS avg_tat_h,
-        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tat_hours))::numeric, 2) AS median_tat_h,
-        COUNT(*) FILTER (WHERE tat_hours <= 3)                   AS bucket_0_3h,
-        COUNT(*) FILTER (WHERE tat_hours > 3 AND tat_hours <= 5) AS bucket_3_5h,
-        COUNT(*) FILTER (WHERE tat_hours > 5)                    AS bucket_5h_plus,
-        MAX({sla})                                   AS sla_target_h,
-        COUNT(*) FILTER (WHERE tat_hours <= ({sla})) AS within_sla,
-        COUNT(*) FILTER (WHERE tat_hours >  ({sla})) AS breached_sla
-    FROM tat
-    GROUP BY modality, patient_class_bucket
-    ORDER BY modality, patient_class_bucket
-"""
-
-
-_TAT_ANCHOR_TREND_SQL = """
-    SELECT
-        study_date AS day,
-        COUNT(*) AS n,
-        ROUND(AVG(tat_hours)::numeric, 2) AS avg_tat_h,
-        ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tat_hours))::numeric, 2) AS median_tat_h
-    FROM tat
-    GROUP BY study_date
-    ORDER BY study_date
-"""
-
-
-def _run_tat_anchor_queries(base_cte, params, log_label):
-    result = _tat_anchor_result_shell()
-    try:
-        summary_row = db.session.execute(text(base_cte + _tat_anchor_summary_sql()), params).mappings().fetchone()
-        if summary_row:
-            result["summary"] = dict(summary_row)
-            # Denominator is scored studies (within + breached), NOT n — n also
-            # counts the 'Other' class rows, which have no target and so cannot
-            # be in either column. Dividing by n would report every unclassified
-            # study as a breach.
-            _w = int(result["summary"].get("within_sla") or 0)
-            _b = int(result["summary"].get("breached_sla") or 0)
-            result["summary"]["sla_pct"] = round(_w / (_w + _b) * 100, 1) if (_w + _b) else None
-
-        matrix_rows = db.session.execute(text(base_cte + _tat_anchor_matrix_sql()), params).mappings().fetchall()
-        result["matrix"] = [dict(r) for r in matrix_rows]
-        for r in result["matrix"]:
-            _w = int(r.get("within_sla") or 0)
-            _b = int(r.get("breached_sla") or 0)
-            r["sla_pct"] = round(_w / (_w + _b) * 100, 1) if (_w + _b) else None
-            r["sla_target_label"] = tat_sla.format_hours(
-                float(r["sla_target_h"]) if r.get("sla_target_h") is not None else None)
-
-        trend_rows = db.session.execute(text(base_cte + _TAT_ANCHOR_TREND_SQL), params).mappings().fetchall()
-        result["trend"] = [
-            {**dict(r), "day": r["day"].strftime("%Y-%m-%d") if r["day"] else None}
-            for r in trend_rows
-        ]
-    except Exception as exc:
-        logger.exception(f"Failed to compute {log_label} TAT")
-        db.session.rollback()
-        # Surface the DB's own first line -- "could not resize shared memory segment",
-        # "relation ... does not exist" -- which is the part that tells an operator what
-        # to do. The driver appends the full failing statement and parameters to str(),
-        # so take only the first line: the rest is noise on screen and would put raw SQL
-        # in front of a report viewer.
-        detail = getattr(exc, "orig", exc)
-        result["error"] = str(detail).strip().splitlines()[0][:300] or exc.__class__.__name__
-    return result
-
-
-def get_tat_pacs_insert_time(form_data):
-    """
-    TAT (insert -> signed) anchored on PACS etl_didb_studies.insert_time — the
-    ingestion timestamp PACS itself stamps on the study row (ETL_JOBS/etl_didb_studies.py,
-    Oracle DIDB_STUDIES.INSERT_TIME), NOT the ETL's own last_update sync time.
-
-    Companion to get_tat_ris_exam_done — same shape (summary/matrix/trend), a
-    different start-of-clock anchor, for the "PACS vs RIS" TAT comparison tab.
-    This is the anchor validated 2026-07-31 as the fix for report_template's
-    study_date-is-midnight TAT bug (see project memory), reused here per-study
-    for a fuller breakdown than report_template exposes.
-
-    RH only (same site-scope reasoning as get_gold_standard_data: raw PACS
-    SITE_ID has a known SJH mislabeling bug, so site comes from the device via
-    aetitle_modality_map, not etl_didb_studies directly) — SJH is excluded per
-    operator instruction (2026-07-31): SJH images route through a PACS-side
-    middleware/gateway before landing in the PACS DB this app queries, so
-    PACS-side timestamps for SJH aren't trustworthy from here, and SJH itself
-    is phase 2 (out of scope for now). SJH TAT calculations belong on the SJH
-    PACS server directly, not this comparison.
-
-    Full left-sidebar filter set applies (see _sidebar_filters) — every chart on
-    this page must follow date range/class/modality/AE/location, not just dates.
-    """
-    params, filter_clause, _start, _end = _sidebar_filters(form_data)
-
-    base_cte = f"""
-        WITH tat AS (
-            SELECT
-                s.study_db_uid,
-                s.study_date,
-                COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
-                CASE
-                    WHEN s.patient_location = 'ER' THEN 'ER'
-                    WHEN s.patient_class = 'I' THEN 'Inpatient'
-                    WHEN s.patient_class = 'O' THEN 'Outpatient'
-                    ELSE 'Other'
-                END AS patient_class_bucket,
-                EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) - s.insert_time)) / 3600.0 AS tat_hours
-            FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
-            WHERE s.study_date BETWEEN :start AND :end
-              AND s.insert_time IS NOT NULL
-              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
-              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) > s.insert_time
-              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS', 'BMD')
-              {filter_clause}
-        )
-    """
-    return _run_tat_anchor_queries(base_cte, params, "PACS insert_time")
-
-
-def get_tat_ris_exam_done(form_data):
-    """
-    TAT (exam done -> signed) anchored on the RIS's own "Exam Done" status
-    transition — WORKLIST_STATUS_HISTORY status_key=100, ETL'd via
-    ETL_JOBS/etl_ris_worklist_exam_done.py into std_worklist_exam_done, joined
-    through std_pps.pps_key -> study_instance_uid -> etl_didb_studies (same
-    join path routes/report_36.py's get_patient_wait_time uses for arrivals).
-
-    Companion to get_tat_pacs_insert_time — same shape, a RIS-side anchor
-    instead of the PACS insert_time proxy. Same RH-only scope and SJH
-    exclusion reasoning (see that function's docstring) — RIS is LAUMC-wide
-    (both RH and SJH), so the site filter still needs to apply here too.
-
-    Full left-sidebar filter set applies (see _sidebar_filters).
-    """
-    params, filter_clause, _start, _end = _sidebar_filters(form_data)
-
-    base_cte = f"""
-        WITH exam_done_ris AS (
-            SELECT p.study_instance_uid, MAX(ed.exam_done_at) AS exam_done_time
-            FROM std_worklist_exam_done ed
-            JOIN std_pps p ON p.pps_key = ed.pps_key
-            WHERE p.study_instance_uid IS NOT NULL
-            GROUP BY p.study_instance_uid
-        ),
-        tat AS (
-            SELECT
-                s.study_db_uid,
-                s.study_date,
-                COALESCE(m.modality, s.study_modality, 'Unknown') AS modality,
-                CASE
-                    WHEN s.patient_location = 'ER' THEN 'ER'
-                    WHEN s.patient_class = 'I' THEN 'Inpatient'
-                    WHEN s.patient_class = 'O' THEN 'Outpatient'
-                    ELSE 'Other'
-                END AS patient_class_bucket,
-                EXTRACT(EPOCH FROM (COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) - ed.exam_done_time)) / 3600.0 AS tat_hours
-            FROM etl_didb_studies s
-            JOIN exam_done_ris ed ON ed.study_instance_uid = s.study_instance_uid
-            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(m.aetitle)) = UPPER(TRIM(s.storing_ae))
-            WHERE s.study_date BETWEEN :start AND :end
-              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
-              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) > ed.exam_done_time
-              AND COALESCE(m.modality, s.study_modality, '') NOT IN ('SR', 'PACS', 'BMD')
-              {filter_clause}
-        )
-    """
-    return _run_tat_anchor_queries(base_cte, params, "RIS exam_done")
+# The "TAT: PACS vs RIS" tab (its PACS insert_time and RIS exam done queries) was removed
+# 2026-11-23 (item 14c): Report 36's TAT comparison tab shows those clocks, ending at the
+# approval in the PACS audit trail.
 
 
 def get_gold_standard_data(form_data):
@@ -1411,6 +1195,8 @@ def report_25():
     shift_config = _load_shift_config()
     run_report = 'start_date' in request.values
     active_tab = request.values.get("active_tab", "ops")
+    if active_tab == "tat-anchor":          # the tab moved to Report 36 (item 14c)
+        active_tab = "ops"
 
     go_live = get_report_start_date()
     display_start = go_live.strftime("%Y-%m-%d") if go_live else "2024-01-01"
@@ -1419,8 +1205,6 @@ def report_25():
     data           = None
     journey_json   = None
     template_data  = None
-    tat_pacs_data  = None
-    tat_ris_data   = None
     stale_feeds_list = stale_feeds(db, _REPORT_25_FEEDS)
 
     if run_report:
@@ -1429,8 +1213,6 @@ def report_25():
                   detail={'from': request.values.get('start_date'), 'to': request.values.get('end_date'),
                           'tab': active_tab})
         data, display_start, display_end = get_gold_standard_data(request.values)
-        tat_pacs_data = get_tat_pacs_insert_time(request.values)
-        tat_ris_data = get_tat_ris_exam_done(request.values)
 
         # NOTE: Patient Journey used to be built inline here from a `fallback_id`
         # request param, joining etl_didb_studies to etl_patient_view on
@@ -1451,7 +1233,17 @@ def report_25():
 
         template_data = {k: v for k, v in data.items() if k != 'raw_df'} if data else None
 
-    return render_template("report_25.html", filters=panel_filters(request.values), data=template_data, tat_pacs_data=tat_pacs_data, tat_ris_data=tat_ris_data, display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config, stale_feeds=stale_feeds_list)
+    return render_template("report_25.html", filters=panel_filters(request.values), data=template_data, can_open_36=_can_open_36(), display_start=display_start, display_end=display_end, classes=classes, locations=locations, modalities=modalities, aetitles=aetitles, tree_json=tree_json, journey_json=journey_json, run_report=run_report, active_tab=active_tab, shift_config=shift_config, stale_feeds=stale_feeds_list)
+
+def _can_open_36():
+    """Whether the "now on Report 36" notes link there (item 14c)."""
+    from flask_login import current_user
+    from utils.roles import can_open_report
+    try:
+        return bool(can_open_report(current_user, 36))
+    except Exception:
+        return False
+
 
 @report_25_bp.route("/report/25/export", methods=["POST"])
 @login_required

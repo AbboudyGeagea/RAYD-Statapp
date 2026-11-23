@@ -541,7 +541,7 @@ def get_reporting_cadence(form_data):
 # the first time it is opened (/report/36/part/<name>, the same filters in the address); each
 # part is cached five minutes on its own, and the two parts that share data (the reading TAT;
 # residents' and radiologists' TAT) share one cache entry each.
-PARTS = ('radiologists', 'residents', 'compare', 'modality', 'workload')
+PARTS = ('radiologists', 'residents', 'bands', 'compare', 'modality', 'workload')
 
 
 def _cached(key, form_data, compute):
@@ -584,6 +584,21 @@ def _signature(form_data):
     return _cached('signature', form_data, compute)
 
 
+def _bands(form_data):
+    """Wet read and approval turnaround, one row per study, for the "Time bands" tab (item 14a,
+    utils/tat_bands.bands); the bands themselves are read fresh, outside the cache."""
+    def compute():
+        from utils import tat_bands
+        params, clause, start, end = _sidebar_filters(form_data)
+        try:
+            return tat_bands.bands(start, end, params, clause)
+        except Exception:
+            logger.exception("Failed to compute the turnaround time bands")
+            db.session.rollback()
+            return None
+    return _cached('bands', form_data, compute)
+
+
 def _gold(form_data):
     """Report 25's dataset (cached under report 25 by get_gold_standard_data itself)."""
     gold, _start, _end = get_gold_standard_data(form_data)
@@ -597,6 +612,12 @@ def part_context(name, form_data):
                 'res_rad_tat': _cached('resrad', form_data, lambda: get_resident_radiologist_tat(form_data))}
     if name == 'residents':
         return {'res_rad_tat': _cached('resrad', form_data, lambda: get_resident_radiologist_tat(form_data))}
+    if name == 'bands':
+        from flask_login import current_user
+        from utils import tat_bands
+        from utils.roles import can
+        return {'bands_data': _bands(form_data), 'bands_default': tat_bands.load_bands(),
+                'can_save_bands': can(current_user, 'settings')}
     if name == 'compare':
         return {'reading_tat': _reading(form_data), 'sign_tat': _signature(form_data)}
     if name == 'modality':
@@ -655,6 +676,30 @@ def report_36_part(name):
     log_event('report_run', category='report', resource_type='report_36',
               detail={'part': name, 'from': request.values.get('start_date'), 'to': request.values.get('end_date')})
     return render_template(f"_report_36_{name}.html", **part_context(name, request.values))
+
+
+@report_36_bp.route("/report/36/bands", methods=["POST"])
+@login_required
+def report_36_save_bands():
+    """The time bands everyone starts with on the "Time bands" tab, one stage at a time
+    (settings capability, item 14a)."""
+    from flask import abort, jsonify
+    from flask_login import current_user
+    from utils import tat_bands
+    from utils.roles import can
+    _require_access()
+    if not can(current_user, 'settings'):
+        abort(403)
+    data = request.get_json(silent=True) or {}
+    try:
+        limits = tat_bands.save_bands(data.get('stage'), data.get('limits'))
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    from utils.audit import log_event
+    log_event('settings_change', category='settings', resource_type=tat_bands.SETTING_KEY[data['stage']],
+              detail={'limits_h': limits})
+    return jsonify({'stage': data['stage'], 'limits': limits})
 
 
 from routes.report_registry import register_report
