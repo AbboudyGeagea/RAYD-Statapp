@@ -444,6 +444,11 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    `site_db.run_per_site()`. Procedure codes are shared (`site_db.SHARED_TABLES`): a route
    that writes them is decorated `@shared_write` (writes the main database, then copies to
    each site database); `sync_shared_tables()` runs every 15 minutes for the ETL's writes.
+   Devices (`aetitle_modality_map` and their schedules) are each site's but their master is the
+   main database (the RIS modality ETL writes it, the nightly site route copies each site's
+   devices from it): a route that changes them is decorated `@device_write` (main database,
+   then `etl_site_route.copy_devices` into each site database at once; a device created while
+   a site is picked is that site's), 2026-11-23.
 
 ## Dev Workflow
 
