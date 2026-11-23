@@ -117,24 +117,29 @@ fixes; update.sh refuses while a move runs). Confirm with
 `cd /opt/rayd && git log --oneline -1 && sudo docker exec rayd_db psql -U etl_user -d etl_db -c "SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 4;"`
 (expect 0180 on top).
 
-**Pending table (21 Nov evening)** — show it, kept current, at the end of each reply:
+**Pending table (23 Nov)** — show it, kept current, at the end of each reply. Deadline Sun 30 Nov.
 
-| # | Item | Status |
-|---|------|--------|
-| **New** | Super Report: Patient Schedule Lead Time card (Report 40's figures, comparison, narrative section) | Built and tested 21 Nov evening; next deploy |
-| 13-8 | **DONE 21 Nov 14:23–~14:40** (direct route run, `logs/sjh_route_move.log`): verified True, deleted from RH True, exit 0. Deleted from RH: 178,117 studies (series and images by cascade), 296,418 RIS orders, 337,720 RIS reports, 161,085 ORU reports (analysis and NLP cache by cascade), 1,423 HIS orders, 109,216 audit events, 9,968 sticky notes, 199,837 RIS steps, 49,366 unreferenced patients, 171,390 unreferenced visits; patients and visits still referenced by RH kept on both; storage history copied (68,984 days). No site, kept on RH flagged: 9,248 studies, 20,772 ORU reports. Not yet done after it: SJH on in .env + deploy 20759ec8, VACUUM ANALYZE (13-8b) | Done |
-| 13-8 (history) | **The move did not run on 21 Nov 11:08**: it stopped at step 1, "SJH's database not ready after 15 minutes" (nothing copied or deleted; RH still 178,117 SJH studies, SJH's database = the 21 Nov copy). Found: the app's site setup lock was the ETL's lock number (872951065), so a start with SJH on waited on the ETL / site route; now its own (872951066), waited 120 s at most with the holder logged, migrations on a site database give up on a lock after 60 s; the move script recreates the app and keeps its log when SJH is not ready. The data move was started directly (`compose run -e POSTGRES_DB_SJH=etl_db_sjh rayd-app python -m ETL_JOBS.etl_site_route --site SJH --move` under systemd-run, log `logs/sjh_route_move_*.log`), independent of the app | Running (operator, 21 Nov evening); then deploy the fix, SJH on in .env, restart, VACUUM ANALYZE, 13-V |
-| 13-V | Validate SJH after the move: the route log (verified True, deleted True), per-table counts on both databases, RH's October reports unchanged, SJH's October reports, the first nightly ETL after the move (SJH's new rows in SJH's database, none on RH) | After 13-8 |
-| 14 | Radiologists TAT revamp, the rest: Report 25's TAT duplicates out; per-resident threshold bands (exam done → wet read, → approved; per modality and patient class; adjustable); reports per radiologist per day per modality (Report 32); validation against Oracle on random dates. Done earlier: 14A/14B signature turnaround from the PACS audit trail (17 Nov), moved to Report 36 (19 Nov); item 8 wet reads per resident | Planned for December; the operator may bring it forward (deadline 30 Nov) |
-| 1 | HIS vs RIS: 19 Nov MRI on Report 27's HIS tab (query in the 20 Nov morning checklist below) | Waiting on the operator (booked room closed: 1,472 / 1,472) |
-| — | Deployed 20 Nov ~23:00 (9e5305fd: Composer revamp, days and times, copy fixes). Open the Super Report, Report AI, Report 27 (Peak Hours), the Report Composer | Done; checks when convenient |
-| 17 | BRAYN: per-modality breakdown (query in item 17, "The breakdown") → mark arrival/start not expected where the RIS never sends them → operator switches on the stall rules (ORPHAN_ORDER suggested off); the 7 approved-without-report accessions to Mirth | Waiting on the operator |
-| **SJH DB preparation** (parked, separate task, after the revamp) | | |
-| 13-1…13-6 | Old timer stopped, SJH off, partial copy dropped, deploy, `check`, `copy` | Done 20–21 Nov: copy verified 01:28, 177,949 studies, nothing deleted from RH |
-| 13-7 | SJH's reports on a past period (October): Report 22 and the Super Report side by side (account holding both sites); RH's figures for the same period | Part of 13-V |
-| 13-8a, 13-8 | Deploy the fixes, then the move (`systemd-run … sjh_move.sh move`, operator: now, no timer) | Operator: finished 21 Nov ("i guess SJH is finished"); confirmed by 13-V |
-| 4, 9, 37 | Open items (below) | Later |
-| 21, 33, 35 | Operator checks (below) | Waiting on the operator |
+| # | Item | Who | Status |
+|---|------|-----|--------|
+| 13-8b | SJH on in .env + `update.sh LAUMC` (HEAD cfb8e9d0: SJH in the app, startup lock fix, Report Composer sentence, footer, Super Report lead time card, dates dd/mm/yyyy) + `grep "site SJH" logs/app/SITE_DB.log` | operator | **Before the department opens Tue 24 Nov**; until then SJH's new rows wait safely on RH |
+| 13-8c | VACUUM ANALYZE on RH after the move | operator | Was running 21 Nov; check it finished (`pg_stat_progress_vacuum` empty) |
+| 13-V | Validate SJH: volumes by year / October by modality / no-site devices (operator expects SJH close to RH; so far 48 % all years, ~70 % October); October Report 22 RH (~5,419) and SJH; Super Report sites side by side; first 05:00 ETL after SJH on (no SJH rows on RH); PACS per device when the VPN is back | operator, then me | After 13-8b |
+| 20 | CRN go-live, this month: Email Server with the gateway's domain allowed (SJH's set 21 Nov), provider "Email to SMS" + gateway address, CRN gateway URL / API key + IT firewall, fallback contact + mobiles, SMS wording, test SMS, Live | operator + IT | Built and deployed; go-live steps not confirmed |
+| 37 | CRN workflow with the department | operator | To discuss |
+| 35 | Report AI accuracy: Mon 23 Nov (holiday) predicted vs came, read Tue 24 after 06:30 (`ai_forecast_check`); verdict on ~20 weekdays ~18 Dec; then maybe predicted-vs-came list, weekday-only error, week-ahead accuracy | operator | Waiting on the data; build nothing before |
+| 14 | Radiologists TAT, the rest: Report 25's TAT duplicates; per-resident adjustable threshold bands; reports per radiologist per day per modality (Report 32); validation against Oracle | me | Waiting on the operator's go (planned December) |
+| 1 | HIS vs RIS: 19 Nov MRI on Report 27's HIS tab | operator | Check |
+| 9 | Report 39: "Show them as Former staff" switch, after the manager checks (Tanios Jalkh; Jessica Saad's PACS account); SJH's own switch now that it has its database | operator + manager | Waiting |
+| 21 | Report 40 for October: median and same-day share look right? | operator | Check |
+| 33 | Report 27's RIS tab: blue bars no longer 0 after a reload? | operator | Check |
+| 17 | BRAYN: per-modality breakdown → stall rules on (ORPHAN_ORDER after a look); the 7 approved-without-report accessions to Mirth; which manual mappings are wrong or rigid (low-priority revamp) | operator | Waiting |
+| 13 | SJH: PHILIPSCARM = RIS "PHILIPS" (C-Arm 2)? | operator (ask SJH) | Waiting |
+| 4 | RIS rooms: LEO22529 stays unlinked (a workstation serving TERRA and INTERAET); kept open by the operator | operator | Open |
+| 30 | Amended reports (AAP after FAP) | chief radiologist | On hold |
+| — | Live Department board: further fixes beyond item 38 (built 19 Nov) | operator | Ask for the list when convenient |
+
+Closed 21–23 Nov: the SJH move (13-8, 21 Nov 14:49, verified); dates dd/mm/yyyy on every date
+box (cfb8e9d0, operator 21 Nov).
 
 Closed 21 Nov (operator): SJH's mail server set (13-9); the Report Composer as a sentence approved;
 the customer's after-hours report approved (built in the Report Composer); the footer reads
