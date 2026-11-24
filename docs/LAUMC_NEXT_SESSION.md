@@ -1,13 +1,32 @@
 # LAUMC — To do
 
-Updated 2026-11-20. This file holds only what is still open. What was built is in the commit
+Updated 2026-11-24. This file holds only what is still open. What was built is in the commit
 messages, and the July version of this file (history, punch list round 2) is in git history.
 Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 `LAUMC_OPEN_QUESTIONS.md` (vendor questions), `LAUMC_DATA_REQUEST.md` (discovery record).
 
 ---
 
-## Where we stopped (2026-11-21, evening) — START HERE in a new session
+## Where we stopped (2026-11-24, evening) — START HERE in a new session
+
+**24 Nov evening.** Read the pending table (search "Pending table (24 Nov)") first.
+- **Closed 23–24 Nov:** 13-V (SJH validated against PACS and RIS), 14 (Report 36 Time bands,
+  Report 32 per day, Report 25's copies out, checked against PACS), 13, 1, 4, 9, 21, 33, 37, and
+  the Shimadzu room → DX.
+- **Parked:** 20 (CRN go-live, until the operator retriggers it). **On hold:** 30.
+- **Production runs everything up to 0c82a3e2** (ETL log from the main database).
+- **Waiting deploy:** 94f94441 (Live board: an exam with no "exam done" ends when the next
+  patient starts in its room) and 452efd59 (Live board "Side by side", both hospitals on one
+  screen, bigger bottom text):
+  `cd /opt/rayd && sudo bash update.sh LAUMC && git log --oneline -1`. Then press "Side by side"
+  on the TV.
+- **Open:**
+  - 17: the R2I side. The operator is the R2I vendor: 595 missing CMs, starting with
+    1005003450900; ORC-9 empty; a queue alert. ORPHAN_EVENT goes on in the BRAYN console.
+  - 35: Report AI, watching; verdict about 18 Dec.
+  - 42: the Super Report weekly analysis, scheduled after 30 Nov, plus the storage threshold
+    command for the operator.
+- No code is open.
 
 **21 Nov evening.** The operator approved the Report Composer and the after-hours report, set SJH's
 mail server, and reports the SJH move finished: **validate it** (13-V in the table). Built: the
@@ -183,7 +202,7 @@ archiving policy") because `sr_storage_gb_day_warn` defaults to 2 GB a day and R
 sudo docker exec rayd_db psql -U etl_user -d etl_db -c "INSERT INTO settings (key, value) VALUES ('sr_storage_gb_day_warn', '25') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;"
 ```
 
-**Pending table (23 Nov)** — show it, kept current, at the end of each reply. Deadline Sun 30 Nov.
+**Pending table (24 Nov)** — show it, kept current, at the end of each reply. Deadline Sun 30 Nov.
 
 | # | Item | Who | Status |
 |---|------|-----|--------|
@@ -193,9 +212,9 @@ sudo docker exec rayd_db psql -U etl_user -d etl_db -c "INSERT INTO settings (ke
 | 20 | CRN go-live | — | **Parked 24 Nov** (operator: closed until retriggered); built and deployed, go-live steps listed in "CRN go-live" below |
 | 37 | CRN workflow with the department | — | **Closed 24 Nov** (operator) |
 | 35 | Report AI accuracy (forecasts PACS studies, SR and BMD left out) | me (watching) | 24 Nov: RH Sat 82/81 (1 %), Sun 69/53 (23 % under), **Mon holiday 70 vs 76 predicted the night before (9 %)**; the operator's "54" was the forecast made 2-3 days earlier. SJH (first forecasts ~21 Nov): Sat 101/67, Sun 56/50, Mon 57/69. RIS exams done run above PACS studies on some days (RH Sat 166 vs 82: exams marked done later), not what Report AI forecasts; the operator's 151/132 match no RAYD count for Monday. Verdict ~18 Dec on weekday misses (adjust above ~20 %) |
-| 14 | Radiologist TAT, the rest: a, b, c built 23 Nov (7750f213: Report 36 Time bands, Report 32 per day, Report 25's four copies out); **d checked against PACS 23 Nov and closed by the operator**: 6 studies' wet read and approval identical to PACS to the second and login; RIS exam done identical on 4, 10 s and 53 s earlier on 2 (RAYD takes the study's earliest exam done, a linked exam) | operator | Deploy 7750f213 |
+| 14 | Radiologist TAT, the rest: a, b, c built 23 Nov (7750f213: Report 36 Time bands, Report 32 per day, Report 25's four copies out); **d checked against PACS 23 Nov and closed by the operator**: 6 studies' wet read and approval identical to PACS to the second and login; RIS exam done identical on 4, 10 s and 53 s earlier on 2 (RAYD takes the study's earliest exam done, a linked exam) | — | **Closed**: deployed, looked at on production 24 Nov |
 | new | SJH's Shimadzu room `DR300_STORESCU` (plain X-rays) mapped RF → **DX, done 24 Nov** on both databases with the Mapping page's new modality drop-down (75641ccc), which also proved the device fix (c32fc6c6) on production | — | **Closed** |
-| new | Mapping bug: a device change made with SJH picked is overwritten each night by the main database's copy (etl_site_route copies aetitle_modality_map, 'keep', rewriting what differs) → **fixed 23 Nov**: the Mapping page's device changes (edit, delete, CSV upload, capacity grid) go to the main database and are copied to the site's at once (`@device_write`, `etl_site_route.copy_devices`); a device added with SJH picked is SJH's; a device only SJH's database holds is still changed there | me | Done, next deploy |
+| new | Mapping bug: a device change made with SJH picked is overwritten each night by the main database's copy (etl_site_route copies aetitle_modality_map, 'keep', rewriting what differs) → **fixed 23 Nov**: the Mapping page's device changes (edit, delete, CSV upload, capacity grid) go to the main database and are copied to the site's at once (`@device_write`, `etl_site_route.copy_devices`); a device added with SJH picked is SJH's; a device only SJH's database holds is still changed there | — | **Closed**: deployed, proven on production 24 Nov (Shimadzu) |
 | 1 | HIS vs RIS: 19 Nov MRI on Report 27's HIS tab | — | **Closed** by the operator, 23 Nov |
 | 9 | Report 39 "Former staff" switch | — | **Closed 24 Nov** (operator) |
 | 21 | Report 40 for October: median and same-day share | — | **Closed** by the operator, 23 Nov |
@@ -204,7 +223,7 @@ sudo docker exec rayd_db psql -U etl_user -d etl_db -c "INSERT INTO settings (ke
 | 13 | SJH: PHILIPSCARM = RIS "PHILIPS" (C-Arm 2)? **Closed 23 Nov from the data**: 9 studies in PACS (13 Aug 2025 - 2 Jan 2026, nothing since), none with a RIS order or step, and no exam booked on PHILIPS or ZIEHM-SOLO has a study from it: nothing ties it to C-Arm 2, so it stays an unlinked SJH C-arm (RF) | — | Closed |
 | 4 | RIS rooms: LEO22529 stays unlinked (decided 19 Nov) | — | **Closed** by the operator, 23 Nov |
 | 30 | Amended reports (AAP after FAP) | chief radiologist | On hold until further notice (operator, 24 Nov) |
-| — | Live Department board | me | **24 Nov (operator): until the RIS sends every "exam done", an exam ends when the next patient starts in the same room** (or a later exam there is done): counted as done, busy only until then, never "running"; the room's latest start stays running (utils/department_board._settle_running). Built and tested; next deploy |
+| — | Live Department board | me | **24 Nov (operator): until the RIS sends every "exam done", an exam ends when the next patient starts in the same room** (or a later exam there is done): counted as done, busy only until then, never "running"; the room's latest start stays running (utils/department_board._settle_running), 94f94441. **24 Nov (operator): "Side by side"** splits the screen into one live board per hospital; the bottom text is bigger (452efd59). Built and tested | operator | Deploy 94f94441 + 452efd59, then press "Side by side" on the TV |
 | 42 | Super Report weekly analysis by rules, no AI (operator, 24 Nov): full tables for both periods, every change from 10 % with what drives it, data checks (resident as last author, no ER class, demo device, devices over 100 %), new text replacing `_generate_narrative`; details above the table | me | **Scheduled 24 Nov**: after the 30 Nov list, 5–8 days. Operator now: storage alert threshold (command above the table) |
 
 Closed 24 Nov (operator): 13-V, 9, 37, the post-deploy look; 20 parked until retriggered; 30 on hold. Closed 24 Nov: first night with SJH on (13-V part); Shimadzu → DX; the ETL log read from the main database everywhere (0c82a3e2). Closed 23 Nov (operator): items 1, 4, 21, 33; item 13 (PHILIPSCARM, from the data); item 14 (checked against PACS); the Mapping fix (c32fc6c6). Closed 21–23 Nov: the SJH move (13-8, 21 Nov 14:49, verified); SJH on and deployed (13-8b,
