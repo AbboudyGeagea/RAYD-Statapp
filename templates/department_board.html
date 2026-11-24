@@ -102,12 +102,33 @@
         .c-util i { display: block; height: 100%; background: var(--free); }
 
         /* ── footer: each modality, and the colour key ── */
-        .foot { flex: none; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; padding: 4px 10px;
-                background: var(--panel); border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); max-height: 3.4em; overflow: hidden; }
-        .foot .mod b { color: var(--fg); margin-right: 3px; }
+        /* read from across the room (operator, 2026-11-24: "too small"): sized to the screen */
+        .foot { flex: none; display: flex; flex-wrap: wrap; gap: .2em 1em; align-items: center; padding: .3em .7em;
+                background: var(--panel); border-top: 1px solid var(--line); font-size: clamp(14px, 1.15vw, 22px);
+                color: var(--muted); max-height: 4.8em; overflow: hidden; }
+        .foot .mod b { color: var(--fg); margin-right: .25em; }
         .foot .mod .alert { color: var(--over); font-weight: 700; }
-        .foot .key { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; }
-        .foot i.sw { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+        .foot .key { margin-left: auto; display: flex; gap: .8em; flex-wrap: wrap; }
+        .foot i.sw { display: inline-block; width: .75em; height: .75em; border-radius: .2em; margin-right: .3em; vertical-align: -.05em; }
+
+        /* ── both hospitals at once: one pane per hospital, each a full live board ── */
+        .board.split { padding: 8px; }
+        .split { display: flex; gap: 8px; width: 100%; height: 100%; }
+        .pane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line);
+                border-radius: 10px; overflow: hidden; background: var(--bg); }
+        .pane-head { flex: none; display: flex; flex-wrap: wrap; gap: .25em .7em; align-items: center; padding: .3em .6em;
+                     background: var(--panel); border-bottom: 1px solid var(--line); font-size: clamp(12px, .9vw, 18px); }
+        .pane-head .site { font-weight: 900; font-size: 1.45em; letter-spacing: .03em; }
+        .pane-head .pname { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .pane-head .kpis { margin-left: auto; }
+        .pane-head .kpi b { font-size: 1.15em; }
+        .pane-head .kpi .lbl { font-size: .8em; }
+        .pane-board { flex: 1; min-height: 0; padding: 6px; overflow: hidden; position: relative; }
+        .pane-foot { flex: none; display: flex; flex-wrap: wrap; gap: .15em .9em; padding: .3em .6em; background: var(--panel);
+                     border-top: 1px solid var(--line); color: var(--muted); font-size: clamp(13px, 1vw, 20px);
+                     max-height: 3.4em; overflow: hidden; }
+        .pane-foot .mod b { color: var(--fg); margin-right: .25em; }
+        .pane-foot .mod .alert { color: var(--over); font-weight: 700; }
 
         /* ── details drawer (optional: a click on a room) ── */
         .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100%); z-index: 30; background: var(--panel);
@@ -143,8 +164,8 @@
     <div class="kpis"><span id="kpis" class="kpis"></span><i class="bi bi-info-circle chart-info-icon" data-explain="live-board-kpis" role="button" tabindex="0" aria-label="About these figures" title="About these figures"></i></div>
     <div class="controls">
         <div id="mod-chips" style="display:flex;flex-wrap:wrap;gap:4px"></div>
-        <button class="chip" id="sites-btn" type="button" title="The hospitals side by side, per modality" hidden>
-            <i class="bi bi-hospital"></i> Side by side</button>
+        <button class="chip" id="sites-btn" type="button" aria-pressed="false" title="Both hospitals on one screen, each with its own live board" hidden>
+            <i class="bi bi-layout-split"></i> Side by side</button>
         {% if can_edit_limits %}
         <button class="chip" id="limits-btn" type="button" title="Wait limit per modality, and when an exam is done too early">
             <i class="bi bi-sliders"></i> Limits</button>
@@ -172,8 +193,9 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem('deptboard.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem('deptboard.' + k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
 };
-let B = null, offset = 0, lastOk = null, open = null;
+let B = null, BB = {}, offset = 0, lastOk = null, open = null;
 let mods = store.get('mods', []), names = store.get('names', false), site = store.get('site', null);
+let split = store.get('split', false);   // both hospitals at once (operator, 2026-11-24), remembered on this screen
 
 // Server time is the hospital clock; the browser's may differ. Every countdown runs on
 // server time = browser time + offset, measured at each fetch.
@@ -194,21 +216,33 @@ function who(it) {                     // initials unless "Names" is on: a wall 
 const LABEL = {free: 'Free', busy: 'Busy', late: 'Late', closed: 'Closed'};
 const SOURCE = {booked: 'booked on the RIS', procedure: 'the procedure’s usual duration',
                 modality: 'the modality’s usual duration (none for the procedure)', default: 'a default (no duration known)'};
-const allRooms = () => B.lanes.flatMap(l => l.rooms);
-const shownRooms = () => allRooms().filter(r => !mods.length || mods.includes(r.modality));
+const roomsOf = b => b.lanes.flatMap(l => l.rooms);
+const shownRoomsOf = b => roomsOf(b).filter(r => !mods.length || mods.includes(r.modality));
+// the boards on screen: the picked hospital, or every hospital of the account side by side
+const shownBoards = () => split && Object.keys(BB).length > 1 ? B.sites.map(s => BB[s.code]).filter(Boolean) : [B];
 
+async function fetchBoard(code) {
+  const q = code ? '?site=' + encodeURIComponent(code) : '';
+  const r = await fetch('/viewer/department/api/board' + q, {headers: {'Accept': 'application/json'}});
+  if (r.status === 401 || r.redirected) { location.reload(); throw new Error('signed out'); }
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+  return d;
+}
 async function load() {
   try {
-    const q = site ? '?site=' + encodeURIComponent(site) : '';
-    const r = await fetch('/viewer/department/api/board' + q, {headers: {'Accept': 'application/json'}});
-    if (r.status === 401 || r.redirected) { location.reload(); return; }
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
-    B = d; offset = parse(d.now) - Date.now(); lastOk = Date.now();
+    const d = await fetchBoard(site);
     if (d.site && d.site !== site) { site = d.site; store.set('site', site); }   // remembered on this screen
+    let both = {};
+    if (split && d.sites.length > 1) {          // the other hospitals, fetched the same way
+      const others = d.sites.filter(s => s.code !== d.site);
+      const got = await Promise.all(others.map(s => fetchBoard(s.code)));
+      both = {[d.site]: d};
+      others.forEach((s, i) => { both[s.code] = got[i]; });
+    }
+    B = d; BB = both; offset = parse(d.now) - Date.now(); lastOk = Date.now();
     $('banner').hidden = true;
     render();
-    if (open && open.sites) loadSites();
   } catch (e) {
     $('banner').hidden = false;
     $('banner').textContent = 'The board could not be refreshed (' + e.message + '). ' +
@@ -217,14 +251,14 @@ async function load() {
 }
 
 // ── one room card: everything a manager reads without a click ─────────────────
-function card(r) {
+function card(r, b) {
   const c = r.current, e = r.early, u = r.utilization_pct, first = r.waiting[0];
   let now;
   if (c) now = `<div class="c-now ${c.late ? 'late' : 'run'}" data-start="${esc(c.started_at)}" data-end="${esc(c.expected_end)}">
       <div class="l1"><span class="who">${esc(who(c))}</span> <span class="what">${esc(c.procedure)}</span></div>
       <div class="l2"><span>${hm(parse(c.started_at))} → ${hm(parse(c.expected_end))}</span><b class="left"></b></div>
       <div class="bar"><i></i></div></div>`;
-  else if (e) now = `<div class="c-now early" title="Marked done in less than ${B.limits.early_pct} % of its expected time">
+  else if (e) now = `<div class="c-now early" title="Marked done in less than ${b.limits.early_pct} % of its expected time">
       <div class="l1"><span class="who">${esc(who(e))}</span> <span class="what">${esc(e.procedure)}</span></div>
       <div class="l2"><span>done early ${hm(parse(e.done_at))}</span><b>${short(e.took_min)} of ${short(e.expected_minutes)}</b></div></div>`;
   else now = `<div class="c-now idle"><div class="l1">${r.status === 'closed' ? 'Closed today' + (r.exception ? ': ' + esc(r.exception) : '')
@@ -235,7 +269,7 @@ function card(r) {
     rows.push(`<li class="sep">Next</li>`);
     r.coming.forEach(x => rows.push(`<li class="next"><span class="p">${esc(who(x))} · ${esc(x.procedure)}</span><b>${hm(parse(x.appointment_at))}</b></li>`));
   }
-  return `<div class="card ${r.status}" role="button" tabindex="0" data-room="${esc(r.key)}" title="${esc(r.room)} — click for details">
+  return `<div class="card ${r.status}" role="button" tabindex="0" data-room="${esc(r.key)}" data-site="${esc(b.site)}" title="${esc(r.room)} — click for details">
     <div class="c-head"><span class="nm">${esc(r.room)}</span><span class="st">${LABEL[r.status]}</span></div>
     <div class="c-sub">${esc(r.modality)} · ${esc(r.room_code)}</div>
     ${now}
@@ -253,19 +287,21 @@ function card(r) {
 
 // ── the grid: as many columns as give the biggest cards for this screen ─────────
 function fitGrid() {
-  const box = $('board'), grid = box.querySelector('.grid');
-  if (!grid) return;
-  const n = grid.children.length;
-  const W = box.clientWidth - 16, H = box.clientHeight - 16;
-  let best = {c: 1, r: n, s: 0};
-  for (let c = 1; c <= n; c++) {
-    const r = Math.ceil(n / c);
-    const s = Math.min((W - (c - 1) * GAP) / c / BASE_W, (H - (r - 1) * GAP) / r / BASE_H);
-    if (s > best.s) best = {c, r, s};
-  }
-  grid.style.gridTemplateColumns = `repeat(${best.c}, minmax(0, 1fr))`;
-  grid.style.gridTemplateRows = `repeat(${best.r}, minmax(0, 1fr))`;
-  grid.style.fontSize = Math.max(9, Math.min(30, BASE_FONT * best.s)) + 'px';
+  document.querySelectorAll('#board .grid').forEach(grid => {
+    const box = grid.parentElement, cs = getComputedStyle(box);
+    const n = grid.children.length;
+    const W = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const H = box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    let best = {c: 1, r: n, s: 0};
+    for (let c = 1; c <= n; c++) {
+      const r = Math.ceil(n / c);
+      const s = Math.min((W - (c - 1) * GAP) / c / BASE_W, (H - (r - 1) * GAP) / r / BASE_H);
+      if (s > best.s) best = {c, r, s};
+    }
+    grid.style.gridTemplateColumns = `repeat(${best.c}, minmax(0, 1fr))`;
+    grid.style.gridTemplateRows = `repeat(${best.r}, minmax(0, 1fr))`;
+    grid.style.fontSize = Math.max(9, Math.min(30, BASE_FONT * best.s)) + 'px';
+  });
   trimLists();
 }
 // The waiting and next patients that do not fit their card become "+n more". The line is
@@ -301,45 +337,67 @@ if ('ResizeObserver' in window) new ResizeObserver(refit).observe($('board'));
 window.addEventListener('resize', refit);
 
 // ── render ────────────────────────────────────────────────────────────────────
-function render() {
-  if (!B) return;
-  const t = B.totals;
+function kpisHtml(t) {
   const kpi = (v, l, cls) => `<div class="kpi ${cls || ''}"><b>${v}</b><span class="lbl">${esc(l)}</span></div>`;
-  $('kpis').innerHTML = kpi(`${t.busy}/${t.rooms}`, 'busy') + kpi(t.late, 'late', t.late ? 'late' : '') +
+  return kpi(`${t.busy}/${t.rooms}`, 'busy') + kpi(t.late, 'late', t.late ? 'late' : '') +
     kpi(t.early, 'done early', t.early ? 'early' : '') +
     kpi(t.waiting + (t.waiting_over ? ` <small>(${t.waiting_over} over)</small>` : ''), 'arrived', t.waiting_over ? 'alert' : '') +
     kpi(t.longest_wait_since ? `<span data-since="${esc(t.longest_wait_since)}">${dur(t.longest_wait_min)}</span>` : '—', 'longest wait') +
     kpi(`${t.scheduled_today} <small>(${t.to_come} to come)</small>`, 'booked') + kpi(t.done_today, 'done') +
     kpi(t.utilization_pct == null ? '—' : t.utilization_pct + '%', 'util');
+}
+// each modality of one hospital: busy rooms, arrived, booked, utilization
+function lanesHtml(b) {
+  return b.lanes.map(l => {
+    const s = l.summary;
+    return `<span class="mod"><b>${esc(l.modality)}</b>${s.busy}/${s.rooms} busy · <span class="${s.waiting_over ? 'alert' : ''}">${s.waiting} arrived</span> · ${s.scheduled_today} booked · ${s.utilization_pct == null ? '—' : s.utilization_pct + '%'}</span>`;
+  }).join('') + (b.unknown_rooms.length ? `<span class="mod alert">Rooms not in RAYD: ${b.unknown_rooms.map(u => esc(u.code) + ' (' + u.studies + ')').join(', ')}</span>` : '');
+}
+function paneHtml(b) {
+  const rooms = shownRoomsOf(b), name = (b.sites.find(x => x.code === b.site) || {}).name || '';
+  return `<section class="pane" aria-label="${esc(name || b.site)}">
+    <div class="pane-head"><span class="site">${esc(b.site)}</span><span class="pname">${esc(name)}</span><span class="kpis">${kpisHtml(b.totals)}</span></div>
+    <div class="pane-board">${rooms.length ? `<div class="grid">${rooms.map(r => card(r, b)).join('')}</div>`
+      : '<div class="empty">No room open today or booked.</div>'}</div>
+    <div class="pane-foot">${lanesHtml(b)}</div></section>`;
+}
 
-  $('site-switch').innerHTML = B.sites.map(s =>
-    `<button type="button" data-site="${esc(s.code)}" aria-pressed="${s.code === B.site}" title="${esc(s.name)}">${esc(s.code)}</button>`).join('');
+function render() {
+  if (!B) return;
+  const boards = shownBoards(), both = boards.length > 1;
+  $('kpis').innerHTML = both ? '' : kpisHtml(B.totals);       // side by side: each pane has its own
+  $('site-switch').innerHTML = B.sites.map(x =>
+    `<button type="button" data-site="${esc(x.code)}" aria-pressed="${!both && x.code === B.site}" title="${esc(x.name)}">${esc(x.code)}</button>`).join('');
   $('sites-btn').hidden = B.sites.length < 2;
-  const all = B.lanes.map(l => l.modality);
+  $('sites-btn').setAttribute('aria-pressed', String(both));
+  const all = [...new Set(boards.flatMap(b => b.lanes.map(l => l.modality)))];
   mods = mods.filter(m => all.includes(m));
   $('mod-chips').innerHTML = `<button class="chip" type="button" data-mod="" aria-pressed="${!mods.length}">All</button>` +
     all.map(m => `<button class="chip" type="button" data-mod="${esc(m)}" aria-pressed="${mods.includes(m)}">${esc(m)}</button>`).join('');
   $('names').setAttribute('aria-pressed', String(names));
 
-  const rooms = shownRooms();
-  if (!rooms.length) {
-    $('board').innerHTML = '<div class="empty">No room of this hospital is open today or has anything booked.</div>';
-  } else {
-    $('board').innerHTML = `<div class="grid">${rooms.map(card).join('')}</div>`;
+  const box = $('board');
+  box.classList.toggle('split', both);
+  if (both) {
+    box.innerHTML = `<div class="split">${boards.map(paneHtml).join('')}</div>`;
     fitGrid();
+  } else {
+    const rooms = shownRoomsOf(B);
+    if (!rooms.length) {
+      box.innerHTML = '<div class="empty">No room of this hospital is open today or has anything booked.</div>';
+    } else {
+      box.innerHTML = `<div class="grid">${rooms.map(r => card(r, B)).join('')}</div>`;
+      fitGrid();
+    }
   }
-  renderFoot();
+  renderFoot(both);
   if (open) renderDrawer();
   tick();
 }
 
-function renderFoot() {
-  const lanes = B.lanes.map(l => {
-    const s = l.summary;
-    return `<span class="mod"><b>${esc(l.modality)}</b>${s.busy}/${s.rooms} busy · <span class="${s.waiting_over ? 'alert' : ''}">${s.waiting} arrived</span> · ${s.scheduled_today} booked · ${s.utilization_pct == null ? '—' : s.utilization_pct + '%'}</span>`;
-  }).join('');
-  const un = B.unknown_rooms.length ? `<span class="mod alert">Rooms not in RAYD: ${B.unknown_rooms.map(u => esc(u.code) + ' (' + u.studies + ')').join(', ')}</span>` : '';
-  $('foot').innerHTML = lanes + un + `<span class="key">
+function renderFoot(both) {
+  // side by side, each hospital's modalities sit at the bottom of its pane; here the key
+  $('foot').innerHTML = (both ? '' : lanesHtml(B)) + `<span class="key">
       <span><i class="sw" style="background:var(--free)"></i>Free</span><span><i class="sw" style="background:var(--busy)"></i>Busy</span>
       <span><i class="sw" style="background:var(--late)"></i>Late</span><span><i class="sw" style="background:var(--early)"></i>Done under ${B.limits.early_pct} % of its time</span>
       <span><i class="sw" style="background:var(--over)"></i>Wait over the limit (${Object.entries(B.limits.wait_min).map(([m, v]) => esc(m) + ' ' + v).join(', ') || 'none set'}; else ${B.limits.default_wait_min} min)</span></span>`;
@@ -357,37 +415,8 @@ function comingList(items) {
     <span class="t">${hm(parse(x.appointment_at))}</span></li>`).join('')}</ul>`;
 }
 
-// ── the hospitals side by side, per modality (item 13b) ────────────────────────
-let S = null;
-async function loadSites() {
-  try {
-    const r = await fetch('/viewer/department/api/sites', {headers: {'Accept': 'application/json'}});
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
-    S = d;
-  } catch (e) { S = {error: e.message}; }
-  if (open && open.sites) renderDrawer();
-}
-function sitesHtml() {
-  if (!S) return '<div class="none">Loading the hospitals…</div>';
-  if (S.error) return `<div class="none">The hospitals could not be read (${esc(S.error)}).</div>`;
-  if (!S.sites.length) return '<div class="none">Your account holds one hospital.</div>';
-  const cell = v => `<td style="text-align:right;padding:3px 6px;font-variant-numeric:tabular-nums">${v}</td>`;
-  const one = s => !s ? cell('—') + cell('—') + cell('—') + cell('—') :
-    cell(`${s.busy}/${s.rooms}`) + cell(s.waiting) + cell(s.done_today) +
-    cell(s.utilization_pct == null ? '—' : s.utilization_pct + '%');
-  const head = S.sites.map(s => `<th colspan="4" style="padding:4px 6px;text-align:center">${esc(s.code)}</th>`).join('');
-  const sub = S.sites.map(() => ['Busy', 'Arrived', 'Done', 'Util.']
-    .map(h => `<th style="padding:2px 6px;text-align:right;font-size:10px;opacity:.7">${h}</th>`).join('')).join('');
-  const rows = S.modalities.map(m => `<tr><td style="padding:3px 6px;font-weight:800">${esc(m.modality)}</td>` +
-    S.sites.map(s => one(m.by_site[s.code])).join('') + '</tr>').join('');
-  const total = '<tr style="border-top:1px solid currentColor;font-weight:800"><td style="padding:3px 6px">All</td>' +
-    S.sites.map(s => one(S.totals[s.code])).join('') + '</tr>';
-  return `<table style="width:100%;border-collapse:collapse;font-size:12px">
-    <thead><tr><th></th>${head}</tr><tr><th style="text-align:left;padding:2px 6px;font-size:10px;opacity:.7">Modality</th>${sub}</tr></thead>
-    <tbody>${rows}${total}</tbody></table>
-    <div class="none" style="margin-top:8px">Each hospital counted the same way. Busy = rooms with an exam running / rooms shown.</div>`;
-}
+// ── the hospitals side by side: the split screen (paneHtml); each hospital's figures per
+// modality sit at the bottom of its pane (operator, 2026-11-24) ──
 
 function limitsHtml() {
   const L = B.limits;
@@ -416,19 +445,15 @@ async function saveLimits() {
 
 function renderDrawer() {
   let html;
-  if (open.sites) {
-    html = `<div class="dr-head"><div><h3 id="dr-title">Hospitals side by side</h3>
-        <div class="sub">Per modality, now</div></div>
-        <button class="dr-close" type="button" data-close>Close</button></div>
-      <div class="dr-body"><div class="dr-sec">${sitesHtml()}</div></div>`;
-  } else if (open.limits) {
+  if (open.limits) {
     if ($('drawer').querySelector('[data-save-limits]')) return;       // keep what is being typed
     html = `<div class="dr-head"><div><h3 id="dr-title">Limits</h3>
         <div class="sub">When a wait turns red, and when an exam counts as done too early</div></div>
         <button class="dr-close" type="button" data-close>Close</button></div>
       <div class="dr-body">${limitsHtml()}</div>`;
   } else {
-    const r = allRooms().find(x => x.key === open.room);
+    const b = shownBoards().find(x => x.site === open.site) || B;
+    const r = roomsOf(b).find(x => x.key === open.room);
     if (!r) { closeDrawer(); return; }
     const c = r.current, e = r.early, u = r.utilization_pct;
     const now = c ? `<div class="c-now ${c.late ? 'late' : 'run'}" data-start="${esc(c.started_at)}" data-end="${esc(c.expected_end)}" style="font-size:14px;margin:0">
@@ -513,22 +538,24 @@ function toggleMod(m) {
 $('mod-chips').addEventListener('click', e => { const b = e.target.closest('[data-mod]'); if (b) toggleMod(b.dataset.mod); });
 $('site-switch').addEventListener('click', e => {
   const b = e.target.closest('[data-site]');
-  if (!b || b.dataset.site === site) return;
-  site = b.dataset.site; store.set('site', site); closeDrawer(); load();
+  if (!b || (b.dataset.site === site && !split)) return;
+  site = b.dataset.site; store.set('site', site);
+  split = false; store.set('split', split);            // one hospital again
+  closeDrawer(); load();
 });
 document.addEventListener('click', e => {
   const cd = e.target.closest('.card[data-room]');
-  if (cd) { open = {room: cd.dataset.room}; renderDrawer(); tick(); return; }
+  if (cd) { open = {room: cd.dataset.room, site: cd.dataset.site}; renderDrawer(); tick(); return; }
   if (e.target.closest('[data-save-limits]')) { saveLimits(); return; }
   if (e.target.closest('[data-close]')) closeDrawer();
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && open) closeDrawer();
   const cd = e.target.closest && e.target.closest('.card[data-room]');
-  if (cd && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open = {room: cd.dataset.room}; renderDrawer(); tick(); }
+  if (cd && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open = {room: cd.dataset.room, site: cd.dataset.site}; renderDrawer(); tick(); }
 });
 $('names').addEventListener('click', () => { names = !names; store.set('names', names); render(); });
-$('sites-btn').addEventListener('click', () => { open = {sites: true}; renderDrawer(); loadSites(); });
+$('sites-btn').addEventListener('click', () => { split = !split; store.set('split', split); closeDrawer(); load(); });
 $('full-btn').addEventListener('click', () => { const d = document.documentElement; if (d.requestFullscreen) d.requestFullscreen().catch(() => {}); });
 if ($('limits-btn')) $('limits-btn').addEventListener('click', () => { open = {limits: true}; $('drawer').innerHTML = ''; renderDrawer(); });
 

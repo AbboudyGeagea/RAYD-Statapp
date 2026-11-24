@@ -126,7 +126,9 @@ routes/
                                    utils/department_board.py; ris_room / appointment_at /
                                    booked_minutes from the RIS's ORC-16 / OBR-36 / OBR-27,
                                    migration 0173), always on the MAIN database (MAIN_BLUEPRINTS),
-                                   hospital time — EMPTY while BRAYN is off.
+                                   hospital time — EMPTY while BRAYN is off. "Side by side" (2026-11-24) splits the screen
+                                   into one live board per hospital of the account; an exam with no
+                                   "exam done" ends when the next patient starts in its room.
                                    /viewer/live (live_feed, RIS SPS via Oracle) redirects here.
                                    Licence + page permission `live_feed`
   worklists.py                  — Report Composer (/report-composer; RAYD V2.0 editor from HL7 via
