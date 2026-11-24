@@ -146,6 +146,43 @@ index on kind and day):
   reports, cardiology), and the ten studies' first wet read, first approval and RIS exam done the
   same to the second, same login.
 
+**Item 42, the Super Report's weekly analysis by rules, no AI (operator, 24 Nov: "let's schedule
+it", after asking how hard it is without AI).** On 24 Nov the operator's Super Report export for
+16–22 Nov (vs 9–15 Nov) was analysed by hand in a session (Claude) to see what a weekly analysis
+should say; RAYD's own narrative (`_generate_narrative`, routes/super_report.py) missed most of
+it. The export file has since been removed from the repo folder; export the week again when
+building (`/viewer/super-report?start=…&end=…` while signed in; it holds staff names, never commit
+it). To build, in code only (nothing leaves the server):
+- **full tables for both periods**: the comparison period gets the same sections (lead time,
+  resident wet reads, CRN; today `include_rollups=False` leaves them out) and the top-N lists
+  (TAT by modality LIMIT 5, top modalities 5, referrers 10) carry every row, so a change is read,
+  not guessed (on the export, CR's turnaround last week could only be put "under 30 h");
+- **every figure against the comparison period** in real counts and %, graded from 10 % up and
+  down, never "normal", with **what drives it**: the change per modality, device, referrer and
+  radiologist, largest share first (the export: X-ray 162 of the 207 extra studies; three
+  referrers 175 of them; weekdays +23 %, weekend −11 %);
+- **one check per problem the export showed**: reports whose last author is a resident (205 of
+  1,304 that week, 1 the week before: the week's TAT and per-radiologist counts are not final,
+  say so; Report 36 separates wet read from approval); no emergency patient class on PACS studies
+  (O, I, S only, so `pc_emergency` never matches and the ER TAT and `er_delayed` read 0: use
+  Report 38's ER rule, `_ER_WHERE` in routes/report_38.py, patient_location 'ER'); a demo device
+  (USDemoPhilips) as the "quietest device"; a device over 100 % of its opening hours (AMX2 115 %:
+  works outside its hours, or its hours in RAYD are too short); cancelled appointments without a
+  patient class (66 of ~67); the CRN count covers both hospitals (not site-scoped); images and
+  storage down while studies rise = the mix moved to X-ray, not an alert;
+- **the text**: a three-line summary, then Volume, Reporting, Devices, Critical results,
+  Scheduling, and "To check this week"; plain words, dates dd/mm/yyyy, (i) on each new block.
+  Replaces `_generate_narrative` rather than extending it (it measures against fixed targets);
+- tests in tests/test_super_report.py on a fixed two-week sample.
+Estimate 5–8 working days; after the 30 Nov list unless the manager wants it sooner. AI on top
+later stays an option (the hospital's approval first: staff names would leave the server): send
+RAYD's computed findings, not the 75 KB export, about $0.30–0.50 a week on Opus 5.5.
+**No code, operator now:** the storage alert fires every week ("16.0 GB/day elevated, review
+archiving policy") because `sr_storage_gb_day_warn` defaults to 2 GB a day and RH stores ~16:
+```bash
+sudo docker exec rayd_db psql -U etl_user -d etl_db -c "INSERT INTO settings (key, value) VALUES ('sr_storage_gb_day_warn', '25') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;"
+```
+
 **Pending table (23 Nov)** — show it, kept current, at the end of each reply. Deadline Sun 30 Nov.
 
 | # | Item | Who | Status |
@@ -168,6 +205,7 @@ index on kind and day):
 | 4 | RIS rooms: LEO22529 stays unlinked (decided 19 Nov) | — | **Closed** by the operator, 23 Nov |
 | 30 | Amended reports (AAP after FAP) | chief radiologist | On hold until further notice (operator, 24 Nov) |
 | — | Live Department board | me | **24 Nov (operator): until the RIS sends every "exam done", an exam ends when the next patient starts in the same room** (or a later exam there is done): counted as done, busy only until then, never "running"; the room's latest start stays running (utils/department_board._settle_running). Built and tested; next deploy |
+| 42 | Super Report weekly analysis by rules, no AI (operator, 24 Nov): full tables for both periods, every change from 10 % with what drives it, data checks (resident as last author, no ER class, demo device, devices over 100 %), new text replacing `_generate_narrative`; details above the table | me | **Scheduled 24 Nov**: after the 30 Nov list, 5–8 days. Operator now: storage alert threshold (command above the table) |
 
 Closed 24 Nov (operator): 13-V, 9, 37, the post-deploy look; 20 parked until retriggered; 30 on hold. Closed 24 Nov: first night with SJH on (13-V part); Shimadzu → DX; the ETL log read from the main database everywhere (0c82a3e2). Closed 23 Nov (operator): items 1, 4, 21, 33; item 13 (PHILIPSCARM, from the data); item 14 (checked against PACS); the Mapping fix (c32fc6c6). Closed 21–23 Nov: the SJH move (13-8, 21 Nov 14:49, verified); SJH on and deployed (13-8b,
 23 Nov 15:38); VACUUM (13-8c); dates dd/mm/yyyy on every date box (cfb8e9d0, operator 21 Nov).
