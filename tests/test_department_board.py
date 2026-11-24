@@ -276,6 +276,39 @@ def test_done_today_and_utilization(rooms):
     assert c['utilization_pct'] == round(100 * c['busy_min'] / c['open_min'])
 
 
+def test_an_exam_with_no_exam_done_ends_when_the_next_patient_starts(rooms):
+    """Operator, 2026-11-24: the RIS's "exam done" misses about 4 in 10 exams (R2I), so an older
+    start with no completion ends at the next patient's start: done, never "running"."""
+    now = datetime.now()
+    if now - timedelta(minutes=70) < datetime.combine(now.date(), datetime.min.time()):
+        pytest.skip('the exams would start before midnight')
+    rooms.exec("INSERT INTO settings (key, value) VALUES ('shift_morning_start', '0') "
+               "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+    study(rooms, 'A1', minutes=15, scheduled=80, arrived=65, started=60)    # its CM never came
+    study(rooms, 'A2', minutes=30, scheduled=40, arrived=25, started=20)    # the next patient
+    c = card(get_board(rooms.app), 'CT64')
+    assert c['current']['accession'] == 'A2' and c['also_in_progress'] == 0
+    assert c['done_today'] == 1 and c['status'] == 'busy'
+    assert abs(c['busy_min'] - 60) <= 1                    # A1 60 → 20, then A2 20 → now
+    assert c['early'] is None                               # never "too early" from an inferred end
+
+
+def test_a_later_exam_done_ends_the_older_start_too(rooms):
+    now = datetime.now()
+    if now - timedelta(minutes=70) < datetime.combine(now.date(), datetime.min.time()):
+        pytest.skip('the exams would start before midnight')
+    study(rooms, 'A1', minutes=15, scheduled=80, arrived=65, started=60)    # its CM never came
+    study(rooms, 'A2', minutes=15, scheduled=50, arrived=45, started=40, completed=25)
+    c = card(get_board(rooms.app), 'CT64')
+    assert c['current'] is None and c['status'] == 'free' and c['done_today'] == 2
+
+
+def test_the_rooms_latest_start_stays_running(rooms):
+    study(rooms, 'A1', minutes=15, scheduled=80, arrived=65, started=60)    # nobody started after
+    c = card(get_board(rooms.app), 'CT64')
+    assert c['current']['accession'] == 'A1' and c['status'] == 'late' and c['done_today'] == 0
+
+
 def test_a_room_code_rayd_does_not_know_is_listed(rooms):
     study(rooms, 'Z1', room='NEWROOM9', scheduled=5)
     assert get_board(rooms.app)['unknown_rooms'] == [{'code': 'NEWROOM9', 'studies': 1}]

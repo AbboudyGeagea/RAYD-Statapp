@@ -25,7 +25,12 @@ device, open on paper, stay off.
                   room's modality's limit (Live board limits, default 30 min)
     running       started, not done, last 12 h; expected end = start + the booked minutes
                   (OBR-27), else the procedure's duration (procedure_duration_map), else the
-                  modality's median, else DEFAULT_MINUTES; orange when past it
+                  modality's median, else DEFAULT_MINUTES; orange when past it. An exam ends
+                  when the next patient starts in the same room (operator, 2026-11-24): the
+                  RIS's "exam done" message misses about 4 in 10 exams (the R2I feed,
+                  2026-11-23), so an older start with no completion counts as done at the
+                  next start (marked ended_by_next), never as running; the room's latest start
+                  stays running
     done early    the room's last exam done today took less than early_pct % of its expected
                   minutes (default 50 %): yellow until the room's next exam starts
     utilization   busy minutes ÷ open minutes so far, as before: both counted from the day
@@ -336,7 +341,7 @@ def build_board(site=None, now=None, sites=None):
             'exception': d['exception_reason'] if d['has_exception'] else None,
             'wait_limit_min': wait_limit(limits, modality),
             'scheduled_today': 0, 'coming': [], 'waiting': [], 'running': [], 'done': [],
-            'intervals': [],
+            'intervals': [], 'activity': [],
         }
 
     rows = db.session.execute(text(_STUDIES_SQL), {
@@ -369,6 +374,7 @@ def build_board(site=None, now=None, sites=None):
                 start = r['started_at'] or r['done_at'] - timedelta(minutes=minutes)
                 room['intervals'].append((start, r['done_at']))
                 room['done'].append((r['done_at'], r['started_at'], item))
+                room['activity'].append(r['started_at'] or r['done_at'])
             continue
         if r['started_at']:
             if r['started_at'] < now - timedelta(hours=ACTIVE_HOURS):
@@ -377,8 +383,7 @@ def build_board(site=None, now=None, sites=None):
             item.update(started_at=_iso(r['started_at']), expected_end=_iso(end),
                         elapsed_min=round(_minutes(now - r['started_at']), 1),
                         remaining_min=round(_minutes(end - now), 1), late=now > end)
-            room['running'].append((r['started_at'], item))
-            room['intervals'].append((r['started_at'], now))
+            room['running'].append((r['started_at'], item))     # settled below
             continue
         if r['arrived_at']:
             if r['arrived_at'] < now - timedelta(hours=ACTIVE_HOURS):
@@ -391,6 +396,8 @@ def build_board(site=None, now=None, sites=None):
         if appt is not None and day0 <= appt < day1:
             room['coming'].append(item)
 
+    for room in rooms.values():
+        _settle_running(room, now)
     cards = [_finish_room(room, now, day0, day_start_hour, limits) for room in rooms.values()]
     cards = [c for c in cards if c['show']]
 
@@ -418,21 +425,43 @@ def build_board(site=None, now=None, sites=None):
     }
 
 
+def _settle_running(room, now):
+    """An exam still "running" when a later patient has started in the same room (or a later
+    exam there is done) has ended: its "exam done" message did not come. Until the RIS feed
+    sends every one (R2I, 2026-11-23), it counts as done at the next start, marked
+    ended_by_next, and is busy only until then (operator, 2026-11-24). An exam with no later
+    start stays running, busy up to now."""
+    starts = [s for s, _ in room['running']] + room['activity']
+    still = []
+    for started, item in room['running']:
+        later = [t for t in starts if t > started]
+        if later:
+            end = min(later)
+            room['done'].append((end, started, dict(item, ended_by_next=True)))
+            room['intervals'].append((started, end))
+        else:
+            still.append((started, item))
+            room['intervals'].append((started, now))
+    room['running'] = still
+
+
 def _finish_room(room, now, day0, day_start_hour, limits):
     """Status, the exam running, the last exam done early, queue and utilization of a room."""
     current, also = None, 0
     if room['running']:
         room['running'].sort(key=lambda x: x[0], reverse=True)
         current = room['running'][0][1]
-        also = len(room['running']) - 1     # older starts with no completion: a missing CM
+        also = len(room['running']) - 1     # started at the same moment (linked exams)
     room['waiting'].sort(key=lambda x: x['arrived_at'])
     room['coming'].sort(key=lambda x: x['appointment_at'] or '')
 
     early, last_done_at = None, None
+    room['done'].sort(key=lambda x: x[0], reverse=True)
     if room['done']:
-        room['done'].sort(key=lambda x: x[0], reverse=True)
-        done_at, started_at, item = room['done'][0]
-        last_done_at = done_at
+        last_done_at = room['done'][0][0]
+    real_done = [d for d in room['done'] if not d[2].get('ended_by_next')]
+    if real_done:
+        done_at, started_at, item = real_done[0]
         if started_at is not None:
             took = _minutes(done_at - started_at)
             # yellow until the room's next exam starts
