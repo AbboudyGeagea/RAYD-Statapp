@@ -786,3 +786,18 @@ def test_a_device_the_main_database_gives_to_rh_leaves_sjhs_database(app, sjh, i
 
     assert out['removed'] == 1
     assert sjh("SELECT aetitle FROM aetitle_modality_map WHERE aetitle LIKE 'SD\_%' ORDER BY 1") == [('SD_STAYS',)]
+
+
+def test_the_mapping_page_offers_each_devices_modality(client, app, people, ids, devices):
+    """Operator, 2026-11-24: the Mapping page showed a device's modality but could not change
+    it (only a CSV upload could, resetting the device's weekly schedule)."""
+    _device(devices, 'SD_PAGE', 'RF', ids['RH'])
+    uid = people('devpage', 'cht', ('RH',))
+
+    html = client.get('/mapping', headers=hdr(uid)).get_data(as_text=True)
+
+    i = html.index('aria-label="Modality of SD_PAGE"')
+    assert "saveAeModality('SD_PAGE', this)" in html[i:i + 400]
+    assert '<option value="RF" selected>RF</option>' in html[i:i + 1500]
+    assert '<option value="DX">DX</option>' in html[i:i + 1500]
+    assert "body: JSON.stringify({ aetitle, modality: el.value })" in html

@@ -194,7 +194,19 @@
 <tr class="hover:bg-[#1d2521]/40 transition">
     <td class="px-6 py-3">
         <div class="font-mono text-xs font-bold text-white">{{ map.aetitle.upper() }}</div>
-        <div class="text-[9px] text-[#60a5fa] font-black uppercase tracking-widest">{{ map.modality.upper() }}</div>
+        {# The modality every report counts this device as: RAYD's own (the RIS never writes it),
+           changed here and saved to every hospital's database at once (operator, 2026-11-24). #}
+        {% set cur_mod = (map.modality or '').upper() %}
+        {% set mods = ['CT', 'MR', 'US', 'DX', 'CR', 'RF', 'MG', 'XA', 'NM', 'PT', 'BMD', 'XT', 'OT', 'PACS'] %}
+        <select class="proc-input ae-modality mt-0.5 px-1 py-0.5 text-[9px] font-black uppercase tracking-widest"
+                style="color:#60a5fa;text-align:left;"
+                data-current="{{ cur_mod }}"
+                aria-label="Modality of {{ map.aetitle.upper() }}"
+                title="The modality this device counts as on every report"
+                onchange="saveAeModality('{{ map.aetitle.upper() }}', this)">
+            {% if cur_mod and cur_mod not in mods %}<option value="{{ cur_mod }}" selected>{{ cur_mod }}</option>{% endif %}
+            {% for m in mods %}<option value="{{ m }}"{% if m == cur_mod %} selected{% endif %}>{{ m }}</option>{% endfor %}
+        </select>
         {# The name every screen shows (utils.ae_display): the RIS room name. #}
         {% set room = (map.station_name or '').strip() or (map.room_name or '').strip() %}
         {% if room %}<div class="text-[9px] text-[#34d399] mt-0.5">{{ room }}</div>{% endif %}
@@ -530,6 +542,38 @@
         }
 
         // â”€â”€ Inline AE description save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // The modality a device counts as on every report: saved on the main database and
+        // copied to each hospital's at once (/mapping/ae/update, device_write).
+        async function saveAeModality(aetitle, el) {
+            const before = el.dataset.current || '';
+            if (!confirm(`Count ${aetitle} as ${el.value} on every report, from now on?`)) {
+                el.value = before;
+                return;
+            }
+            el.classList.add('saving');
+            try {
+                const res = await fetch('/mapping/ae/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ aetitle, modality: el.value })
+                });
+                el.classList.remove('saving');
+                if (res.ok) {
+                    el.dataset.current = el.value;
+                    el.classList.add('saved');
+                    setTimeout(() => el.classList.remove('saved'), 1500);
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    alert('Modality not saved: ' + (data.message || 'unknown error'));
+                    el.value = before;
+                }
+            } catch (e) {
+                el.classList.remove('saving');
+                alert('Modality not saved: network error.');
+                el.value = before;
+            }
+        }
+
         async function saveAeDescription(aetitle, el) {
             el.classList.add('saving');
             try {
