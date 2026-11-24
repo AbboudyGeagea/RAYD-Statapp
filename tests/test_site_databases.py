@@ -801,3 +801,33 @@ def test_the_mapping_page_offers_each_devices_modality(client, app, people, ids,
     assert '<option value="RF" selected>RF</option>' in html[i:i + 1500]
     assert '<option value="DX">DX</option>' in html[i:i + 1500]
     assert "body: JSON.stringify({ aetitle, modality: el.value })" in html
+
+
+def test_the_etl_log_is_read_from_the_main_database_whatever_hospital_is_picked(client, app, people, sjh, ids):
+    """The ETL runs once, on the main database, for every hospital, so its log is there; SJH's
+    database has none (operator, 2026-11-24). Read on SJH, the freshness banner said every feed
+    never ran, Report 27 knew no RIS copy, SJH's monthly Report 37 workbook waited for a note
+    copy forever, and the ETL Control Room was empty."""
+    from db import db
+    from utils import his_ris, site_db, sticky_notes_monthly
+    from utils.etl_freshness import stale_feeds
+    with app.app_context():
+        # a day ahead: the newest rows whatever other tests left (the dashboard shows 20 a page)
+        db.session.execute(text("""INSERT INTO etl_job_log (job_name, status, start_time, end_time, records_processed)
+                                   VALUES ('ORDERS_ETL', 'SUCCESS', now() + interval '1 day', now() + interval '1 day', 4401),
+                                          ('STICKY_NOTES_ETL', 'SUCCESS', now() + interval '1 day', now() + interval '1 day', 4401),
+                                          ('SD_LOG_JOB', 'SUCCESS', now() + interval '1 day', now() + interval '1 day', 4401)"""))
+        db.session.commit()
+    try:
+        with app.app_context(), site_db.use_site(ids['SJH']):
+            assert stale_feeds(db, {'ORDERS_ETL': 'RIS orders'}) == []
+            assert his_ris.last_ris_copy() is not None
+            assert sticky_notes_monthly._notes_copied_since(date.today())
+        uid = people('etllog', 'cht', ('RH', 'SJH'))
+        pick(client, uid, ids['SJH'])
+        page = client.get('/admin/dashboard', headers=hdr(uid))
+        assert page.status_code == 200 and 'SD_LOG_JOB' in page.get_data(as_text=True)
+    finally:
+        with app.app_context():
+            db.session.execute(text("DELETE FROM etl_job_log WHERE records_processed = 4401"))
+            db.session.commit()

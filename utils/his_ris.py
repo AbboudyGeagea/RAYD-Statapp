@@ -273,9 +273,12 @@ def feed_start(apps):
 
 
 def last_ris_copy():
-    """When the last successful nightly RIS orders copy began: orders after it cannot be on it."""
-    return db.session.execute(text(
-        "SELECT MAX(start_time) FROM etl_job_log WHERE job_name = 'ORDERS_ETL' AND status = 'SUCCESS'")).scalar()
+    """When the last successful nightly RIS orders copy began: orders after it cannot be on it.
+    From the main database's ETL log, whichever hospital is read (the ETL runs there)."""
+    from utils.site_db import default_site_id, use_site
+    with use_site(default_site_id()):
+        return db.session.execute(text(
+            "SELECT MAX(start_time) FROM etl_job_log WHERE job_name = 'ORDERS_ETL' AND status = 'SUCCESS'")).scalar()
 
 
 def _clean(value):

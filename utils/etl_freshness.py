@@ -49,12 +49,16 @@ def stale_feeds(db, feeds, max_age_days=DEFAULT_MAX_AGE_DAYS):
         return []
 
     try:
-        rows = db.session.execute(text("""
-            SELECT job_name, MAX(start_time) AS last_success
-            FROM etl_job_log
-            WHERE job_name = ANY(:names) AND status = 'SUCCESS'
-            GROUP BY job_name
-        """), {"names": list(feeds)}).mappings().all()
+        # The ETL runs once, on the main database, for every hospital: its log is there,
+        # whichever hospital the page reads (2026-11-24; a site database has none).
+        from utils.site_db import default_site_id, use_site
+        with use_site(default_site_id()):
+            rows = db.session.execute(text("""
+                SELECT job_name, MAX(start_time) AS last_success
+                FROM etl_job_log
+                WHERE job_name = ANY(:names) AND status = 'SUCCESS'
+                GROUP BY job_name
+            """), {"names": list(feeds)}).mappings().all()
     except Exception:
         logger.exception("ETL freshness check failed")
         try:

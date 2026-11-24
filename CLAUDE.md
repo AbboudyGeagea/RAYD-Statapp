@@ -449,6 +449,10 @@ procedure_exceptions    — legacy exceptions table (see device_exceptions for c
    devices from it): a route that changes them is decorated `@device_write` (main database,
    then `etl_site_route.copy_devices` into each site database at once; a device created while
    a site is picked is that site's), 2026-11-23.
+   The ETL runs once, on the main database, for every hospital: `etl_job_log` lives there only
+   (SITE_ROUTE_<code> is its last line). Code that reads it in a request or per-site job reads
+   it inside `use_site(default_site_id())` (freshness banner, Report 27, Report 37 monthly, the
+   ETL Control Room), 2026-11-24.
 
 ## Dev Workflow
 

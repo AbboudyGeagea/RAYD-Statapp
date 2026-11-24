@@ -30,54 +30,57 @@ def admin_dashboard():
     page     = request.args.get('page', 1, type=int)
     per_page = 20
 
-    # Base query — newest first, all columns including the new ones
-    query = ETLJobLog.query.order_by(ETLJobLog.start_time.desc())
+    # The ETL runs once, on the main database, for every hospital: its log is read there,
+    # whichever hospital is picked (2026-11-24; a site database has none).
+    with use_site(default_site_id()):
+        # Base query — newest first, all columns including the new ones
+        query = ETLJobLog.query.order_by(ETLJobLog.start_time.desc())
 
-    if selected_date:
-        query = query.filter(func.date(ETLJobLog.start_time) == selected_date)
+        if selected_date:
+            query = query.filter(func.date(ETLJobLog.start_time) == selected_date)
 
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-    etl_logs   = pagination.items
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+        etl_logs   = pagination.items
 
-    # --- 3. System Status ---
-    last_sync_entry = (
-        ETLJobLog.query
-        .filter_by(status='SUCCESS')
-        .order_by(ETLJobLog.end_time.desc())
-        .first()
-    )
-    last_sync_time = (
-        last_sync_entry.end_time.strftime('%d %b, %H:%M')
-        if last_sync_entry and last_sync_entry.end_time
-        else "Never"
-    )
+        # --- 3. System Status ---
+        last_sync_entry = (
+            ETLJobLog.query
+            .filter_by(status='SUCCESS')
+            .order_by(ETLJobLog.end_time.desc())
+            .first()
+        )
+        last_sync_time = (
+            last_sync_entry.end_time.strftime('%d %b, %H:%M')
+            if last_sync_entry and last_sync_entry.end_time
+            else "Never"
+        )
 
-    # --- 4. ETL Stats for KPI strip ---
-    today_str = date_type.today().isoformat()
-    etl_stats = db.session.execute(text("""
-        SELECT
-            COUNT(*) FILTER (WHERE start_time::date = CURRENT_DATE)                        AS runs_today,
-            COUNT(*) FILTER (WHERE start_time >= NOW() - INTERVAL '7 days' AND status = 'SUCCESS')::float
-              / NULLIF(COUNT(*) FILTER (WHERE start_time >= NOW() - INTERVAL '7 days'), 0) * 100
-                                                                                            AS success_rate_7d,
-            ROUND(AVG(duration_seconds) FILTER (
-                WHERE status = 'SUCCESS' AND duration_seconds IS NOT NULL
-                  AND start_time >= NOW() - INTERVAL '30 days'
-            ))                                                                              AS avg_duration,
-            COALESCE(SUM(records_processed) FILTER (WHERE start_time::date = CURRENT_DATE), 0)
-                                                                                            AS records_today
-        FROM etl_job_log
-    """)).fetchone()
-    runs_today      = int(etl_stats[0] or 0)
-    success_rate_7d = round(float(etl_stats[1] or 0))
-    avg_duration    = int(etl_stats[2] or 0)
-    records_today   = int(etl_stats[3] or 0)
+        # --- 4. ETL Stats for KPI strip ---
+        today_str = date_type.today().isoformat()
+        etl_stats = db.session.execute(text("""
+            SELECT
+                COUNT(*) FILTER (WHERE start_time::date = CURRENT_DATE)                        AS runs_today,
+                COUNT(*) FILTER (WHERE start_time >= NOW() - INTERVAL '7 days' AND status = 'SUCCESS')::float
+                  / NULLIF(COUNT(*) FILTER (WHERE start_time >= NOW() - INTERVAL '7 days'), 0) * 100
+                                                                                                AS success_rate_7d,
+                ROUND(AVG(duration_seconds) FILTER (
+                    WHERE status = 'SUCCESS' AND duration_seconds IS NOT NULL
+                      AND start_time >= NOW() - INTERVAL '30 days'
+                ))                                                                              AS avg_duration,
+                COALESCE(SUM(records_processed) FILTER (WHERE start_time::date = CURRENT_DATE), 0)
+                                                                                                AS records_today
+            FROM etl_job_log
+        """)).fetchone()
+        runs_today      = int(etl_stats[0] or 0)
+        success_rate_7d = round(float(etl_stats[1] or 0))
+        avg_duration    = int(etl_stats[2] or 0)
+        records_today   = int(etl_stats[3] or 0)
 
-    # Is an ETL job currently running?
-    etl_running = ETLJobLog.query.filter(
-        ETLJobLog.end_time.is_(None),
-        ETLJobLog.status == 'RUNNING'
-    ).first() is not None
+        # Is an ETL job currently running?
+        etl_running = ETLJobLog.query.filter(
+            ETLJobLog.end_time.is_(None),
+            ETLJobLog.status == 'RUNNING'
+        ).first() is not None
 
     # Demo mode settings
     demo_rows = db.session.execute(

@@ -70,12 +70,15 @@ def _exists(first):
 
 
 def _notes_copied_since(day):
-    """A successful note copy that started on `day` or later."""
-    return db.session.execute(text("""
-        SELECT 1 FROM etl_job_log
-         WHERE job_name = 'STICKY_NOTES_ETL' AND status = 'SUCCESS' AND start_time >= :day
-         LIMIT 1
-    """), {'day': day}).scalar() is not None
+    """A successful note copy that started on `day` or later. From the main database's ETL
+    log for every hospital (the ETL runs there; SJH's workbook was never made, 2026-11-24)."""
+    from utils.site_db import default_site_id, use_site
+    with use_site(default_site_id()):
+        return db.session.execute(text("""
+            SELECT 1 FROM etl_job_log
+             WHERE job_name = 'STICKY_NOTES_ETL' AND status = 'SUCCESS' AND start_time >= :day
+             LIMIT 1
+        """), {'day': day}).scalar() is not None
 
 
 def generate(first, now=None):
