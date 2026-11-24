@@ -157,7 +157,7 @@ index on kind and day):
 | 37 | CRN workflow with the department | operator | To discuss |
 | 35 | Report AI accuracy: Mon 23 Nov (holiday) predicted vs came, read Tue 24 after 06:30 (`ai_forecast_check`); verdict on ~20 weekdays ~18 Dec; then maybe predicted-vs-came list, weekday-only error, week-ahead accuracy | operator | **24 Nov first look:** Monday's holiday 76 predicted / 70 came (8 %); Sat 2 %, Sun 26 %, Thu and Fri 15 % under (212/251, 218/256): watch whether weekdays keep coming in above; both databases trained (SJH 11 series). Verdict ~18 Dec |
 | 14 | Radiologist TAT, the rest: a, b, c built 23 Nov (7750f213: Report 36 Time bands, Report 32 per day, Report 25's four copies out); **d checked against PACS 23 Nov and closed by the operator**: 6 studies' wet read and approval identical to PACS to the second and login; RIS exam done identical on 4, 10 s and 53 s earlier on 2 (RAYD takes the study's earliest exam done, a linked exam) | operator | Deploy 7750f213 |
-| new | SJH's Shimadzu room `DR300_STORESCU` mapped RF: its October studies are all plain X-rays (chest 531, knee, foot, hand, pelvis, spine) → Mapping RF → DX, with RH picked (the main database's device list is copied to SJH nightly), and with SJH picked to see it the same day | operator | To do |
+| new | SJH's Shimadzu room `DR300_STORESCU` (plain X-rays) mapped RF → **DX, done 24 Nov** on both databases with the Mapping page's new modality drop-down (75641ccc), which also proved the device fix (c32fc6c6) on production | — | **Closed** |
 | new | Mapping bug: a device change made with SJH picked is overwritten each night by the main database's copy (etl_site_route copies aetitle_modality_map, 'keep', rewriting what differs) → **fixed 23 Nov**: the Mapping page's device changes (edit, delete, CSV upload, capacity grid) go to the main database and are copied to the site's at once (`@device_write`, `etl_site_route.copy_devices`); a device added with SJH picked is SJH's; a device only SJH's database holds is still changed there | me | Done, next deploy |
 | 1 | HIS vs RIS: 19 Nov MRI on Report 27's HIS tab | — | **Closed** by the operator, 23 Nov |
 | 9 | Report 39: "Show them as Former staff" switch, after the manager checks (Tanios Jalkh; Jessica Saad's PACS account); SJH's own switch now that it has its database | operator + manager | Waiting |
@@ -169,7 +169,7 @@ index on kind and day):
 | 30 | Amended reports (AAP after FAP) | chief radiologist | On hold |
 | — | Live Department board: further fixes beyond item 38 (built 19 Nov) | operator | Ask for the list when convenient |
 
-Closed 23 Nov (operator): items 1, 4, 21, 33; item 13 (PHILIPSCARM, from the data); item 14 (checked against PACS); the Mapping fix (c32fc6c6). Closed 21–23 Nov: the SJH move (13-8, 21 Nov 14:49, verified); SJH on and deployed (13-8b,
+Closed 24 Nov: first night with SJH on (13-V part); Shimadzu → DX; the ETL log read from the main database everywhere (0c82a3e2). Closed 23 Nov (operator): items 1, 4, 21, 33; item 13 (PHILIPSCARM, from the data); item 14 (checked against PACS); the Mapping fix (c32fc6c6). Closed 21–23 Nov: the SJH move (13-8, 21 Nov 14:49, verified); SJH on and deployed (13-8b,
 23 Nov 15:38); VACUUM (13-8c); dates dd/mm/yyyy on every date box (cfb8e9d0, operator 21 Nov).
 
 Closed 21 Nov (operator): SJH's mail server set (13-9); the Report Composer as a sentence approved;
