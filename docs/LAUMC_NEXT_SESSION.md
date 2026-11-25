@@ -26,6 +26,8 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
   - 35: Report AI, watching; verdict about 18 Dec.
   - 42: the Super Report weekly analysis, scheduled after 30 Nov, plus the storage threshold
     command for the operator.
+  - 43 (25 Nov): the Super Report's blocks chosen per user and preset, and scheduled emails
+    like Report Composer's; after 30 Nov, with 42.
 - No code is open.
 
 **21 Nov evening.** The operator approved the Report Composer and the after-hours report, set SJH's
@@ -202,6 +204,37 @@ archiving policy") because `sr_storage_gb_day_warn` defaults to 2 GB a day and R
 sudo docker exec rayd_db psql -U etl_user -d etl_db -c "INSERT INTO settings (key, value) VALUES ('sr_storage_gb_day_warn', '25') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;"
 ```
 
+**Item 43, the Super Report: choose its blocks, and send it by email (operator, 25 Nov).** The
+customer asked whether they can remove and add charts on the Super Report; the operator chose
+step 1 (remove and reorder) now, plus emailing the report on a schedule "like the custom reports"
+(Report Composer's scheduled emails). To build:
+- **Choose and order the blocks**: a Customize button lists the page's 17 blocks (Daily Briefing,
+  Conflict Patients, Executive Summary, KPI tiles, Sites side by side, Volume, Storage, Referrers,
+  Orders, TAT, CRN, Utilization, Lead time, Demographics, Clinical insights, Reports per
+  radiologist, Wet reads per resident) to tick and drag. A hidden block skips its queries (the
+  slow ones: lead time, utilization, wet reads, the radiologist tables) and stays out of the PDF;
+  the Executive Summary speaks of the visible blocks only. Saved per user (a small table on the
+  main database, `site_db.MAIN_TABLES`, rule 10; migration) and in each saved preset
+  (`saved_reports.filter_json` is already JSON, no migration); "Save for everyone" with the
+  settings capability, as Report 36's time bands.
+- **Emailed like Report Composer's schedules**: daily / weekly / monthly at a set time, recipients
+  within `smtp_allowed_domains`, through the one mail server (Administration > Email Server),
+  reusing `utils/worklist_email.py` (`send_mail`, `clean_recipients`, `next_run`) and its run log
+  pattern; settings capability. A schedule names a saved preset (its filters and blocks) and a
+  relative period (yesterday, last 7 days, last month; comparison period automatic). The mail:
+  the Executive Summary (item 42's analysis once built) and the KPI figures in the body, an .xlsx
+  with one sheet per visible block, a link to the page with the same dates. Runs per site
+  database (`site_db.run_per_site`, like "Report Composer emails" in app.py). Check first that
+  `_collect_data` needs nothing from the request outside one (filters from the preset, not
+  `request.args`). Not planned: charts as pictures or a PDF identical to the page (needs a browser
+  on the server); ask whether the customer needs it.
+- **Later, not scheduled: adding blocks.** Ask the customer what they would add first. Estimates
+  given 25 Nov: blocks RAYD already has (Report 36 time bands, Report 38 ER, Report 27 HIS vs RIS)
+  2–3 days for the catalogue plus 0.5–1 day per block; pinning a saved Report Composer report as
+  a block 3–5 days.
+Estimate 5–7 working days (blocks 2–3, email 3–4); after the 30 Nov list, together with item 42,
+blocks first so the weekly analysis follows the visible blocks from the start.
+
 **Pending table (24 Nov)** — show it, kept current, at the end of each reply. Deadline Sun 30 Nov.
 
 | # | Item | Who | Status |
@@ -225,6 +258,7 @@ sudo docker exec rayd_db psql -U etl_user -d etl_db -c "INSERT INTO settings (ke
 | 30 | Amended reports (AAP after FAP) | chief radiologist | On hold until further notice (operator, 24 Nov) |
 | — | Live Department board | me | **24 Nov (operator): until the RIS sends every "exam done", an exam ends when the next patient starts in the same room** (or a later exam there is done): counted as done, busy only until then, never "running"; the room's latest start stays running (utils/department_board._settle_running), 94f94441. **24 Nov (operator): "Side by side"** splits the screen into one live board per hospital; the bottom text is bigger (452efd59). Built and tested | operator | Deploy 94f94441 + 452efd59, then press "Side by side" on the TV |
 | 42 | Super Report weekly analysis by rules, no AI (operator, 24 Nov): full tables for both periods, every change from 10 % with what drives it, data checks (resident as last author, no ER class, demo device, devices over 100 %), new text replacing `_generate_narrative`; details above the table | me | **Scheduled 24 Nov**: after the 30 Nov list, 5–8 days. Operator now: storage alert threshold (command above the table) |
+| 43 | Super Report: choose and order its blocks (Customize; per user, per preset, "Save for everyone"; hidden blocks skip their queries) and scheduled emails like Report Composer's (summary and KPIs in the mail, .xlsx with a sheet per block); details above the table | me | **Scheduled 25 Nov**: after the 30 Nov list, with 42, 5–7 days. Adding blocks later: ask the customer what first |
 
 Closed 24 Nov (operator): 13-V, 9, 37, the post-deploy look; 20 parked until retriggered; 30 on hold. Closed 24 Nov: first night with SJH on (13-V part); Shimadzu → DX; the ETL log read from the main database everywhere (0c82a3e2). Closed 23 Nov (operator): items 1, 4, 21, 33; item 13 (PHILIPSCARM, from the data); item 14 (checked against PACS); the Mapping fix (c32fc6c6). Closed 21–23 Nov: the SJH move (13-8, 21 Nov 14:49, verified); SJH on and deployed (13-8b,
 23 Nov 15:38); VACUUM (13-8c); dates dd/mm/yyyy on every date box (cfb8e9d0, operator 21 Nov).
