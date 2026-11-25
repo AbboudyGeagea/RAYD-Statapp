@@ -30,8 +30,8 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     command for the operator.
   - 43 (25 Nov): the Super Report's blocks chosen per user and preset, and scheduled emails
     like Report Composer's; after 30 Nov, with 42.
-  - 44 (25 Nov): a well-formatted PDF for each report; the layout is to be discussed with the
-    operator first.
+  - 44 (25 Nov): a well-formatted PDF for each report; layout agreed on a sample the same day
+    (`D:\Intermedic\Statistics app\PDF_layout_item44\`), built after 30 Nov with 43.
 - No code is open.
 
 **21 Nov evening.** The operator approved the Report Composer and the after-hours report, set SJH's
@@ -240,28 +240,46 @@ Estimate 5–7 working days (blocks 2–3, email 3–4); after the 30 Nov list, 
 blocks first so the weekly analysis follows the visible blocks from the start.
 
 **Item 44, a well-formatted PDF for each report (operator, 25 Nov: "we need a well formatted PDF
-for each report, we will discuss the layout for it").** **First step: the layout discussion with
-the operator; nothing is built before it.** Today about 15 pages have a PDF button (Reports 22,
-23, 25, 27, 32, 34, 35, 36, 38, the Super Report, Report AI, the ORU page, referring intel, the
-financial dashboard), each taking a picture of the page in the browser (html2canvas + jsPDF): the
-PDF is an image (text not selectable, blurry when zoomed), page breaks cut charts and tables, and
-nothing can produce it on the server, so item 43's scheduled email has no PDF. For the discussion:
-- **decided 25 Nov (operator):** every PDF's header carries the hospital's logo
-  (`static/lau.png`, LAU Medical Center - Rizk Hospital) **and** RAYD's logo, on the PDFs sent
-  by email too; the app's header already shows both (lau.png in the middle, 25 Nov);
-- **the layout**: a header (hospital, report name and number, period dd/mm/yyyy, the filters
-  applied, printed on / by), what goes on page one (KPIs, the summary), charts and tables kept
-  whole across page breaks, portrait or landscape per report, page numbers, footer ("Product of
-  curehealthtech.com"), light background whatever the screen theme, the (i) texts or not;
-- **scope**: which reports first, and whether every report needs it or only those that are
-  printed or emailed (Super Report first, with item 43);
-- **how it is made**: built on the server (ReportLab, pip only, with charts drawn by matplotlib,
-  already in the image with prophet): one layout for the download and the scheduled email, a
-  layout to write per report; or a print stylesheet per page (cheap, real text, but made by the
-  browser, so never in an email); a headless browser on the server is the exact page but grows
-  the image by ~300–400 MB and needs a download the server's internet may block.
-Estimate after the layout is agreed. Rough, before it: a shared frame 2–3 days, then 0.5–1.5 days
-per report.
+for each report, we will discuss the layout for it").** Today about 15 pages have a PDF button
+(Reports 22, 23, 25, 27, 32, 34, 35, 36, 38, the Super Report, Report AI, the ORU page, referring
+intel, the financial dashboard), each taking a picture of the page in the browser (html2canvas +
+jsPDF): the PDF is an image (text not selectable, blurry when zoomed), page breaks cut charts and
+tables, and nothing can produce it on the server, so item 43's scheduled email has no PDF.
+**Layout agreed 25 Nov** on a sample (operator: "I LOVE IT!!!!"): the Super Report for 16–22 Nov,
+3 pages, in `D:\Intermedic\Statistics app\PDF_layout_item44\` (`Super_Report_sample.pdf` and
+`make_mock.py`, the HTML/CSS that made it; outside the repo because it holds staff names). Rules:
+- **header, every page**: the hospital's logo left (`static/lau.png`, 15 mm high), the tagline
+  "Reliable Analytics For Your Department" in the middle, coloured letter by letter from LAU green
+  #00664F to Medical Center blue #00558B (not a CSS text gradient, which PDF engines and mail
+  programs drop) with R, A, Y, D bold; RAYD's logo right, a little bigger (17 mm); a green rule
+  under it. From page 2 the report name and period sit under the tagline;
+- **page 1, executive only, short, what operations needs**: title; details (hospital, period
+  dd/mm/yyyy, compared with, filters applied, printed on and by); "In three lines"; six KPI tiles
+  each with its change; "To act on this week", numbered, each with its reason. The detail
+  (charts, tables) on the next pages, **4 pages at most** in all;
+- **colours**: LAU's green and blue on white whatever the screen theme. Changes: ▲▼ green when
+  good, red when it needs a look (each measure knows which way is good: a turnaround going down
+  is green), grey under 10 % with one decimal ("▼ 9.8%"); a starting count under 10 shows the
+  count difference ("+37", not "3700 %"); "new" when there was none;
+- **names**: logins or full names, the operator does not mind: logins as the data has them;
+- **footer, every page**: "Lebanese American University – Rizk Hospital, Radiology Department"
+  (Saint John's Hospital for a report from SJH's database) left, "**Internal Use only**" bold and
+  underlined in the middle, "Page x of y" right;
+- **paper**: A4 portrait with print margins: 15 mm at the sides, 12 mm at the top, the footer 12 mm
+  above the bottom edge; tables and charts never cut across a page break;
+- **what goes in, by checkboxes (operator's answer 8)**: Download PDF and each scheduled email
+  offer the report's sections as checkboxes, ticked from what the page shows; a schedule keeps its
+  own ticks. Shared with item 43's Customize list (the same section keys);
+- **how it is made**: on the server from HTML templates and one shared stylesheet (WeasyPrint or
+  similar: real text, page rules, the same file for the download and the email), charts drawn by
+  the server as SVG (vector, no browser); a small copy of RAYD's logo (the 2.3 MB file makes the
+  sample 900 KB). Check that the PDF library installs on the server's build (apt and pip work
+  there; Docker Hub does not).
+- **still to confirm**: the RAYD line ("Product of curehealthtech.com") is not in the agreed
+  footer, keep it smaller or drop it; SJH's own logo for its reports; which reports after the
+  Super Report.
+Estimate: a shared frame (templates, styles, charts, checkboxes) 3–4 days, then 0.5–1.5 days per
+report; Super Report first, with item 43.
 
 **Pending table (24 Nov)** — show it, kept current, at the end of each reply. Deadline Sun 30 Nov.
 
@@ -287,7 +305,7 @@ per report.
 | — | Live Department board | me | **24 Nov (operator): until the RIS sends every "exam done", an exam ends when the next patient starts in the same room** (or a later exam there is done): counted as done, busy only until then, never "running"; the room's latest start stays running (utils/department_board._settle_running), 94f94441. **24 Nov (operator): "Side by side"** splits the screen into one live board per hospital; the bottom text is bigger (452efd59). Built and tested | operator | Deploy 94f94441 + 452efd59, then press "Side by side" on the TV |
 | 42 | Super Report weekly analysis by rules, no AI (operator, 24 Nov): full tables for both periods, every change from 10 % with what drives it, data checks (resident as last author, no ER class, demo device, devices over 100 %), new text replacing `_generate_narrative`; details above the table | me | **Scheduled 24 Nov**: after the 30 Nov list, 5–8 days. Operator now: storage alert threshold (command above the table) |
 | 43 | Super Report: choose and order its blocks (Customize; per user, per preset, "Save for everyone"; hidden blocks skip their queries) and scheduled emails like Report Composer's (summary and KPIs in the mail, .xlsx with a sheet per block); details above the table | me | **Scheduled 25 Nov**: after the 30 Nov list, with 42, 5–7 days. Adding blocks later: ask the customer what first |
-| 44 | A well-formatted PDF for each report (replaces today's page pictures; also for item 43's email); details above the table | operator + me | **Added 25 Nov**: header decided (LAU + RAYD logos on every PDF, emailed ones too; the app header shows both since 25 Nov); the rest of the layout to be discussed (page one, page breaks, scope, how it is made); estimate after that |
+| 44 | A well-formatted PDF for each report (replaces today's page pictures; also for item 43's email); details above the table | me | **Layout agreed 25 Nov** on a sample (details above the table): LAU + tagline + RAYD header, page 1 executive, up to 4 pages, hospital line + "Internal Use only" footer, A4 with print margins, checkboxes for what goes into the PDF and the email. Frame 3–4 days, then 0.5–1.5 per report; Super Report first, with 43, after 30 Nov. To confirm: the curehealthtech line, SJH's logo, which reports next |
 
 Closed 24 Nov (operator): 13-V, 9, 37, the post-deploy look; 20 parked until retriggered; 30 on hold. Closed 24 Nov: first night with SJH on (13-V part); Shimadzu → DX; the ETL log read from the main database everywhere (0c82a3e2). Closed 23 Nov (operator): items 1, 4, 21, 33; item 13 (PHILIPSCARM, from the data); item 14 (checked against PACS); the Mapping fix (c32fc6c6). Closed 21–23 Nov: the SJH move (13-8, 21 Nov 14:49, verified); SJH on and deployed (13-8b,
 23 Nov 15:38); VACUUM (13-8c); dates dd/mm/yyyy on every date box (cfb8e9d0, operator 21 Nov).
