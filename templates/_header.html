@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', function() {
 {% endif %}
 <!-- Three columns: the side columns share the width equally, so the hospital's logo sits in the
      middle of the bar; a side that needs more room widens its column instead of overlapping. -->
-<header class="bg-[#232b28] border-b border-[#28332e] px-6 py-3 grid items-center gap-4 shadow-md z-30 relative flex-shrink-0"
+<header class="bg-[#232b28] border-b border-[#28332e] px-6 py-2 grid items-center gap-4 shadow-md z-30 relative flex-shrink-0"
         style="grid-template-columns: 1fr auto 1fr;">
     <!-- Left: Logo -->
     <div class="flex items-center gap-3 justify-self-start">
@@ -68,10 +68,12 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 
     <!-- Middle: the hospital's logo (operator, 25 Nov), on white like RAYD's: its green and
-         navy lettering would vanish on the dark bar -->
-    <div class="justify-self-center">
-        <img src="{{ url_for('static', filename='lau.png') }}" class="h-14 w-auto"
-             style="background:white; border-radius:8px; padding:3px 8px;"
+         navy lettering would vanish on the dark bar. Its lettering runs to the file's edges, so
+         the tile keeps a white margin around it; 64 px tall (RAYD's is 56) with the bar's
+         padding at 8 px, so the bar keeps its height of 80 px. -->
+    <div class="justify-self-center flex items-center"
+         style="height:64px; background:white; border-radius:10px; padding:7px 18px;">
+        <img src="{{ url_for('static', filename='lau.png') }}" style="height:100%; width:auto;"
              alt="LAU Medical Center - Rizk Hospital">
     </div>
 
@@ -81,7 +83,7 @@ document.addEventListener('DOMContentLoaded', function() {
         {% if _sites %}
         <form method="post" action="{{ url_for('site.switch') }}" class="flex items-center gap-2" data-site-switch>
             <input type="hidden" name="next" value="{{ request.full_path }}">
-            <label for="site-switch" class="text-[10px] font-black uppercase tracking-widest text-slate-400"><i class="bi bi-hospital text-[#60a5fa]"></i> Site</label>
+            <label for="site-switch" class="text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap"><i class="bi bi-hospital text-[#60a5fa]"></i> Site</label>
             <select id="site-switch" name="site_id" onchange="this.form.submit()"
                     class="bg-[#1d2522] border border-[#28332e] text-[#e2e8f0] rounded-lg px-2 py-1 text-xs font-bold">
                 {% for s in _sites.choices %}
@@ -91,9 +93,9 @@ document.addEventListener('DOMContentLoaded', function() {
         </form>
         {% endif %}
         <div class="flex flex-col items-end gap-1.5">
-            <div class="h-px w-64 bg-[#60a5fa] opacity-70"></div>
-            <p class="text-[11px] font-black tracking-[0.2em] uppercase text-[#60a5fa]">Welcome, {{ current_user.username }}</p>
-            <div class="h-px w-64 bg-[#60a5fa] opacity-70"></div>
+            <div class="h-px w-44 2xl:w-64 bg-[#60a5fa] opacity-70"></div>
+            <p class="text-[11px] font-black tracking-[0.2em] uppercase text-[#60a5fa] whitespace-nowrap">Welcome, {{ current_user.username }}</p>
+            <div class="h-px w-44 2xl:w-64 bg-[#60a5fa] opacity-70"></div>
         </div>
         <button onclick="toggleTheme()" title="Toggle light/dark mode"
             class="p-2 rounded-lg hover:bg-[#2a3530] transition-colors text-[#60a5fa] text-lg">

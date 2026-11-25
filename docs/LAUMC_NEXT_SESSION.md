@@ -17,8 +17,9 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 - **Production runs everything up to 0c82a3e2** (ETL log from the main database).
 - **Waiting deploy:** 94f94441 (Live board: an exam with no "exam done" ends when the next
   patient starts in its room) and 452efd59 (Live board "Side by side", both hospitals on one
-  screen, bigger bottom text), and 7e74bf8d (25 Nov: the hospital's logo, static/lau.png, in the
-  middle of the header):
+  screen, bigger bottom text). The hospital's logo (static/lau.png, middle of the header, 7e74bf8d)
+  is deployed (operator's screenshot, 25 Nov); its resizing (bigger tile with a white margin,
+  centred at 1366 px with the site switch) waits for the next deploy:
   `cd /opt/rayd && sudo bash update.sh LAUMC && git log --oneline -1`. Then press "Side by side"
   on the TV.
 - **Open:**
