@@ -28,6 +28,8 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
     command for the operator.
   - 43 (25 Nov): the Super Report's blocks chosen per user and preset, and scheduled emails
     like Report Composer's; after 30 Nov, with 42.
+  - 44 (25 Nov): a well-formatted PDF for each report; the layout is to be discussed with the
+    operator first.
 - No code is open.
 
 **21 Nov evening.** The operator approved the Report Composer and the after-hours report, set SJH's
@@ -235,6 +237,27 @@ step 1 (remove and reorder) now, plus emailing the report on a schedule "like th
 Estimate 5–7 working days (blocks 2–3, email 3–4); after the 30 Nov list, together with item 42,
 blocks first so the weekly analysis follows the visible blocks from the start.
 
+**Item 44, a well-formatted PDF for each report (operator, 25 Nov: "we need a well formatted PDF
+for each report, we will discuss the layout for it").** **First step: the layout discussion with
+the operator; nothing is built before it.** Today about 15 pages have a PDF button (Reports 22,
+23, 25, 27, 32, 34, 35, 36, 38, the Super Report, Report AI, the ORU page, referring intel, the
+financial dashboard), each taking a picture of the page in the browser (html2canvas + jsPDF): the
+PDF is an image (text not selectable, blurry when zoomed), page breaks cut charts and tables, and
+nothing can produce it on the server, so item 43's scheduled email has no PDF. For the discussion:
+- **the layout**: a header (hospital, report name and number, period dd/mm/yyyy, the filters
+  applied, printed on / by), what goes on page one (KPIs, the summary), charts and tables kept
+  whole across page breaks, portrait or landscape per report, page numbers, footer ("Product of
+  curehealthtech.com"), light background whatever the screen theme, the (i) texts or not;
+- **scope**: which reports first, and whether every report needs it or only those that are
+  printed or emailed (Super Report first, with item 43);
+- **how it is made**: built on the server (ReportLab, pip only, with charts drawn by matplotlib,
+  already in the image with prophet): one layout for the download and the scheduled email, a
+  layout to write per report; or a print stylesheet per page (cheap, real text, but made by the
+  browser, so never in an email); a headless browser on the server is the exact page but grows
+  the image by ~300–400 MB and needs a download the server's internet may block.
+Estimate after the layout is agreed. Rough, before it: a shared frame 2–3 days, then 0.5–1.5 days
+per report.
+
 **Pending table (24 Nov)** — show it, kept current, at the end of each reply. Deadline Sun 30 Nov.
 
 | # | Item | Who | Status |
@@ -259,6 +282,7 @@ blocks first so the weekly analysis follows the visible blocks from the start.
 | — | Live Department board | me | **24 Nov (operator): until the RIS sends every "exam done", an exam ends when the next patient starts in the same room** (or a later exam there is done): counted as done, busy only until then, never "running"; the room's latest start stays running (utils/department_board._settle_running), 94f94441. **24 Nov (operator): "Side by side"** splits the screen into one live board per hospital; the bottom text is bigger (452efd59). Built and tested | operator | Deploy 94f94441 + 452efd59, then press "Side by side" on the TV |
 | 42 | Super Report weekly analysis by rules, no AI (operator, 24 Nov): full tables for both periods, every change from 10 % with what drives it, data checks (resident as last author, no ER class, demo device, devices over 100 %), new text replacing `_generate_narrative`; details above the table | me | **Scheduled 24 Nov**: after the 30 Nov list, 5–8 days. Operator now: storage alert threshold (command above the table) |
 | 43 | Super Report: choose and order its blocks (Customize; per user, per preset, "Save for everyone"; hidden blocks skip their queries) and scheduled emails like Report Composer's (summary and KPIs in the mail, .xlsx with a sheet per block); details above the table | me | **Scheduled 25 Nov**: after the 30 Nov list, with 42, 5–7 days. Adding blocks later: ask the customer what first |
+| 44 | A well-formatted PDF for each report (replaces today's page pictures; also for item 43's email); details above the table | operator + me | **Added 25 Nov**: layout to be discussed first (header, page one, page breaks, scope, how it is made); estimate after that |
 
 Closed 24 Nov (operator): 13-V, 9, 37, the post-deploy look; 20 parked until retriggered; 30 on hold. Closed 24 Nov: first night with SJH on (13-V part); Shimadzu → DX; the ETL log read from the main database everywhere (0c82a3e2). Closed 23 Nov (operator): items 1, 4, 21, 33; item 13 (PHILIPSCARM, from the data); item 14 (checked against PACS); the Mapping fix (c32fc6c6). Closed 21–23 Nov: the SJH move (13-8, 21 Nov 14:49, verified); SJH on and deployed (13-8b,
 23 Nov 15:38); VACUUM (13-8c); dates dd/mm/yyyy on every date box (cfb8e9d0, operator 21 Nov).
