@@ -244,6 +244,9 @@ the operator; nothing is built before it.** Today about 15 pages have a PDF butt
 financial dashboard), each taking a picture of the page in the browser (html2canvas + jsPDF): the
 PDF is an image (text not selectable, blurry when zoomed), page breaks cut charts and tables, and
 nothing can produce it on the server, so item 43's scheduled email has no PDF. For the discussion:
+- **decided 25 Nov (operator):** every PDF's header carries the hospital's logo
+  (`static/lau.png`, LAU Medical Center - Rizk Hospital) **and** RAYD's logo, on the PDFs sent
+  by email too; the app's header already shows both (lau.png in the middle, 25 Nov);
 - **the layout**: a header (hospital, report name and number, period dd/mm/yyyy, the filters
   applied, printed on / by), what goes on page one (KPIs, the summary), charts and tables kept
   whole across page breaks, portrait or landscape per report, page numbers, footer ("Product of
@@ -282,7 +285,7 @@ per report.
 | — | Live Department board | me | **24 Nov (operator): until the RIS sends every "exam done", an exam ends when the next patient starts in the same room** (or a later exam there is done): counted as done, busy only until then, never "running"; the room's latest start stays running (utils/department_board._settle_running), 94f94441. **24 Nov (operator): "Side by side"** splits the screen into one live board per hospital; the bottom text is bigger (452efd59). Built and tested | operator | Deploy 94f94441 + 452efd59, then press "Side by side" on the TV |
 | 42 | Super Report weekly analysis by rules, no AI (operator, 24 Nov): full tables for both periods, every change from 10 % with what drives it, data checks (resident as last author, no ER class, demo device, devices over 100 %), new text replacing `_generate_narrative`; details above the table | me | **Scheduled 24 Nov**: after the 30 Nov list, 5–8 days. Operator now: storage alert threshold (command above the table) |
 | 43 | Super Report: choose and order its blocks (Customize; per user, per preset, "Save for everyone"; hidden blocks skip their queries) and scheduled emails like Report Composer's (summary and KPIs in the mail, .xlsx with a sheet per block); details above the table | me | **Scheduled 25 Nov**: after the 30 Nov list, with 42, 5–7 days. Adding blocks later: ask the customer what first |
-| 44 | A well-formatted PDF for each report (replaces today's page pictures; also for item 43's email); details above the table | operator + me | **Added 25 Nov**: layout to be discussed first (header, page one, page breaks, scope, how it is made); estimate after that |
+| 44 | A well-formatted PDF for each report (replaces today's page pictures; also for item 43's email); details above the table | operator + me | **Added 25 Nov**: header decided (LAU + RAYD logos on every PDF, emailed ones too; the app header shows both since 25 Nov); the rest of the layout to be discussed (page one, page breaks, scope, how it is made); estimate after that |
 
 Closed 24 Nov (operator): 13-V, 9, 37, the post-deploy look; 20 parked until retriggered; 30 on hold. Closed 24 Nov: first night with SJH on (13-V part); Shimadzu → DX; the ETL log read from the main database everywhere (0c82a3e2). Closed 23 Nov (operator): items 1, 4, 21, 33; item 13 (PHILIPSCARM, from the data); item 14 (checked against PACS); the Mapping fix (c32fc6c6). Closed 21–23 Nov: the SJH move (13-8, 21 Nov 14:49, verified); SJH on and deployed (13-8b,
 23 Nov 15:38); VACUUM (13-8c); dates dd/mm/yyyy on every date box (cfb8e9d0, operator 21 Nov).

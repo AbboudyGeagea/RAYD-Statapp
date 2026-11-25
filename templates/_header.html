@@ -52,20 +52,31 @@ document.addEventListener('DOMContentLoaded', function() {
     <span style="font-size:11px;font-weight:700;color:#fbbf24;">Showing data from <strong>{{ demo_start }}</strong> to <strong>{{ demo_end }}</strong> — All features enabled</span>
 </div>
 {% endif %}
-<header class="bg-[#232b28] border-b border-[#28332e] px-6 py-3 flex items-center justify-between shadow-md z-30 relative flex-shrink-0">
+<!-- Three columns: the side columns share the width equally, so the hospital's logo sits in the
+     middle of the bar; a side that needs more room widens its column instead of overlapping. -->
+<header class="bg-[#232b28] border-b border-[#28332e] px-6 py-3 grid items-center gap-4 shadow-md z-30 relative flex-shrink-0"
+        style="grid-template-columns: 1fr auto 1fr;">
     <!-- Left: Logo -->
-    <div class="flex items-center gap-3">
+    <div class="flex items-center gap-3 justify-self-start">
         <button onclick="printMainContent()" title="Print / Export PDF"
             class="p-2 rounded-lg hover:bg-[#2a3530] transition-colors text-[#34d399] text-lg">
             <i class="bi bi-printer-fill"></i>
         </button>
         <a href="{{ url_for('index') }}">
-            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-14 w-auto" style="background:white; border-radius:8px; padding:3px;">
+            <img src="{{ url_for('static', filename='RAYD.png') }}" class="h-14 w-auto" style="background:white; border-radius:8px; padding:3px;" alt="RAYD">
         </a>
     </div>
 
+    <!-- Middle: the hospital's logo (operator, 25 Nov), on white like RAYD's: its green and
+         navy lettering would vanish on the dark bar -->
+    <div class="justify-self-center">
+        <img src="{{ url_for('static', filename='lau.png') }}" class="h-14 w-auto"
+             style="background:white; border-radius:8px; padding:3px 8px;"
+             alt="LAU Medical Center - Rizk Hospital">
+    </div>
+
     <!-- Right: site switch (item 13a), tagline between two blue lines, theme toggle -->
-    <div class="flex items-center gap-4">
+    <div class="flex items-center gap-4 justify-self-end">
         {% set _sites = site_switch() if site_switch is defined else None %}
         {% if _sites %}
         <form method="post" action="{{ url_for('site.switch') }}" class="flex items-center gap-2" data-site-switch>
