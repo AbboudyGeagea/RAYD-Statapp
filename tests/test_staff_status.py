@@ -56,20 +56,20 @@ def in_request(app, statement, **params):
 _keys = iter(range(70_000, 99_999))
 
 
-def ris(person, role, active, resource_id=None, first='First', last='Last', mail=None):
+def ris(person, role, active, resource_id=None, first='First', last='Last', mail=None, site=None):
     key = next(_keys)
     sql("""INSERT INTO std_resources_ris (resource_id_key, person_key, role_code, active, resource_id,
-                                          first_name, last_name, primary_email_address)
-           VALUES (:k, :p, :r, :a, :i, :f, :l, :m)""",
-        k=key, p=person, r=role, a=active, i=resource_id, f=first, l=last, m=mail)
+                                          first_name, last_name, primary_email_address, site_id)
+           VALUES (:k, :p, :r, :a, :i, :f, :l, :m, (SELECT id FROM sites WHERE code = :s))""",
+        k=key, p=person, r=role, a=active, i=resource_id, f=first, l=last, m=mail, s=site)
     return key
 
 
-def pacs(login, group='radiologists', status='ACTIVE', email=None):
+def pacs(login, group='radiologists', status='ACTIVE', email=None, domain='ad'):
     key = next(_keys)
     sql("""INSERT INTO std_pacs_user_groups (membership_dbid, user_dbid, login_id, email, group_name,
                                              group_domain, user_status)
-           VALUES (:k, :k, :l, :e, :g, 'ad', :s)""", k=-key, l=login, e=email, g=group, s=status)
+           VALUES (:k, :k, :l, :e, :g, :d, :s)""", k=-key, l=login, e=email, g=group, s=status, d=domain)
 
 
 def refresh():
@@ -253,6 +253,71 @@ def test_report_39_excel_and_access(client):
     assert xlsx.status_code == 200
     assert [(c.value, c.data_type) for c in cells] == [('=Gone Rad', 's')]     # text, never a formula
     assert client.get('/report/39', headers={'X-Test-Role': 'user'}).status_code == 403
+
+
+def _hospital_staff():
+    """RH's and SJH's people, one at both, one no hospital names who signed, one idle."""
+    ris(11, 'RAD', True, 'rh.rad@ad.umcrh.com_11', first='Rh', last='Radiologist', site='RH')
+    pacs('rh.rad', domain='ad')
+    ris(12, 'RAD', True, 'sjh.rad@sj_12', first='Sjh', last='Radiologist', site='SJH')
+    pacs('sjh.rad', domain='SJ')
+    pacs('both.rad', domain='ad')                          # a PACS login in both domains
+    pacs('both.rad', 'radiographers', domain='SJ')
+    ris(13, 'TEC', True, 'idle.tec@x_13', first='Idle', last='Tech')        # no hospital, no work
+    ris(14, 'RAD', True, 'worker.rad@x_14', first='Worker', last='Rad')     # no hospital, signed
+    study(1, 'worker.rad@ad')
+    refresh()
+
+
+def test_report_39_lists_only_the_hospital_picked(monkeypatch):
+    from utils import site_db, staff_status
+    _hospital_staff()
+    sjh = rows("SELECT id FROM sites WHERE code = 'SJH'")[0]['id']
+
+    rh_rows, rh = staff_status.build(DAY, DAY)
+    monkeypatch.setattr(site_db, 'served_site_id', lambda: sjh)
+    sjh_rows, sjh_summary = staff_status.build(DAY, DAY)
+
+    def names(rs):
+        return {r['name']: r['hospital'] for r in rs}
+
+    assert names(rh_rows) == {'Rh Radiologist': 'RH', 'both.rad': 'RH + SJH',
+                              'Idle Tech': 'Not known', 'Worker Rad': 'Not known'}
+    assert names(sjh_rows) == {'Sjh Radiologist': 'SJH', 'both.rad': 'RH + SJH',
+                               'Worker Rad': 'Not known'}          # worked there in the period
+    assert rh['hospital'] == 'RH' and rh['on_main'] and rh['not_known'] == 2
+    assert sjh_summary['hospital'] == 'SJH' and not sjh_summary['on_main']
+    assert rh['domain_rule'] == 'ad = RH, sj = SJH'
+
+
+def test_the_ris_hospital_counts_when_the_pacs_domain_is_not_listed_and_the_rule_can_change(monkeypatch):
+    from utils import site_db, staff_status
+    ris(15, 'TEC', True, 'portal.only@x_15', first='Ris', last='Sjh', site='SJH')
+    pacs('portal.only', 'administrator', domain='lo')      # a domain no hospital owns
+    refresh()
+
+    assert [r['hospital'] for r in staff_status.build(DAY, DAY)[0]] == []
+    sjh = rows("SELECT id FROM sites WHERE code = 'SJH'")[0]['id']
+    monkeypatch.setattr(site_db, 'served_site_id', lambda: sjh)
+    assert [r['hospital'] for r in staff_status.build(DAY, DAY)[0]] == ['SJH']
+
+    sql("INSERT INTO settings (key, value) VALUES ('staff_pacs_domain_sites', 'lo=RH') "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+    try:
+        assert [r['hospital'] for r in staff_status.build(DAY, DAY)[0]] == ['RH + SJH']
+    finally:
+        sql("DELETE FROM settings WHERE key = 'staff_pacs_domain_sites'")
+
+
+def test_report_39_shows_the_hospital_column(client):
+    _hospital_staff()
+
+    html = client.get('/report/39', headers=ADMIN,
+                      query_string={'start_date': DAY, 'end_date': DAY}).get_data(as_text=True)
+
+    assert '<th scope="col">Hospital</th>' in html
+    assert 'Rh Radiologist' in html and 'Sjh Radiologist' not in html
+    assert "This hospital's staff (RH)" in html and '(ad = RH, sj = SJH)' in html
 
 
 def test_the_switch_is_for_administrators_and_rebuilds_the_list_first(client, app):

@@ -380,7 +380,7 @@ const ChartExplanations = {
     },
     'r39-staff': {
       title: 'Staff status',
-      purpose: 'Everyone on the RIS and PACS, grouped by PACS group and RIS role, with whether they count as having left. Built every night from the RIS staff list and the PACS accounts.',
+      purpose: 'The staff of the hospital picked at the top, on the RIS and PACS, grouped by PACS group and RIS role, with whether they count as having left. Built every night from the RIS staff list and the PACS accounts. Hospital = the hospital of the person\'s PACS groups (ad = Rizk Hospital, SJ = Saint John) and of their RIS record; someone at both hospitals is listed in both; someone neither names is listed where they worked in the period, else under Rizk Hospital ("Not known").',
       valueMeaning: 'Left = no active row on the RIS (and no active person shares the login), or every PACS account set to a leaver status (suspended, disabled; the list is shown above the table). A lock after wrong passwords does not count, nor does having no PACS account. A RIS person and a PACS login are linked by the login in the RIS resource ID, else by e-mail. Signed = studies whose report the login last composed, in the period; performed = RIS exams the person is on, in the period.',
       interpretation: 'Left but signed or performed in the period: the RIS or PACS still has them inactive by mistake, or a shared account; fix the RIS or PACS before switching on. Once on, they read "Former staff" on every report, and every total keeps their studies.'
     },
