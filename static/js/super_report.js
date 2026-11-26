@@ -1305,3 +1305,176 @@ async function srBlocksReset() {
     document.getElementById('sr-blocks-dialog').close();
     srBlocksChanged();
 }
+
+// ── Scheduled emails (item 43, settings capability) ───────────────
+// A schedule keeps the page's applied filters and blocks when saved (utils/super_report_email.py).
+const SRE_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+let _sreList = [];
+
+function srPageFilters() {
+    // the applied filters, as /viewer/super-report reads them, without the dates and blocks
+    const out = {};
+    new URLSearchParams(buildQS()).forEach((v, k) => {
+        if (['start', 'end', 'cmp_start', 'cmp_end', 'blocks'].includes(k)) return;
+        (out[k] = out[k] || []).push(v);
+    });
+    return out;
+}
+
+function srEmailWhen(s) {
+    const at = s.send_time;
+    if (s.frequency === 'daily') return `Every day at ${at}`;
+    if (s.frequency === 'weekly') return `Every ${SRE_DAYS[s.weekday]} at ${at}`;
+    return `Every month on day ${s.month_day} at ${at}`;
+}
+
+function srStatusWord(st) {
+    return {sent: 'Sent', partial: 'Partial', failed: 'Failed'}[st] || 'Running';
+}
+
+async function srLoadEmails() {
+    const d = await fetch('/viewer/super-report/schedules').then(r => r.json());
+    if (d.error) throw new Error(d.error);
+    _sreList = d.schedules || [];
+    return d;
+}
+
+async function srOpenEmails() {
+    const dlg = document.getElementById('sr-email-dialog');
+    if (!dlg) return;
+    document.getElementById('sr-email-msg').textContent = '';
+    try {
+        const d = await srLoadEmails();
+        document.getElementById('sre-period').innerHTML = (d.periods || []).map(p =>
+            `<option value="${escHtml(p.key)}"${p.key === 'last_week' ? ' selected' : ''}>${escHtml(p.label)}</option>`).join('');
+        const warn = document.getElementById('sr-email-warn');
+        const msgs = [];
+        if (!d.mail_ready) msgs.push('The mail server is not set yet: nothing goes out until it is (Administration > Email Server).');
+        if (!(d.allowed_domains || []).length) msgs.push('No recipient domain is allowed yet (Administration > Email Server).');
+        else msgs.push(`Recipients must be at ${d.allowed_domains.join(', ')}.`);
+        warn.textContent = msgs.join(' ');
+        warn.hidden = !msgs.length;
+        srDrawEmails();
+        srNewEmail();
+        if (!dlg.open) dlg.showModal();
+    } catch (e) {
+        alert('Could not load the schedules: ' + e.message);
+    }
+}
+
+function srDrawEmails() {
+    const box = document.getElementById('sr-email-list');
+    box.innerHTML = _sreList.length ? _sreList.map(s => {
+        const last = s.last_run;
+        const st = last
+            ? `<span class="st-${escHtml(last.status)}">${srStatusWord(last.status)}</span> ${escHtml(dmy(last.started_at || ''))}${last.error ? ' · ' + escHtml(last.error) : ''}`
+            : 'Not sent yet';
+        const n = (s.recipients || []).length;
+        return `<div class="sr-email-row">
+            <div class="what"><b>${escHtml(s.name)}</b>${s.enabled ? '' : ' <span class="sub">(off)</span>'}
+                <div class="sub">${escHtml(s.period_label || s.period)} · ${escHtml(srEmailWhen(s))} · ${n} recipient${n === 1 ? '' : 's'} · ${(s.blocks || []).length} blocks</div>
+                <div class="sub">Last: ${st}</div></div>
+            <button type="button" class="sr-btn" onclick="srSendEmail(${s.id}, this)">Send now</button>
+            <button type="button" class="sr-btn" onclick="srEditEmail(${s.id})">Edit</button>
+            <button type="button" class="sr-btn ghost" onclick="srDeleteEmail(${s.id})" aria-label="Delete ${escHtml(s.name)}"><i class="bi bi-trash3"></i></button>
+        </div>`;
+    }).join('') : '<p class="sub" style="padding:10px;font-size:11px;color:#94a3b8">No schedule yet. Fill in the form below.</p>';
+}
+
+function srEmailFreq() {
+    const f = document.getElementById('sre-frequency').value;
+    document.getElementById('sre-weekday-wrap').hidden = f !== 'weekly';
+    document.getElementById('sre-monthday-wrap').hidden = f !== 'monthly';
+}
+
+function srEmailScope() {
+    const n = srBlocksShown().length, f = Object.keys(srPageFilters()).length;
+    document.getElementById('sre-scope').textContent =
+        `${n} block${n === 1 ? '' : 's'}, ${f ? f + ' filter' + (f === 1 ? '' : 's') : 'no filter'}`;
+}
+
+function srNewEmail() {
+    const set = (id, v) => { document.getElementById(id).value = v; };
+    set('sre-id', ''); set('sre-name', ''); set('sre-frequency', 'weekly'); set('sre-weekday', '0');
+    set('sre-monthday', '1'); set('sre-time', '07:00'); set('sre-recipients', '');
+    document.getElementById('sre-form-title').textContent = 'New schedule';
+    document.getElementById('sre-enabled').checked = true;
+    document.getElementById('sre-replace').checked = true;
+    document.getElementById('sre-replace-wrap').hidden = true;       // a new schedule takes the page's
+    srEmailFreq();
+    srEmailScope();
+}
+
+function srEditEmail(id) {
+    const s = _sreList.find(x => x.id === id);
+    if (!s) return;
+    const set = (k, v) => { document.getElementById(k).value = v; };
+    set('sre-id', s.id); set('sre-name', s.name); set('sre-period', s.period); set('sre-frequency', s.frequency);
+    set('sre-weekday', String(s.weekday ?? 0)); set('sre-monthday', String(s.month_day ?? 1));
+    set('sre-time', s.send_time); set('sre-recipients', (s.recipients || []).join(', '));
+    document.getElementById('sre-form-title').textContent = 'Edit "' + s.name + '"';
+    document.getElementById('sre-enabled').checked = !!s.enabled;
+    document.getElementById('sre-replace').checked = false;          // keep its own unless asked
+    document.getElementById('sre-replace-wrap').hidden = false;
+    srEmailFreq();
+    srEmailScope();
+}
+
+function srEmailMsg(text, color) {
+    const msg = document.getElementById('sr-email-msg');
+    msg.style.color = color;
+    msg.textContent = text;
+}
+
+async function srSaveEmail(ev) {
+    ev.preventDefault();
+    const id = document.getElementById('sre-id').value;
+    const own = id ? _sreList.find(x => String(x.id) === id) : null;
+    const replace = !id || document.getElementById('sre-replace').checked;
+    const val = k => document.getElementById(k).value;
+    const body = {
+        id: id || null, name: val('sre-name'), period: val('sre-period'), frequency: val('sre-frequency'),
+        weekday: val('sre-weekday'), month_day: val('sre-monthday'), send_time: val('sre-time'),
+        recipients: val('sre-recipients'), enabled: document.getElementById('sre-enabled').checked,
+        filters: replace ? srPageFilters() : (own ? own.filters : {}),
+        blocks: replace ? srBlocksShown() : (own ? own.blocks : srBlocksShown()),
+    };
+    try {
+        const res = await fetch('/viewer/super-report/schedules', {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+        const d = await res.json();
+        if (!res.ok || d.error) throw new Error(d.error || `HTTP ${res.status}`);
+        await srOpenEmails();
+        srEmailMsg('Saved.', '#34d399');
+    } catch (e) {
+        srEmailMsg('Not saved: ' + e.message, '#f87171');
+    }
+}
+
+async function srSendEmail(id, btn) {
+    btn.disabled = true;
+    srEmailMsg('Sending…', '#94a3b8');
+    try {
+        const d = await fetch(`/viewer/super-report/schedules/${id}/send`, {method: 'POST'}).then(r => r.json());
+        if (d.status === 'sent') srEmailMsg('Sent.', '#34d399');
+        else srEmailMsg(`${d.status === 'partial' ? 'Partly sent' : 'Not sent'}: ${d.error || ''}`, '#f87171');
+        await srLoadEmails();
+        srDrawEmails();
+    } catch (e) {
+        srEmailMsg('Not sent: ' + e.message, '#f87171');
+    }
+    btn.disabled = false;
+}
+
+async function srDeleteEmail(id) {
+    const s = _sreList.find(x => x.id === id);
+    if (!confirm('Delete the schedule "' + (s ? s.name : id) + '"?')) return;
+    try {
+        await fetch(`/viewer/super-report/schedules/${id}`, {method: 'DELETE'});
+        _sreList = _sreList.filter(x => x.id !== id);
+        srDrawEmails();
+        srNewEmail();
+    } catch (e) {
+        srEmailMsg('Not deleted: ' + e.message, '#f87171');
+    }
+}

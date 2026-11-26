@@ -156,6 +156,86 @@ def save_layout():
     return jsonify({"success": True, "scope": scope, "blocks": blocks})
 
 
+# ─────────────────────────────────────────────
+#  SCHEDULED EMAILS (item 43, migration 0184, utils/super_report_email.py)
+# ─────────────────────────────────────────────
+# Settings capability, like Report Composer's schedules. In the picked site's database: an SJH
+# schedule sends SJH's figures through SJH's mail server.
+
+
+def _schedules_allowed():
+    from utils.roles import can
+
+    return can(current_user, "settings")
+
+
+@super_report_bp.route("/viewer/super-report/schedules", methods=["GET"])
+@login_required
+def list_email_schedules():
+    from utils import super_report_email as sre
+    from utils.worklist_email import allowed_domains, is_ready, mail_config
+
+    if not _schedules_allowed():
+        return jsonify({"error": "Scheduled emails need the settings capability"}), 403
+    cfg = mail_config()
+    return jsonify({
+        "schedules": sre.list_schedules(),
+        "periods": [{"key": k, "label": v} for k, v in sre.PERIODS.items()],
+        "mail_ready": is_ready(cfg),
+        "allowed_domains": allowed_domains(cfg),
+    })
+
+
+@super_report_bp.route("/viewer/super-report/schedules", methods=["POST"])
+@login_required
+def save_email_schedule():
+    from utils import super_report_email as sre
+    from utils.worklist_email import ScheduleError
+
+    if not _schedules_allowed():
+        return jsonify({"error": "Scheduled emails need the settings capability"}), 403
+    try:
+        schedule_id = sre.save_schedule(request.get_json(silent=True) or {}, current_user.id)
+    except ScheduleError as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"success": True, "id": schedule_id})
+
+
+@super_report_bp.route("/viewer/super-report/schedules/<int:schedule_id>", methods=["DELETE"])
+@login_required
+def delete_email_schedule(schedule_id):
+    from utils import super_report_email as sre
+
+    if not _schedules_allowed():
+        return jsonify({"error": "Scheduled emails need the settings capability"}), 403
+    sre.delete_schedule(schedule_id)
+    return jsonify({"success": True})
+
+
+@super_report_bp.route("/viewer/super-report/schedules/<int:schedule_id>/send", methods=["POST"])
+@login_required
+def send_email_schedule_now(schedule_id):
+    from utils import super_report_email as sre
+
+    if not _schedules_allowed():
+        return jsonify({"error": "Scheduled emails need the settings capability"}), 403
+    s = sre.get_schedule(schedule_id)
+    if not s:
+        return jsonify({"error": "This schedule no longer exists"}), 404
+    return jsonify(sre.send_schedule(s, started_by=current_user.id))
+
+
+@super_report_bp.route("/viewer/super-report/schedules/<int:schedule_id>/runs", methods=["GET"])
+@login_required
+def email_schedule_runs(schedule_id):
+    from utils import super_report_email as sre
+
+    if not _schedules_allowed():
+        return jsonify({"error": "Scheduled emails need the settings capability"}), 403
+    return jsonify({"runs": sre.list_runs(schedule_id)})
+
+
 @super_report_bp.route("/viewer/super-report/save", methods=["POST"])
 @login_required
 def save_super_report():
@@ -825,14 +905,28 @@ def _orders_have_site():
     return known
 
 
-def _request_filters():
+def stored_filters(saved):
+    """A scheduled email's saved filters ({name: [values]}, item 43) in _request_filters' shape,
+    read exactly as a page request would be."""
+    from werkzeug.datastructures import MultiDict
+
+    args = MultiDict()
+    for key, value in (saved or {}).items():
+        for v in value if isinstance(value, list) else [value]:
+            if v not in (None, ""):
+                args.add(str(key), str(v))
+    return _request_filters(args)
+
+
+def _request_filters(args=None):
     """The filters of /viewer/super-report and /viewer/super-report/sites, as named there.
     Only filters a query applies: series_modality, body_part_series and protocol_name were read
     and never applied, age_group was offered by nothing on the page (review of 2026-11-20);
     migration 0180 took them out of the saved presets. order_control and order_modality apply
-    to the orders figures."""
+    to the orders figures. args: request.args, or a scheduled email's (stored_filters)."""
+    args = request.args if args is None else args
     filters = {
-        k: request.args.getlist(k)
+        k: args.getlist(k)
         for k in [
             "modality",
             "storing_ae",
@@ -850,9 +944,9 @@ def _request_filters():
             "order_modality",
         ]
     }
-    filters["has_report"] = request.args.get("has_report")
-    filters["age_min"] = request.args.get("age_min")
-    filters["age_max"] = request.args.get("age_max")
+    filters["has_report"] = args.get("has_report")
+    filters["age_min"] = args.get("age_min")
+    filters["age_max"] = args.get("age_max")
     return filters
 
 

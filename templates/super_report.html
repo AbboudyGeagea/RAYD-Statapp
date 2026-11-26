@@ -145,6 +145,25 @@
         body.light .sr-blocks-list, body.light .sr-blocks-list li { border-color: #e2e8f0; }
         body.light .sr-btn { background: #f8fafc; color: #1e293b; border-color: #e2e8f0; }
         body.light .sr-btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+        /* scheduled emails (item 43) */
+        .sr-dialog-wide { width: min(780px, 96vw); }
+        .sr-dialog .section-sub { grid-column: 1 / -1; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: #94a3b8; margin: 4px 0 0; }
+        .sr-dialog-warn { font-size: 11px; color: #fbbf24; background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.3); border-radius: 8px; padding: 6px 10px; margin-bottom: 10px; }
+        .sr-email-list { border: 1px solid #28332e; border-radius: 10px; margin-bottom: 12px; max-height: 32vh; overflow-y: auto; }
+        .sr-email-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-bottom: 1px solid #222c28; font-size: 12px; }
+        .sr-email-row:last-child { border-bottom: none; }
+        .sr-email-row .what { flex: 1; min-width: 0; }
+        .sr-email-row .what b { color: #e2e8f0; }
+        .sr-email-row .sub { font-size: 10px; color: #94a3b8; }
+        .sr-email-row .st-sent { color: #34d399; } .sr-email-row .st-failed { color: #f87171; } .sr-email-row .st-partial { color: #fbbf24; }
+        .sr-email-form { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px; }
+        .sr-email-form label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; }
+        .sr-email-form label.wide, .sr-email-form .wide { grid-column: 1 / -1; }
+        .sr-email-form label.tick { flex-direction: row; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; font-size: 12px; color: #cbd5e1; }
+        .sr-email-form [hidden], .sr-dialog [hidden] { display: none !important; }   /* label's flex would show it */
+        @media (max-width: 640px) { .sr-email-form { grid-template-columns: 1fr; } }
+        body.light .sr-email-list, body.light .sr-email-row { border-color: #e2e8f0; }
+        body.light .sr-email-row .what b { color: #1e293b; }
     </style>
     <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
     {{ filter_panel_head() }}
@@ -212,7 +231,50 @@
             </div>
             <p id="sr-blocks-label" class="text-[10px] text-slate-500">All blocks shown</p>
         </div>
+        {% if can('settings') %}
+        {# the report by email on a schedule (item 43, migration 0184) #}
+        <div class="rfp-block" id="sr-email-section">
+            <div class="flex items-center justify-between mb-1">
+                <span class="rfp-label mb-0">Scheduled emails<i class="bi bi-info-circle chart-info-icon" data-explain="sr-emails" role="button" tabindex="0" aria-label="About scheduled emails" title="About scheduled emails"></i></span>
+                <button type="button" onclick="srOpenEmails()"
+                        class="text-[9px] font-black text-[#60a5fa] hover:text-white uppercase tracking-widest flex items-center gap-1 transition-colors">
+                    <i class="bi bi-envelope" aria-hidden="true"></i> Manage
+                </button>
+            </div>
+            <p class="text-[10px] text-slate-500">Send this report by email on a schedule</p>
+        </div>
+        {% endif %}
         {% endcall %}
+
+        {% if can('settings') %}
+        <dialog id="sr-email-dialog" class="sr-dialog sr-dialog-wide" aria-labelledby="sr-email-title">
+            <p id="sr-email-title" class="section-head">Scheduled emails</p>
+            <p class="sr-dialog-help">A schedule sends the Super Report with the filters and blocks on the page when it is saved, for a period worked out on the day it goes out, compared with the period just before. The email holds the written analysis and the key figures; an Excel file has one sheet per block. It goes through the mail server of Administration &gt; Email Server, only to its allowed domains, from this hospital's figures.</p>
+            <p id="sr-email-warn" class="sr-dialog-warn" role="alert" hidden></p>
+            <div id="sr-email-list" class="sr-email-list"></div>
+            <form id="sr-email-form" class="sr-email-form" onsubmit="srSaveEmail(event)">
+                <input type="hidden" id="sre-id">
+                <p class="section-sub" id="sre-form-title">New schedule</p>
+                <label>Name<input id="sre-name" class="rfp-input" maxlength="120" required placeholder="Weekly radiology report"></label>
+                <label>Period<select id="sre-period" class="rfp-input"></select></label>
+                <label>How often<select id="sre-frequency" class="rfp-input" onchange="srEmailFreq()">
+                    <option value="weekly">Every week</option><option value="daily">Every day</option><option value="monthly">Every month</option></select></label>
+                <label id="sre-weekday-wrap">On<select id="sre-weekday" class="rfp-input">
+                    <option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option><option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option><option value="6">Sunday</option></select></label>
+                <label id="sre-monthday-wrap" hidden>Day of the month<input id="sre-monthday" type="number" min="1" max="31" value="1" class="rfp-input"></label>
+                <label>At<input id="sre-time" type="time" value="07:00" class="rfp-input" required></label>
+                <label class="wide">Recipients (comma or one per line)<textarea id="sre-recipients" class="rfp-input" rows="2" required></textarea></label>
+                <label class="tick"><input type="checkbox" id="sre-enabled" checked> On</label>
+                <label class="tick wide" id="sre-replace-wrap"><input type="checkbox" id="sre-replace" checked> Use the filters and blocks on the page now (<span id="sre-scope"></span>)</label>
+                <div class="sr-dialog-actions wide">
+                    <button type="submit" class="sr-btn primary">Save schedule</button>
+                    <button type="button" class="sr-btn" onclick="srNewEmail()">New</button>
+                    <button type="button" class="sr-btn ghost" onclick="document.getElementById('sr-email-dialog').close()">Close</button>
+                </div>
+            </form>
+            <p id="sr-email-msg" class="sr-dialog-msg" role="status"></p>
+        </dialog>
+        {% endif %}
 
         <dialog id="sr-blocks-dialog" class="sr-dialog" aria-labelledby="sr-blocks-title">
             <p id="sr-blocks-title" class="section-head">Choose the blocks and their order</p>

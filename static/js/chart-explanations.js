@@ -841,6 +841,12 @@ const ChartExplanations = {
       valueMeaning: 'Every figure is compared with the comparison period (by default the same number of days just before): the count first, then the change, e.g. "1,358 studies (+207, +18 %)". A change of 10 % or more is named, up or down; a figure that started under 10 shows the difference in counts ("+37"). Each change says what drives it (the modality, referring physicians or people behind it). The sentences come from fixed rules in RAYD, not from AI; nothing leaves the server.',
       interpretation: 'Start with "To act on this week". When many reports still have a resident as last author, read the turnaround again a week later: approvals move it. Compare periods of the same length and kind: a week with a holiday against one without shows a drop that is not a trend.'
     },
+    'sr-emails': {
+      title: 'Scheduled emails',
+      purpose: 'Send the Super Report by email on a schedule (every day, week or month at a set time), for administrators.',
+      valueMeaning: 'A schedule keeps the filters and blocks on the page when it is saved. Its period is worked out on the day it goes out: yesterday, the last 7 days, last week (Monday to Sunday) or last month, each compared with the period just before. The email holds the written analysis and the key figures; an Excel file has one sheet per block. It goes through the mail server of Administration > Email Server, only to the allowed domains, and uses the figures of the hospital picked when it was saved.',
+      interpretation: '"Send now" sends it at once to check it. The list shows each schedule\'s last send: Sent, Partial (the mail server refused some addresses) or Failed, with the reason.'
+    },
     'sr-blocks': {
       title: 'Blocks',
       purpose: 'Choose which blocks of the Super Report are shown, and in what order.',

@@ -59,6 +59,8 @@ TEST_DB_SJH = TEST_DB + '_sjh'
 # Docker Desktop volumes.
 DATA_TABLES = [
     'worklist_email_runs', 'worklist_email_schedules',
+    # the Super Report's scheduled emails and chosen blocks (migrations 0183, 0184)
+    'super_report_email_runs', 'super_report_email_schedules', 'super_report_layouts',
     'hl7_oru_analysis', 'ai_nlp_cache', 'crn_events', 'crn_notifications',
     'hl7_oru_reports', 'hl7_orders', 'hl7_scn_studies', 'order_status_log',
     'worklist_status_history',

@@ -1055,6 +1055,36 @@ def create_app():
         coalesce=True,
     )
 
+    def super_report_email_job():
+        # The Super Report's scheduled emails (item 43, utils/super_report_email.py): the same
+        # mail server and clock as Report Composer's, the Super Report's licence key, each site
+        # database its own schedules. A no-op until an admin has set the mail server.
+        if not app.config.get('LICENSE', {}).get('super_report'):
+            return
+        with app.app_context():
+            try:
+                from utils import site_db
+                from utils.super_report_email import run_due as sr_run_due
+                for site_id, sent in site_db.run_per_site('Super Report emails',
+                                                          lambda _s: sr_run_due()).items():
+                    if sent:
+                        logger.info(f"[Super Report] {sent} scheduled email(s) processed "
+                                    f"({site_db.site_code(site_id) if site_id else 'main'})")
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"🛑 [Super Report] scheduled email pass failed: {e}", exc_info=True)
+
+    scheduler.add_job(
+        func=super_report_email_job,
+        trigger='interval',
+        minutes=1,
+        id='super_report_email',
+        name='Super Report scheduled emails (every minute)',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
     def sticky_notes_monthly_job():
         # The JCI urgent emergent report of the preceding month, kept and emailed once
         # (utils/sticky_notes_monthly.py). Hourly because the ETL it waits for has no fixed

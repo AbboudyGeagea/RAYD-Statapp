@@ -53,7 +53,12 @@ routes/
                                    utils/super_report_analysis.py (item 42, 2026-11-26: changes in
                                    counts then %, from 10 %, what drives them, data checks, "To act
                                    on this week"; tests/test_super_report_analysis.py); the old
-                                   narrative and its sr_* thresholds are gone. Patient Schedule Lead Time card
+                                   narrative and its sr_* thresholds are gone. Blocks chosen per
+                                   user / for everyone (super_report_layouts, main database, 0183)
+                                   and per preset; scheduled emails (utils/super_report_email.py,
+                                   0184, per site database, settings capability): the analysis and
+                                   key figures as HTML + an .xlsx per block, through the one mail
+                                   server (worklist_email.send_mail, html=), app.py job every minute. Patient Schedule Lead Time card
                                    (2026-11-21): Report 40's build() (utils/schedule_lead_time.py)
                                    on the page's period, the comparison's headline beside it, a
                                    narrative section; only the Modality filter applies (the others

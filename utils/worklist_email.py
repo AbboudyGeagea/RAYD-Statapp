@@ -217,9 +217,10 @@ def _sign_in_o365(smtp, cfg):
                            'on the mailbox, and the app registered in Exchange with access to it.') from exc
 
 
-def send_mail(cfg, to, subject, body, attachments=()):
+def send_mail(cfg, to, subject, body, attachments=(), html=None):
     """One message through the relay. Returns the recipients it refused; raises if it took none.
-    Asked for TLS, it never falls back to plain: a relay without STARTTLS is an error."""
+    Asked for TLS, it never falls back to plain: a relay without STARTTLS is an error.
+    html: an HTML version of body, sent alongside it (the Super Report's email, item 43)."""
     oauth = cfg['smtp_auth'] == 'oauth_o365'
     if oauth and cfg['smtp_security'] not in SECURITY_FOR_TOKENS:
         raise ScheduleError('Microsoft 365 sign-in needs STARTTLS or SSL/TLS with the certificate checked')
@@ -230,6 +231,8 @@ def send_mail(cfg, to, subject, body, attachments=()):
     msg['Date'] = formatdate(localtime=True)
     msg['Message-ID'] = make_msgid()
     msg.set_content(body)
+    if html:
+        msg.add_alternative(html, subtype='html')
     for filename, data in attachments:
         msg.add_attachment(data, maintype='application', subtype=XLSX_SUBTYPE, filename=filename)
 

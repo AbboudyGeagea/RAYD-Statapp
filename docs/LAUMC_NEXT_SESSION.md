@@ -20,16 +20,14 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
   hospital's logo in the header (7e74bf8d, resized f646eb6b, following the site picked 11cf038d,
   `utils/site_branding.py`), Report 39 per hospital (b7786f18). Whatever of these production
   does not run yet comes with the next `cd /opt/rayd && sudo bash update.sh LAUMC`.
-- **In progress 26 Nov: items 42 and 43 together** (operator: "let's work on 42,43 together.
-  same code"), see "42 + 43, the build" below the item 43 entry.
+- **Built 26 Nov: items 42 and 43 together** (operator: "let's work on 42,43 together. same
+  code"), steps A–D of "42 + 43, the build" below the item 43 entry; deploy waiting.
 - **Open:**
   - 17: the R2I side. The operator is the R2I vendor: 595 missing CMs, starting with
     1005003450900; ORC-9 empty; a queue alert. ORPHAN_EVENT goes on in the BRAYN console.
   - 35: Report AI, watching; verdict about 18 Dec.
-  - 42: the Super Report weekly analysis, scheduled after 30 Nov, plus the storage threshold
-    command for the operator.
-  - 43 (25 Nov): the Super Report's blocks chosen per user and preset, and scheduled emails
-    like Report Composer's; after 30 Nov, with 42.
+  - 42 + 43: built 26 Nov (the analysis by rules, the blocks, the scheduled emails), waiting
+    for the deploy and the operator's look; see their rows in the table.
   - 44 (25 Nov): a well-formatted PDF for each report; layout agreed on a sample the same day
     (`D:\Intermedic\Statistics app\PDF_layout_item44\`), built after 30 Nov with 43.
 - No code is open.
@@ -331,8 +329,8 @@ report; Super Report first, with item 43.
 | 4 | RIS rooms: LEO22529 stays unlinked (decided 19 Nov) | — | **Closed** by the operator, 23 Nov |
 | 30 | Amended reports (AAP after FAP) | chief radiologist | On hold until further notice (operator, 24 Nov) |
 | — | Live Department board | me | **24 Nov (operator): until the RIS sends every "exam done", an exam ends when the next patient starts in the same room** (or a later exam there is done): counted as done, busy only until then, never "running"; the room's latest start stays running (utils/department_board._settle_running), 94f94441. **24 Nov (operator): "Side by side"** splits the screen into one live board per hospital; the bottom text is bigger (452efd59). Built and tested | — | **Closed 26 Nov** (operator: items without numbers closed) |
-| 42 | Super Report weekly analysis by rules, no AI (operator, 24 Nov): full tables for both periods, every change from 10 % with what drives it, data checks (resident as last author, no ER class, demo device, devices over 100 %), new text replacing `_generate_narrative`; details above the table | me | **Scheduled 24 Nov**: after the 30 Nov list, 5–8 days. Operator now: storage alert threshold (command above the table) |
-| 43 | Super Report: choose and order its blocks (Customize; per user, per preset, "Save for everyone"; hidden blocks skip their queries) and scheduled emails like Report Composer's (summary and KPIs in the mail, .xlsx with a sheet per block); details above the table | me | **Scheduled 25 Nov**: after the 30 Nov list, with 42, 5–7 days. Adding blocks later: ask the customer what first |
+| 42 | Super Report weekly analysis by rules, no AI (operator, 24 Nov); details above the table | operator | **Built 26 Nov** (d685d9a7): `utils/super_report_analysis.py` replaces the old narrative (its sr_* thresholds gone, so the storage threshold command is no longer needed); both periods computed alike, full lists, resident-last-author count; reproduces the hand analysis of 16–22 Nov (tests/test_super_report_analysis.py). Deploy, then read a week's Executive Summary |
+| 43 | Super Report: blocks chosen and ordered, and scheduled emails; details above the table | operator | **Built 26 Nov**: blocks (2b69a28b: Blocks > Choose, for me / for everyone, presets keep theirs, hidden blocks not computed, migration 0183) and emails (migrations 0184: Scheduled emails > Manage, settings capability; HTML analysis + key figures + .xlsx per block; per site database; Send now). Deploy, then set a weekly schedule to yourself and press Send now. Adding new blocks: ask the customer what first |
 | new | Report 39 mixed both hospitals' staff in each database (operator, 26 Nov: "admins don't know each other users and staff"; check the groups, assign each to its database). **Built 26 Nov**: Report 39 lists the hospital picked only: a person's hospitals = the domain of their PACS groups (settings `staff_pacs_domain_sites`, default ad = RH, SJ = SJH; locally it agreed with the RIS hospital for 93 of 99) + their RIS rows' site; at both = in both; neither = where they signed or performed in the period, else on RH's ("Not known"). New Hospital column (page and Excel). staff_status itself still holds everyone, so a leaver who worked at the other hospital stays masked there. Tests in test_staff_status.py | — | **Closed 26 Nov** (operator: items without numbers closed) |
 | 44 | A well-formatted PDF for each report (replaces today's page pictures; also for item 43's email); details above the table | me | **Layout agreed 25 Nov** on a sample (details above the table): LAU + tagline + RAYD header, page 1 executive, up to 4 pages, hospital line + "Internal Use only" footer, A4 with print margins, checkboxes for what goes into the PDF and the email. Frame 3–4 days, then 0.5–1.5 per report; Super Report first, with 43, after 30 Nov. To confirm: the curehealthtech line, SJH's logo, which reports next |
 
