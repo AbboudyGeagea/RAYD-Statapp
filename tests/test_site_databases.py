@@ -188,6 +188,30 @@ def test_the_header_offers_the_switch_only_with_two_sites(client, app, people):
     assert 'data-site-switch' not in client.get('/report/38', headers=hdr(one)).get_data(as_text=True)
 
 
+def test_the_header_logo_follows_the_site_picked(client, app, people, sjh):
+    """Operator, 26 Nov: each hospital's logo in the middle of the header, changing with the
+    switch (utils/site_branding.py)."""
+    uid = people('logo_both', 'administrator', ('RH', 'SJH'))
+
+    rh_page = client.get('/report/38', headers=hdr(uid)).get_data(as_text=True)
+    pick(client, uid, _sjh_id(app))
+    sjh_page = client.get('/report/38', headers=hdr(uid)).get_data(as_text=True)
+    pick(client, uid, _rh_id(app))
+
+    assert 'data-site-logo="lau.png"' in rh_page and 'Rizk Hospital' in rh_page
+    assert 'data-site-logo="LAUMC-SJH-header.png"' in sjh_page and 'lau.png' not in sjh_page
+    assert "Saint John&#39;s Hospital" in sjh_page and '#00664F' in sjh_page
+
+
+def test_each_site_has_its_logo_and_hospital_line(app, ids):
+    from utils.site_branding import brand
+    with app.app_context():
+        assert brand(ids['RH'])['logo'] == 'lau.png'
+        assert brand(ids['SJH'])['logo'] == 'LAUMC-SJH-header.png'
+        assert brand(ids['SJH'])['hospital_line'].startswith('Lebanese American University – Saint John')
+        assert brand(None)['logo'] == 'lau.png'          # outside a request: the main database's
+
+
 def test_logins_and_access_come_from_the_main_database_on_sjh(client, app, people, sjh, ids):
     """A User's report tick lives on the main database, per site: ticked for SJH, Report 38
     opens on SJH and not on RH."""

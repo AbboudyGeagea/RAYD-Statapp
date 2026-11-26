@@ -67,14 +67,16 @@ document.addEventListener('DOMContentLoaded', function() {
         </a>
     </div>
 
-    <!-- Middle: the hospital's logo (operator, 25 Nov), on white like RAYD's: its green and
-         navy lettering would vanish on the dark bar. Its lettering runs to the file's edges, so
-         the tile keeps a white margin around it; 64 px tall (RAYD's is 56) with the bar's
-         padding at 8 px, so the bar keeps its height of 80 px. -->
-    <div class="justify-self-center flex items-center"
-         style="height:64px; background:white; border-radius:10px; padding:7px 18px;">
-        <img src="{{ url_for('static', filename='lau.png') }}" style="height:100%; width:auto;"
-             alt="LAU Medical Center - Rizk Hospital">
+    <!-- Middle: the picked hospital's logo (operator, 25-26 Nov; utils/site_branding.py), so it
+         changes with the site switch. A coloured logo (Rizk) sits on white, a white one (Saint
+         John's) on LAU green, so each shows on the dark bar and in the light theme. The tile
+         keeps a margin around the lettering; 64 px tall (RAYD's is 56) with the bar's padding
+         at 8 px, so the bar keeps its height of 80 px. -->
+    {% set _brand = site_brand() if site_brand is defined else {'logo': 'lau.png', 'logo_on': 'light', 'alt': 'LAU Medical Center - Rizk Hospital'} %}
+    <div class="justify-self-center flex items-center" data-site-logo="{{ _brand.logo }}"
+         style="height:64px; border-radius:10px; padding:7px 18px; background:{{ '#00664F' if _brand.logo_on == 'dark' else 'white' }};">
+        <img src="{{ url_for('static', filename=_brand.logo) }}" style="height:100%; width:auto;"
+             alt="{{ _brand.alt }}">
     </div>
 
     <!-- Right: site switch (item 13a), tagline between two blue lines, theme toggle -->

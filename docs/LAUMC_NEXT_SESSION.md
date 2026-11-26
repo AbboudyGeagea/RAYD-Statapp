@@ -19,8 +19,9 @@ Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
   patient starts in its room) and 452efd59 (Live board "Side by side", both hospitals on one
   screen, bigger bottom text). The hospital's logo (static/lau.png, middle of the header, 7e74bf8d)
   is deployed (operator's screenshot, 25 Nov); its resizing (bigger tile with a white margin,
-  centred at 1366 px with the site switch) waits for the next deploy, and so does Report 39 per
-  hospital (26 Nov, row "Report 39" in the table):
+  centred at 1366 px with the site switch) waits for the next deploy, and so do Report 39 per
+  hospital (26 Nov, row "Report 39" in the table) and the header logo following the site picked
+  (26 Nov: Rizk's on white, Saint John's on LAU green, `utils/site_branding.py`):
   `cd /opt/rayd && sudo bash update.sh LAUMC && git log --oneline -1`. Then press "Side by side"
   on the TV.
 - **Open:**
@@ -276,9 +277,15 @@ tables, and nothing can produce it on the server, so item 43's scheduled email h
   the server as SVG (vector, no browser); a small copy of RAYD's logo (the 2.3 MB file makes the
   sample 900 KB). Check that the PDF library installs on the server's build (apt and pip work
   there; Docker Hub does not).
+- **each hospital's own brand (operator, 26 Nov)**: a PDF takes the logo and footer line of the
+  database it comes from, from `utils/site_branding.py` (`brand(site_id)`: logo, what it needs
+  behind it, alt text, hospital line), the same table the app header uses since 26 Nov. SJH's
+  logo (`static/LAUMC-SJH.png`, the operator's; `LAUMC-SJH-header.png` is it with the empty
+  margins cropped) is white on transparent, 250 x 145 px: on a white PDF page it needs its LAU
+  green tile (#00664F), as in the header, or a coloured version; a larger file would print
+  sharper (ask the operator for the coloured / vector version);
 - **still to confirm**: the RAYD line ("Product of curehealthtech.com") is not in the agreed
-  footer, keep it smaller or drop it; SJH's own logo for its reports; which reports after the
-  Super Report.
+  footer, keep it smaller or drop it; which reports after the Super Report.
 Estimate: a shared frame (templates, styles, charts, checkboxes) 3–4 days, then 0.5–1.5 days per
 report; Super Report first, with item 43.
 

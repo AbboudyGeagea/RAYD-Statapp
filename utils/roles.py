@@ -330,6 +330,11 @@ def init_app(app):
                 'choices': [{'id': sid, 'code': code, 'name': name}
                             for sid, code, name in all_sites() if sid in choices]}
 
+    def site_brand():
+        """The picked hospital's logo and name for the header (utils/site_branding.py)."""
+        from utils.site_branding import brand
+        return brand()
+
     @app.context_processor
     def _roles_context():
         return {
@@ -337,4 +342,5 @@ def init_app(app):
             'role_label': role_label,
             'is_superuser': lambda: is_superuser(current_user),
             'site_switch': site_switch,
+            'site_brand': site_brand,
         }
