@@ -205,6 +205,28 @@ _PANEL = {
 }
 
 
+def _base_sql(site_clause):
+    """The studies every Report 22 figure starts from (base_data): the page and the rows
+    exported behind its charts (export_rows) read the same, so they always agree."""
+    return """
+        SELECT
+            s.study_db_uid, s.procedure_code, s.study_date, s.storing_ae, s.study_description,
+            m.modality, s.study_status, s.patient_db_uid, p.sex, p.age_group,
+            s.patient_class,
+            s.age_at_exam,
+            s.accession_number, s.number_of_study_images,
+            COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)), ''), 'Unknown') as physician,
+            s.patient_location, p.fallback_id as patient_id,
+            -- Display label: the RIS room name, else the AE (utils.ae_display).
+            """ + ae_display_sql('m', 's.storing_ae') + """ as ae_station_name,
+            COALESCE(NULLIF(TRIM(pm.procedure_name),''), s.procedure_code) as proc_display_name
+        FROM etl_didb_studies s
+        LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
+        LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
+        LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
+        WHERE """ + _BASE_EXCLUSIONS + site_clause
+
+
 @report_22_bp.route("/report/22", methods=["GET", "POST"])
 @login_required
 def report_22():
@@ -258,23 +280,7 @@ def report_22():
         except Exception:
             db.session.rollback()
 
-        base_sql = """
-            SELECT
-                s.study_db_uid, s.procedure_code, s.study_date, s.storing_ae, s.study_description,
-                m.modality, s.study_status, s.patient_db_uid, p.sex, p.age_group,
-                s.patient_class,
-                s.age_at_exam,
-                s.accession_number, s.number_of_study_images,
-                COALESCE(NULLIF(TRIM(CONCAT_WS(' ', s.referring_physician_first_name, s.referring_physician_last_name)), ''), 'Unknown') as physician,
-                s.patient_location, p.fallback_id as patient_id,
-                -- Display label: the RIS room name, else the AE (utils.ae_display).
-                """ + ae_display_sql('m', 's.storing_ae') + """ as ae_station_name,
-                COALESCE(NULLIF(TRIM(pm.procedure_name),''), s.procedure_code) as proc_display_name
-            FROM etl_didb_studies s
-            LEFT JOIN aetitle_modality_map m ON UPPER(TRIM(s.storing_ae)) = UPPER(TRIM(m.aetitle))
-            LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
-            LEFT JOIN etl_patient_view p ON p.patient_db_uid::TEXT = s.patient_db_uid::TEXT
-            WHERE """ + _BASE_EXCLUSIONS + site_clause
+        base_sql = _base_sql(site_clause)
 
         cte = f"WITH base_data AS ({base_sql})"
 
@@ -739,6 +745,100 @@ def export_report_22():
     mod_suffix = f"_{export_mod}" if export_mod else ""
     return Response(stream_with_context(generate()), mimetype="text/csv",
                     headers={"Content-disposition": f"attachment; filename=raw_data{mod_suffix}.csv"})
+
+@report_22_bp.route("/report/22/rows", methods=["POST"])
+@login_required
+def export_rows():
+    """The rows behind a chart, as .xlsx (operator, 2026-11-26: "make it exportable per chart
+    what are the exams, MRN, procedure code, desc, accession"), on the panel's filters.
+
+    chart=studies  one row per PACS study: the Modality > Room tree, and the volume table with
+                   "Count linked exams" off. Its row count is the screen's number.
+    chart=exams    one row per unit the volume table counts with "Count linked exams" on, by the
+                   very rule of _build_volume: per accession, the copy with the most images is
+                   shown and each finished RIS exam (etl_orders 'CM') of the copy with the most of
+                   them is one row; an accession with none is one row of its own.
+    """
+    import xlsxwriter
+    from flask import abort
+    from flask_login import current_user
+    from utils.roles import can_open_report
+
+    if not can_open_report(current_user, 22):          # the rows carry MRNs: Report 22's own access
+        abort(403)
+    chart = request.values.get("chart", "studies")
+    if chart not in ("studies", "exams"):
+        return Response("chart is studies or exams", status=400)
+    where, params, site_clause = get_where_params(request.form)
+    cte = f"WITH base_data AS ({_base_sql(site_clause)})"
+    if chart == "studies":
+        sql = f"""{cte}
+            SELECT study_date, COALESCE(modality, 'UNMAPPED'), ae_station_name, storing_ae,
+                   accession_number, patient_id, procedure_code, study_description, study_status,
+                   number_of_study_images
+            FROM base_data {where}
+            ORDER BY study_date, ae_station_name, accession_number"""
+        headers = ["Study date", "Modality", "Room", "AE title", "Accession", "MRN", "Procedure code",
+                   "Procedure (PACS description)", "Study status", "Images"]
+    else:
+        sql = f"""{cte},
+            scoped AS (
+                SELECT *, COALESCE(NULLIF(TRIM(accession_number), ''), 'uid:' || study_db_uid) AS exam_key,
+                       COALESCE(number_of_study_images, 0) AS images
+                FROM base_data {where}
+            ),
+            ris AS (
+                SELECT o.study_db_uid, COUNT(*) AS n
+                FROM etl_orders o JOIN scoped sc ON sc.study_db_uid = o.study_db_uid
+                WHERE o.order_status = 'CM' GROUP BY o.study_db_uid
+            ),
+            counted AS (       -- per accession, the study whose finished exams are counted
+                SELECT DISTINCT ON (sc.exam_key) sc.exam_key, sc.study_db_uid
+                FROM scoped sc JOIN ris r ON r.study_db_uid = sc.study_db_uid
+                ORDER BY sc.exam_key, r.n DESC, sc.study_db_uid
+            ),
+            shown AS (         -- per accession, the copy the table shows (most images)
+                SELECT DISTINCT ON (exam_key) * FROM scoped ORDER BY exam_key, images DESC
+            )
+            SELECT sh.study_date, COALESCE(sh.modality, 'UNMAPPED'), sh.ae_station_name, sh.accession_number,
+                   o.accession_number, o.order_dbid, sh.patient_id,
+                   COALESCE(NULLIF(TRIM(o.proc_id), ''), sh.procedure_code),
+                   COALESCE(NULLIF(TRIM(o.proc_text), ''), sh.study_description),
+                   CASE WHEN o.order_dbid IS NULL THEN 'Study with no finished RIS exam (counts 1)'
+                        ELSE 'Finished RIS exam' END
+            FROM shown sh
+            LEFT JOIN counted c ON c.exam_key = sh.exam_key
+            LEFT JOIN etl_orders o ON o.study_db_uid = c.study_db_uid AND o.order_status = 'CM'
+            ORDER BY sh.study_date, sh.ae_station_name, sh.accession_number, o.order_dbid"""
+        headers = ["Study date", "Modality", "Room", "Study accession", "Exam accession (RIS)", "RIS exam",
+                   "MRN", "Procedure code", "Procedure", "Counted as"]
+    rows = db.session.execute(text(sql), params).fetchall()
+
+    from utils.audit import log_event
+    log_event('report_export', category='report', resource_type='report_22',
+              detail={'chart': chart, 'rows': len(rows), 'from': params.get('start'), 'to': params.get('end')})
+
+    buf = io.BytesIO()
+    book = xlsxwriter.Workbook(buf, {'in_memory': True, 'strings_to_formulas': False,
+                                     'strings_to_urls': False, 'strings_to_numbers': False})
+    sheet = book.add_worksheet('Studies' if chart == 'studies' else 'Exams')
+    bold = book.add_format({'bold': True})
+    title = ("PACS studies (the tree; the volume table unticked)" if chart == "studies"
+             else "Exams as the volume table counts them with \"Count linked exams\" ticked")
+    sheet.write(0, 0, f"Report 22, {title}: {params.get('start')} to {params.get('end')}, {len(rows):,} rows", bold)
+    sheet.write_row(2, 0, headers, bold)
+    for i, r in enumerate(rows, start=3):
+        values = list(r)
+        values[0] = values[0].strftime('%d/%m/%Y') if values[0] else ''
+        sheet.write_row(i, 0, ['' if v is None else (v if isinstance(v, (int, float)) else str(v)) for v in values])
+    sheet.set_column(0, len(headers) - 1, 18)
+    sheet.freeze_panes(3, 0)
+    book.close()
+    name = f"report22_{chart}_{params.get('start')}_{params.get('end')}.xlsx"
+    return Response(buf.getvalue(),
+                    mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-disposition": f"attachment; filename={name}"})
+
 
 # ── Self-register ─────────────────────────────────────────────
 from routes.report_registry import register_report

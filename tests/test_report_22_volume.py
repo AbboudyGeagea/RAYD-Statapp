@@ -152,3 +152,47 @@ def test_studies_and_exams_reconcile(client):
     volume = report(client)['volume']
     assert volume['total_studies'] == 4
     assert volume['total_exams'] == 4 - 1 + 1
+
+
+def _rows(client, chart, **filters):
+    """The .xlsx the chart's button downloads: (header row, data rows)."""
+    import io
+    import openpyxl
+    r = client.post(f'/report/22/rows?chart={chart}', data={**OCTOBER, **filters},
+                    headers={'X-Test-Role': 'administrator'})
+    assert r.status_code == 200, r.get_data(as_text=True)[:300]
+    ws = openpyxl.load_workbook(io.BytesIO(r.data)).active
+    cells = [[c.value for c in row] for row in ws.iter_rows(min_row=3)]
+    return cells[0], cells[1:]
+
+
+def test_each_chart_exports_exactly_the_rows_behind_its_number(client):
+    """Operator, 2026-11-26: the exams behind the numbers, with MRN, procedure code and
+    description, accession. The studies file has the tree's count, the exams file the table's
+    "Count linked exams" count, by the same rule."""
+    device('MR750W', 'MR')
+    device('MR450W', 'MR')
+    study(1, 'MR750W', accession='A')
+    order(1, 1, 'A')
+    order(2, 1, 'A-LINKED')
+    study(2, 'MR450W', accession='A', images=5)
+    study(3, 'MR750W', accession='B')
+    order(3, 3, 'B')
+    study(4, 'MR750W', accession='C')
+    order(4, 4, 'C', status='CA')
+    volume = report(client)['volume']
+
+    head, studies = _rows(client, 'studies')
+    assert head[:7] == ['Study date', 'Modality', 'Room', 'AE title', 'Accession', 'MRN', 'Procedure code']
+    assert len(studies) == volume['total_studies'] == 4
+    head, exams = _rows(client, 'exams')
+    assert head[3:6] == ['Study accession', 'Exam accession (RIS)', 'RIS exam']
+    assert len(exams) == volume['total_exams'] == 4
+    assert sorted(r[4] for r in exams if r[4]) == ['A', 'A-LINKED', 'B']
+    assert [r[9] for r in exams if r[3] == 'C'] == ['Study with no finished RIS exam (counts 1)']
+    assert exams[0][0] == '15/10/2026'
+
+    _h, ct_only = _rows(client, 'studies', f_mod_active='on', f_mod='CT')      # the panel's filters apply
+    assert ct_only == []
+    assert client.post('/report/22/rows?chart=exams', data=OCTOBER,
+                       headers={'X-Test-Role': 'user'}).status_code == 403

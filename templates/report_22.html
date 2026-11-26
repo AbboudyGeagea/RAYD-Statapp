@@ -110,6 +110,11 @@
                             style="background:#1e293b;color:#94a3b8;font-weight:900;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;border-radius:8px;padding:6px 12px;border:1px solid #334155;cursor:pointer;display:flex;align-items:center;gap:6px;">
                         <i class="bi bi-download"></i> CSV
                     </button>
+                    <button type="button" onclick="exportRows(document.getElementById('vol-linked').checked ? 'exams' : 'studies')"
+                            title="Every exam behind these numbers (accession, MRN, procedure code and description), as counted with the box ticked or not"
+                            style="background:#1e293b;color:#94a3b8;font-weight:900;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;border-radius:8px;padding:6px 12px;border:1px solid #334155;cursor:pointer;display:flex;align-items:center;gap:6px;">
+                        <i class="bi bi-file-earmark-excel"></i> Rows (Excel)
+                    </button>
                 </div>
                 {% endif %}
             </div>
@@ -243,7 +248,14 @@
 
         <!-- Tree Flow -->
         <div class="card">
-            <div class="card-header">Modality ➜ Room ➜ Top 5 Procedures<i class="bi bi-info-circle chart-info-icon" data-explain="r22-tree" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></div>
+            <div class="card-header flex items-center justify-between gap-4 flex-wrap">
+                <span>Modality ➜ Room ➜ Top 5 Procedures (PACS studies)<i class="bi bi-info-circle chart-info-icon" data-explain="r22-tree" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
+                <button type="button" onclick="exportRows('studies')"
+                        title="Every PACS study in this tree (accession, MRN, room, procedure code and description)"
+                        style="background:#1e293b;color:#94a3b8;font-weight:900;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;border-radius:8px;padding:6px 12px;border:1px solid #334155;cursor:pointer;display:flex;align-items:center;gap:6px;">
+                    <i class="bi bi-file-earmark-excel"></i> Studies (Excel)
+                </button>
+            </div>
             <div class="card-desc">
                 A hierarchical breakdown of study volume across the selected period. Starting from total studies, it branches by imaging modality (CT, MR, US…), then by the room that stored the study (its RIS room name, else the AE title), and finally shows the top 5 procedure descriptions per room. Node sizes reflect study count.
             </div>
@@ -1037,6 +1049,12 @@
         // Main export with optional modality filter
         // The CSV download: the panel's filters, sent as a POST with the CSRF token by
         // rfpExport (_report_filter_panel.html); the modality picked here narrows it.
+        // The rows behind a chart (operator, 2026-11-26): the panel's filters, POST with the CSRF
+        // token (rfpExport); chart = studies (the tree, the table unticked) or exams (ticked).
+        function exportRows(chart) {
+            rfpExport('/report/22/rows?chart=' + encodeURIComponent(chart));
+        }
+
         function doExport() {
             const modSel = document.getElementById('export-mod-select');
             const mod = modSel ? modSel.value : '';
