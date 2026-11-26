@@ -93,6 +93,69 @@ def _panel():
 # ─────────────────────────────────────────────
 
 
+# ─────────────────────────────────────────────
+#  CHOSEN BLOCKS (item 43, migration 0183)
+# ─────────────────────────────────────────────
+# One list per person, and one for everyone (settings capability), on the main database
+# whichever site is picked (site_db.MAIN_TABLES; raw SQL on db.engine, CLAUDE.md rule 10).
+
+
+def _layout_rows(user_id):
+    with db.engine.connect() as c:
+        rows = c.execute(
+            text("SELECT scope_key, blocks FROM public.super_report_layouts WHERE scope_key IN (:me, 'everyone')"),
+            {"me": f"user:{user_id}"},
+        ).fetchall()
+    return {k: v for k, v in rows}
+
+
+@super_report_bp.route("/viewer/super-report/layout", methods=["GET"])
+@login_required
+def get_layout():
+    from utils import super_report_blocks as sr_blocks
+    from utils.roles import can
+
+    rows = _layout_rows(current_user.id)
+    mine, everyone = rows.get(f"user:{current_user.id}"), rows.get("everyone")
+    return jsonify({
+        "blocks": [{"key": k, "label": label} for k, label, _ in sr_blocks.BLOCKS],
+        "mine": sr_blocks.clean(mine) if mine else None,
+        "everyone": sr_blocks.clean(everyone) if everyone else None,
+        "can_everyone": can(current_user, "settings"),
+    })
+
+
+@super_report_bp.route("/viewer/super-report/layout", methods=["POST", "DELETE"])
+@login_required
+def save_layout():
+    from utils import super_report_blocks as sr_blocks
+    from utils.roles import can
+
+    body = request.get_json(silent=True) or {}
+    scope = (body.get("scope") or request.args.get("scope") or "me").strip()
+    if scope not in ("me", "everyone"):
+        return jsonify({"error": "scope is me or everyone"}), 400
+    if scope == "everyone" and not can(current_user, "settings"):
+        return jsonify({"error": "Saving for everyone needs the settings capability"}), 403
+    key = "everyone" if scope == "everyone" else f"user:{current_user.id}"
+    with db.engine.begin() as c:
+        if request.method == "DELETE":
+            c.execute(text("DELETE FROM public.super_report_layouts WHERE scope_key = :k"), {"k": key})
+            return jsonify({"success": True, "scope": scope, "blocks": None})
+        raw = body.get("blocks")
+        if not isinstance(raw, list) or not any(str(b) in sr_blocks.KEYS for b in raw):
+            return jsonify({"error": "Tick at least one block"}), 400
+        blocks = sr_blocks.clean(raw)
+        c.execute(
+            text("""INSERT INTO public.super_report_layouts (scope_key, blocks, updated_by, updated_at)
+                    VALUES (:k, CAST(:b AS jsonb), :u, NOW())
+                    ON CONFLICT (scope_key) DO UPDATE
+                    SET blocks = EXCLUDED.blocks, updated_by = EXCLUDED.updated_by, updated_at = NOW()"""),
+            {"k": key, "b": json.dumps(blocks), "u": current_user.id},
+        )
+    return jsonify({"success": True, "scope": scope, "blocks": blocks})
+
+
 @super_report_bp.route("/viewer/super-report/save", methods=["POST"])
 @login_required
 def save_super_report():

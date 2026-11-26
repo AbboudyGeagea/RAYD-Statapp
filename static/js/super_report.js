@@ -131,6 +131,7 @@ function buildQS() {
     if (hr)   p.set('has_report', hr);
     if (amin) p.set('age_min', amin);
     if (amax) p.set('age_max', amax);
+    srBlocksShown().forEach(k => p.append('blocks', k));   // item 43: only these are computed
     return p.toString();
 }
 
@@ -1033,6 +1034,7 @@ function collectFilters() {
         age_min:    document.getElementById('age-min').value,
         age_max:    document.getElementById('age-max').value,
         has_report: document.getElementById('f-has_report').value,
+        blocks:     srBlocksShown(),
     };
     panelSelects().forEach(sel => {
         f[sel.name] = picked(sel);
@@ -1045,6 +1047,10 @@ function collectFilters() {
 // Apply a saved filter object back to the panel. Presets saved before the shared
 // panel hold a single value as a string for some filters ('' = all).
 function applyFilters(f) {
+    if (Array.isArray(f.blocks) && f.blocks.length) {        // a preset's own blocks (item 43)
+        _srLayout.preset = f.blocks.filter(k => _srLayout.blocks.some(b => b.key === k));
+        srApplyBlocks();
+    }
     if (f.start)      $start().value = f.start;
     if (f.end)        $end().value   = f.end;
     if (f.age_min)    document.getElementById('age-min').value = f.age_min;
@@ -1149,6 +1155,7 @@ function showBriefing(label) {
 loadFilters();
 loadPresets();
 loadBriefings();
+srLoadLayout();
 
 // ── Theme toggle ───────────────────────────────────────────────────
 function toggleTheme() {
@@ -1179,3 +1186,122 @@ fetch('/user/theme').then(r => r.json()).then(d => {
         errEl.style.display = 'block';
     }
 })();
+
+// ── Blocks: which cards show, and in what order (item 43) ─────────
+// The list and what each block needs live in utils/super_report_blocks.py. Order of precedence:
+// a loaded preset's blocks, then the user's own, then the one saved for everyone, then all.
+// A hidden block is neither computed (buildQS sends blocks=) nor shown.
+const _srLayout = {blocks: [], mine: null, everyone: null, can_everyone: false, preset: null};
+let _srDraft = [];
+
+function srBlocksShown() {
+    const all = _srLayout.blocks.map(b => b.key);
+    const pick = _srLayout.preset || _srLayout.mine || _srLayout.everyone;
+    return (pick && pick.length) ? pick : all;
+}
+
+async function srLoadLayout() {
+    try {
+        const d = await fetch('/viewer/super-report/layout').then(r => r.json());
+        if (d && !d.error) {
+            Object.assign(_srLayout, {blocks: d.blocks || [], mine: d.mine, everyone: d.everyone,
+                                      can_everyone: !!d.can_everyone});
+            srApplyBlocks();
+        }
+    } catch (e) { /* every block stays shown */ }
+}
+
+function srApplyBlocks() {
+    const shown = srBlocksShown();
+    document.querySelectorAll('[data-block]').forEach(el =>
+        el.classList.toggle('sr-hidden', !shown.includes(el.dataset.block)));
+    const box = document.getElementById('sr-blocks');
+    if (box) shown.forEach(k => {
+        const el = box.querySelector(`:scope > [data-block="${k}"]`);
+        if (el) box.appendChild(el);                       // the order chosen
+    });
+    const label = document.getElementById('sr-blocks-label');
+    if (label && _srLayout.blocks.length) {
+        const n = shown.length, all = _srLayout.blocks.length;
+        const whose = _srLayout.preset ? 'the preset’s choice' : _srLayout.mine ? 'your choice'
+                    : _srLayout.everyone ? 'the choice for everyone' : 'the default';
+        label.textContent = (n === all ? `All ${all} blocks shown` : `${n} of ${all} blocks shown`) + ` (${whose})`;
+    }
+}
+
+function srOpenBlocks() {
+    const shown = srBlocksShown();
+    const byKey = Object.fromEntries(_srLayout.blocks.map(b => [b.key, b.label]));
+    _srDraft = [...shown.map(k => ({key: k, label: byKey[k] || k, on: true})),
+                ..._srLayout.blocks.filter(b => !shown.includes(b.key)).map(b => ({key: b.key, label: b.label, on: false}))];
+    document.getElementById('sr-blocks-everyone').hidden = !_srLayout.can_everyone;
+    document.getElementById('sr-blocks-msg').textContent = '';
+    srDrawBlocks();
+    document.getElementById('sr-blocks-dialog').showModal();
+}
+
+function srDrawBlocks() {
+    const list = document.getElementById('sr-blocks-list');
+    list.innerHTML = _srDraft.map((b, i) => `
+        <li class="${b.on ? '' : 'off'}">
+            <label><input type="checkbox" ${b.on ? 'checked' : ''} onchange="_srDraft[${i}].on = this.checked; srDrawBlocks()"> ${escHtml(b.label)}</label>
+            <button type="button" onclick="srMoveBlock(${i}, -1)" ${i === 0 ? 'disabled' : ''} aria-label="Move ${escHtml(b.label)} up" title="Up"><i class="bi bi-arrow-up"></i></button>
+            <button type="button" onclick="srMoveBlock(${i}, 1)" ${i === _srDraft.length - 1 ? 'disabled' : ''} aria-label="Move ${escHtml(b.label)} down" title="Down"><i class="bi bi-arrow-down"></i></button>
+        </li>`).join('');
+}
+
+function srMoveBlock(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= _srDraft.length) return;
+    [_srDraft[i], _srDraft[j]] = [_srDraft[j], _srDraft[i]];
+    srDrawBlocks();
+}
+
+function srDraftKeys() {
+    const keys = _srDraft.filter(b => b.on).map(b => b.key);
+    if (!keys.length) { document.getElementById('sr-blocks-msg').textContent = 'Tick at least one block.'; return null; }
+    return keys;
+}
+
+function srBlocksChanged() {
+    srApplyBlocks();
+    // a block shown again was not computed: run the report again if it is on screen
+    if (!document.getElementById('super-results').classList.contains('hidden')) runSuperReport();
+}
+
+function srBlocksApply() {
+    const keys = srDraftKeys();
+    if (!keys) return;
+    _srLayout.preset = keys;                               // for now, not saved
+    document.getElementById('sr-blocks-dialog').close();
+    srBlocksChanged();
+}
+
+async function srBlocksSave(scope) {
+    const keys = srDraftKeys();
+    if (!keys) return;
+    try {
+        const res = await fetch('/viewer/super-report/layout', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({scope, blocks: keys})});
+        const d = await res.json();
+        if (!res.ok || d.error) throw new Error(d.error || `HTTP ${res.status}`);
+        if (scope === 'everyone') _srLayout.everyone = d.blocks; else _srLayout.mine = d.blocks;
+        _srLayout.preset = scope === 'me' ? null : _srLayout.preset;
+        document.getElementById('sr-blocks-dialog').close();
+        showToast(scope === 'everyone' ? 'Saved for everyone' : 'Saved for you');
+        srBlocksChanged();
+    } catch (e) {
+        document.getElementById('sr-blocks-msg').textContent = 'Could not save: ' + e.message;
+    }
+}
+
+async function srBlocksReset() {
+    try {
+        if (_srLayout.mine) await fetch('/viewer/super-report/layout?scope=me', {method: 'DELETE'});
+    } catch (e) { /* the page still goes back to the default */ }
+    _srLayout.mine = null;
+    _srLayout.preset = null;
+    document.getElementById('sr-blocks-dialog').close();
+    srBlocksChanged();
+}

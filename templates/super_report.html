@@ -121,6 +121,30 @@
         body.light .sidebar-item { color: #4a5568 !important; }
         body.light .sidebar-item:hover, body.light .sidebar-item.active { background: #e2e8f0 !important; color: #2b6cb0 !important; }
         body.light aside, body.light header { background:#ffffff !important; border-color:#e2e8f0 !important; }
+        /* the blocks shown (item 43) */
+        .sr-hidden { display: none !important; }
+        .sr-dialog { background: #1d2522; color: #e2e8f0; border: 1px solid #28332e; border-radius: 14px; padding: 18px 20px; width: min(520px, 94vw); }
+        .sr-dialog::backdrop { background: rgba(0,0,0,0.55); }
+        .sr-dialog .section-head { font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: #60a5fa; margin-bottom: 6px; }
+        .sr-dialog-help { font-size: 11px; color: #94a3b8; line-height: 1.5; margin-bottom: 10px; }
+        .sr-blocks-list { list-style: none; margin: 0; padding: 0; max-height: 52vh; overflow-y: auto; border: 1px solid #28332e; border-radius: 10px; }
+        .sr-blocks-list li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid #222c28; font-size: 12px; }
+        .sr-blocks-list li:last-child { border-bottom: none; }
+        .sr-blocks-list label { flex: 1; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+        .sr-blocks-list li.off label { color: #64748b; }
+        .sr-blocks-list button { background: transparent; border: 1px solid #28332e; color: #94a3b8; border-radius: 6px; width: 26px; height: 24px; cursor: pointer; }
+        .sr-blocks-list button:hover, .sr-blocks-list button:focus-visible { color: #fff; border-color: #60a5fa; }
+        .sr-blocks-list button:disabled { opacity: .3; cursor: default; }
+        .sr-dialog-msg { font-size: 11px; color: #34d399; min-height: 16px; margin: 8px 0 4px; }
+        .sr-dialog-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+        .sr-btn { background: #232b28; border: 1px solid #28332e; color: #e2e8f0; border-radius: 8px; padding: 6px 12px; font-size: 11px; font-weight: 800; cursor: pointer; }
+        .sr-btn:hover, .sr-btn:focus-visible { border-color: #60a5fa; color: #fff; }
+        .sr-btn.primary { background: #60a5fa; border-color: #60a5fa; color: #0a1020; }
+        .sr-btn.ghost { background: transparent; }
+        body.light .sr-dialog { background: #ffffff; color: #1e293b; border-color: #e2e8f0; }
+        body.light .sr-blocks-list, body.light .sr-blocks-list li { border-color: #e2e8f0; }
+        body.light .sr-btn { background: #f8fafc; color: #1e293b; border-color: #e2e8f0; }
+        body.light .sr-btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
     </style>
     <script src="{{ url_for('static', filename='js/chart-explanations.js') }}" defer></script>
     {{ filter_panel_head() }}
@@ -177,13 +201,38 @@
                 <i class="bi bi-x-circle mr-1" aria-hidden="true"></i> Clear all
             </button>
         </div>
+        {# the blocks shown, and their order (item 43) #}
+        <div class="rfp-block" id="sr-blocks-section">
+            <div class="flex items-center justify-between mb-1">
+                <span class="rfp-label mb-0">Blocks<i class="bi bi-info-circle chart-info-icon" data-explain="sr-blocks" role="button" tabindex="0" aria-label="About the blocks" title="About the blocks"></i></span>
+                <button type="button" onclick="srOpenBlocks()"
+                        class="text-[9px] font-black text-[#60a5fa] hover:text-white uppercase tracking-widest flex items-center gap-1 transition-colors">
+                    <i class="bi bi-ui-checks-grid" aria-hidden="true"></i> Choose
+                </button>
+            </div>
+            <p id="sr-blocks-label" class="text-[10px] text-slate-500">All blocks shown</p>
+        </div>
         {% endcall %}
+
+        <dialog id="sr-blocks-dialog" class="sr-dialog" aria-labelledby="sr-blocks-title">
+            <p id="sr-blocks-title" class="section-head">Choose the blocks and their order</p>
+            <p class="sr-dialog-help">Tick what to show; the arrows move a block up or down. Hidden blocks are not calculated, and the Executive Summary speaks only of the blocks shown. The same choice goes into a saved preset and its scheduled email.</p>
+            <ol id="sr-blocks-list" class="sr-blocks-list"></ol>
+            <p id="sr-blocks-msg" class="sr-dialog-msg" role="status"></p>
+            <div class="sr-dialog-actions">
+                <button type="button" class="sr-btn primary" onclick="srBlocksApply()">Show these</button>
+                <button type="button" class="sr-btn" onclick="srBlocksSave('me')">Save for me</button>
+                <button type="button" class="sr-btn" id="sr-blocks-everyone" onclick="srBlocksSave('everyone')" hidden>Save for everyone</button>
+                <button type="button" class="sr-btn" onclick="srBlocksReset()">Back to the default</button>
+                <button type="button" class="sr-btn ghost" onclick="document.getElementById('sr-blocks-dialog').close()">Close</button>
+            </div>
+        </dialog>
 
         <!-- Main content -->
         <main class="flex-1 overflow-y-auto p-6 bg-[#181f1c] space-y-5">
 
             <!-- Daily Briefing Card -->
-            <div class="card" id="daily-briefing-card">
+            <div class="card" id="daily-briefing-card" data-block="briefing">
                 <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
                     <div style="display:flex;align-items:center;gap:8px;">
                         <i class="bi bi-lightning-charge-fill" style="color:#60a5fa;"></i>
@@ -208,7 +257,7 @@
             </div>
 
             <!-- Conflict Patients Card -->
-            <div class="card" style="border-left:3px solid #f59e0b;">
+            <div class="card" data-block="conflicts" style="border-left:3px solid #f59e0b;">
                 <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
                     <div style="display:flex;align-items:center;gap:8px;">
                         <i class="bi bi-person-exclamation" style="color:#f59e0b;"></i>
@@ -247,8 +296,12 @@
                 <!-- Filter Banner -->
                 <div id="filter-banner" class="filter-banner" style="display:none;"></div>
 
+                <!-- The result blocks (item 43): one grid, in the order chosen; a hidden block is
+                     neither queried nor shown (utils/super_report_blocks.py) -->
+                <div id="sr-blocks" class="grid grid-cols-1 md:grid-cols-6 gap-4">
+
                 <!-- Narrative -->
-                <div>
+                <div data-block="summary" class="md:col-span-6">
                     <div class="flex items-center gap-2 mb-2">
                         <i class="bi bi-file-earmark-text text-yellow-400"></i>
                         <span class="text-[10px] font-black text-yellow-400 uppercase tracking-widest">Executive Summary<i class="bi bi-info-circle chart-info-icon" data-explain="sr-summary" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></span>
@@ -258,54 +311,48 @@
                 </div>
 
                 <!-- KPIs -->
-                <div id="super-kpis" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-3"></div>
+                <div data-block="kpis" class="md:col-span-6"><div id="super-kpis" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-3"></div></div>
 
                 {% if site_switch is defined and site_switch() %}
                 <!-- Sites side by side, per modality (item 13b): accounts holding RH and SJH -->
-                <div class="card p-5" id="super-sites-card" style="display:none">
+                <div class="card p-5 md:col-span-6" id="super-sites-card" data-block="sites" style="display:none">
                     <h4 class="text-sky-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-hospital"></i> Sites side by side, per modality<i class="bi bi-info-circle chart-info-icon" data-explain="sr-sites" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                     <div id="super-sites" style="overflow-x:auto"></div>
                 </div>
                 {% endif %}
 
-                <!-- Sections -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="card p-5">
+                    <div class="card p-5 md:col-span-3" data-block="volume">
                         <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-graph-up-arrow"></i> Volume & Trends<i class="bi bi-info-circle chart-info-icon" data-explain="sr-volume" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-volume"></div>
                     </div>
-                    <div class="card p-5">
+                    <div class="card p-5 md:col-span-3" data-block="storage">
                         <h4 class="text-emerald-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-hdd-stack"></i> Storage & Images<i class="bi bi-info-circle chart-info-icon" data-explain="sr-storage" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-storage"></div>
                     </div>
-                    <div class="card p-5">
+                    <div class="card p-5 md:col-span-3" data-block="referrers">
                         <h4 class="text-violet-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-person-badge"></i> Top Referring Physicians<i class="bi bi-info-circle chart-info-icon" data-explain="sr-physicians" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-physicians"></div>
                     </div>
-                    <div class="card p-5">
+                    <div class="card p-5 md:col-span-3" data-block="orders">
                         <h4 class="text-orange-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clipboard2-pulse"></i> Orders & Fulfillment<i class="bi bi-info-circle chart-info-icon" data-explain="sr-orders" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-orders"></div>
                     </div>
-                </div>
 
-                <!-- Operational Health -->
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="card p-5">
+                    <div class="card p-5 md:col-span-2" data-block="tat">
                         <h4 class="text-amber-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-clock-history"></i> Turnaround Time<i class="bi bi-info-circle chart-info-icon" data-explain="sr-tat" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-tat"></div>
                     </div>
-                    <div class="card p-5">
+                    <div class="card p-5 md:col-span-2" data-block="crn">
                         <h4 class="text-red-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-exclamation-octagon"></i> Critical Findings (CRN)<i class="bi bi-info-circle chart-info-icon" data-explain="sr-crn" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-crn"></div>
                     </div>
-                    <div class="card p-5">
+                    <div class="card p-5 md:col-span-2" data-block="utilization">
                         <h4 class="text-cyan-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-speedometer2"></i> Device Utilization<i class="bi bi-info-circle chart-info-icon" data-explain="sr-util" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         <div id="super-utilization"></div>
                     </div>
-                </div>
 
                 <!-- Patient schedule lead time: Report 40's figures (operator, 2026-11-21) -->
-                <div class="card p-5" id="super-leadtime-card" style="display:none">
+                <div class="card p-5 md:col-span-6" id="super-leadtime-card" data-block="lead_time" style="display:none">
                     <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
                         <h4 class="text-sky-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><i class="bi bi-calendar-check"></i> Patient Schedule Lead Time<i class="bi bi-info-circle chart-info-icon" data-explain="sr-leadtime" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                         {% if lead_time_report %}
@@ -327,7 +374,7 @@
                 </div>
 
                 <!-- Demographics -->
-                <div class="card p-5">
+                <div class="card p-5 md:col-span-6" data-block="demographics">
                     <h4 class="text-pink-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2"><i class="bi bi-people"></i> Patient Demographics<i class="bi bi-info-circle chart-info-icon" data-explain="sr-demo" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i></h4>
                     <div id="super-demographics" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"></div>
                     <p class="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-2">All Patient Classes</p>
@@ -336,7 +383,7 @@
                 </div>
 
                 <!-- Clinical Insights -->
-                <div class="card p-5" id="super-insights-card" style="display:none">
+                <div class="card p-5 md:col-span-6" id="super-insights-card" data-block="insights" style="display:none">
                     <h4 class="text-yellow-400 text-[10px] font-black uppercase tracking-widest mb-3 flex items-center gap-2">
                         <i class="bi bi-lightbulb-fill"></i> Clinical Insights<i class="bi bi-info-circle chart-info-icon" data-explain="sr-insights" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
                     </h4>
@@ -344,7 +391,7 @@
                 </div>
 
                 <!-- Radiologist Workload Matrix -->
-                <div class="card p-5" id="super-rad-matrix-card" style="display:none">
+                <div class="card p-5 md:col-span-6" id="super-rad-matrix-card" data-block="radiologists" style="display:none">
                     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
                         <h4 class="text-[#60a5fa] text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
                             <i class="bi bi-person-check"></i> Reports per Radiologist<i class="bi bi-info-circle chart-info-icon" data-explain="sr-rad-matrix" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
@@ -405,7 +452,7 @@
                 </div>
 
                 <!-- Residents by their wet reads, from the PACS audit trail (item 8, 2026-11-19) -->
-                <div class="card p-5" id="super-wetread-card" style="display:none">
+                <div class="card p-5 md:col-span-6" id="super-wetread-card" data-block="wet_reads" style="display:none">
                     <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
                         <h4 class="text-[#34d399] text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
                             <i class="bi bi-pencil"></i> Wet Reads per Resident<i class="bi bi-info-circle chart-info-icon" data-explain="sr-resident-wetreads" role="button" tabindex="0" aria-label="About this table" title="About this table"></i>
@@ -424,6 +471,7 @@
                     </div>
                 </div>
 
+                </div><!-- #sr-blocks -->
             </div>
 
             <!-- Empty state -->

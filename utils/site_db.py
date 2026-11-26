@@ -54,6 +54,7 @@ MAIN_BLUEPRINTS = frozenset({'brayn_console', 'department_board', 'hl7_orders'})
 MAIN_TABLES = frozenset({
     'users', 'user_sites', 'user_page_permissions', 'report_access_control',
     'active_sessions', 'user_audit_log', 'permission_groups',
+    'super_report_layouts',     # a person's Super Report blocks, whichever site (0183)
 })
 
 # Procedure codes are shared by both sites (meeting of 2026-11-13, item 13e): the main

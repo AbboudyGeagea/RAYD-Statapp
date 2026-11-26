@@ -334,3 +334,44 @@ def test_the_lead_time_card_on_the_page(client):
     for key in ('sr-leadtime', 'sr-leadtime-buckets', 'sr-leadtime-table'):
         assert f'data-explain="{key}"' in page and f"'{key}': {{" in explain, key
     assert 'srLeadTime(cur.lead_time, prev.lead_time, d)' in _page_js()
+
+
+# ── the blocks shown (item 43, migration 0183) ────────────────────────────────
+
+def test_the_page_tags_every_block_and_offers_the_choice(client):
+    import re
+    from utils import super_report_blocks as sr_blocks
+    html = client.get('/viewer/super-report-page', headers=ADMIN).get_data(as_text=True)
+    keys = re.findall(r'data-block="(\w+)"', html)
+    assert sorted(set(keys)) == sorted(set(sr_blocks.KEYS) - {'sites'})   # sites: accounts with 2 sites
+    assert len(keys) == len(set(keys))
+    assert 'id="sr-blocks"' in html and 'id="sr-blocks-dialog"' in html and 'data-explain="sr-blocks"' in html
+    js = _page_js()
+    assert "srBlocksShown().forEach(k => p.append('blocks', k))" in js and 'blocks:     srBlocksShown()' in js
+    assert 'function srApplyBlocks' in js and 'srLoadLayout();' in js
+
+
+def test_a_layout_is_saved_for_me_and_for_everyone_by_the_settings_capability(client, app):
+    from db import db
+    url = '/viewer/super-report/layout'
+    try:
+        first = client.get(url, headers=ADMIN).get_json()
+        assert first['mine'] is None and first['everyone'] is None and first['can_everyone'] is True
+        assert [b['key'] for b in first['blocks']][:3] == ['briefing', 'conflicts', 'summary']
+
+        r = client.post(url, headers=ADMIN, json={'scope': 'me', 'blocks': ['tat', 'nope', 'summary', 'tat']})
+        assert r.get_json() == {'success': True, 'scope': 'me', 'blocks': ['tat', 'summary']}
+        assert client.get(url, headers=ADMIN).get_json()['mine'] == ['tat', 'summary']
+
+        assert client.post(url, headers=ADMIN, json={'scope': 'me', 'blocks': ['nope']}).status_code == 400
+        user = {'X-Test-Role': 'user'}
+        assert client.post(url, headers=user, json={'scope': 'everyone', 'blocks': ['tat']}).status_code == 403
+        assert client.post(url, headers=ADMIN, json={'scope': 'everyone', 'blocks': ['volume']}).status_code == 200
+        assert client.get(url, headers=user).get_json()['everyone'] == ['volume']
+
+        assert client.delete(url + '?scope=me', headers=ADMIN).get_json()['success']
+        assert client.get(url, headers=ADMIN).get_json()['mine'] is None
+    finally:
+        with app.app_context():
+            with db.engine.begin() as c:
+                c.execute(text("DELETE FROM super_report_layouts"))

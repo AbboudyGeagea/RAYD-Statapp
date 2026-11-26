@@ -837,9 +837,15 @@ const ChartExplanations = {
     },
     'sr-summary': {
       title: 'Executive Summary',
-      purpose: 'A written summary of the figures below for the dates and filters chosen.',
-      valueMeaning: 'Each sentence compares the period with the comparison period (by default the same number of days just before). Arrows and percentages are the change between the two. The sentences come from fixed rules, not from AI.',
-      interpretation: 'Compare periods of the same length and kind: a month with holidays against one without will show a drop that is not a trend.'
+      purpose: 'A written analysis of the blocks shown, for the dates and filters chosen: three lines first, then one part per subject (volume, referring physicians, reporting, radiologists and residents, devices, orders, critical results, scheduling, storage, patients), then what to act on this week.',
+      valueMeaning: 'Every figure is compared with the comparison period (by default the same number of days just before): the count first, then the change, e.g. "1,358 studies (+207, +18 %)". A change of 10 % or more is named, up or down; a figure that started under 10 shows the difference in counts ("+37"). Each change says what drives it (the modality, referring physicians or people behind it). The sentences come from fixed rules in RAYD, not from AI; nothing leaves the server.',
+      interpretation: 'Start with "To act on this week". When many reports still have a resident as last author, read the turnaround again a week later: approvals move it. Compare periods of the same length and kind: a week with a holiday against one without shows a drop that is not a trend.'
+    },
+    'sr-blocks': {
+      title: 'Blocks',
+      purpose: 'Choose which blocks of the Super Report are shown, and in what order.',
+      valueMeaning: 'Tick a block to show it; the arrows move it up or down. "Show these" applies the choice now; "Save for me" keeps it for your account on every hospital; "Save for everyone" (administrators) is used by anyone who has not saved their own. A saved preset keeps its own choice, and a scheduled email sends the blocks of its preset.',
+      interpretation: 'Hidden blocks are not calculated, so a short list opens faster, and the Executive Summary speaks only of the blocks shown.'
     },
     'sr-sites': {
       title: 'Sites side by side',
