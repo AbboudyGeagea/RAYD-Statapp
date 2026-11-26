@@ -346,6 +346,11 @@ def register_blueprints(app):
     app.register_blueprint(ai_alerts_bp)
     logger.info("  ai_alerts: enabled")
 
+    # ── Saved filter presets of the numbered reports (always on; each report's own access) ──
+    from routes.report_presets import report_presets_bp
+    app.register_blueprint(report_presets_bp)
+    logger.info("  report_presets: enabled")
+
     # ── Inject license into templates ─────────────────────────
     @app.context_processor
     def inject_license():

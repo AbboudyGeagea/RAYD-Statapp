@@ -1,4 +1,4 @@
-{% from '_report_filter_panel.html' import filter_panel_head, filter_panel %}
+{% from '_report_filter_panel.html' import filter_panel_head, filter_panel, report_presets %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -61,6 +61,7 @@
     {% include '_header.html' %}
     <div class="flex flex-1 overflow-hidden">
     {% call filter_panel(display_start, display_end, panel) %}
+    {{ report_presets(22) }}
     {% if run_report and data.proc_per_modality %}
     <div class="rfp-block">
         <label class="rfp-label" for="export-mod-select">Export modality</label>

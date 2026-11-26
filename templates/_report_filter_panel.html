@@ -30,6 +30,11 @@
   after_dates HTML placed right under the date range (the Super Report's comparison period,
               2026-11-20), for controls that belong with the dates
 
+  Saved presets (operator, 2026-11-26, the Super Report's on Report 22 first): put
+      {% call filter_panel(...) %} {{ report_presets(22) }} {% endcall %}
+  under the panel. Each person saves the panel as it stands under a name and opens it again
+  later (routes/report_presets.py, static/js/report_presets.js).
+
   The dates read dd/mm/yyyy on every report (operator, 2026-11-21): the panel turns its own date
   boxes into flatpickr pickers (d/m/Y shown, yyyy-mm-dd sent, so the routes are unchanged). A
   page that sets up flatpickr itself keeps its own; the panel only does the boxes left plain.
@@ -149,4 +154,27 @@
         form.setAttribute('method', method);
     }
 </script>
+{% endmacro %}
+
+{# The Super Report's "Saved presets" for any report on this panel: Save keeps the panel as it
+   stands under a name; a name opens the report with those filters; Clear all opens it with none. #}
+{% macro report_presets(report_id) %}
+<div class="rfp-block" id="rp-presets" data-report="{{ report_id }}">
+    <div class="flex items-center justify-between mb-1">
+        <span class="rfp-label" style="margin-bottom:0">Saved presets</span>
+        <button type="button" onclick="rpSave()"
+                class="text-[9px] font-black text-[#60a5fa] hover:text-white uppercase tracking-widest flex items-center gap-1 transition-colors">
+            <i class="bi bi-floppy" aria-hidden="true"></i> Save
+        </button>
+    </div>
+    <div id="rp-presets-list" class="space-y-1">
+        <p class="text-[10px] text-slate-500 italic">Loading...</p>
+    </div>
+    <p id="rp-presets-msg" class="text-[10px] mt-1" role="status"></p>
+    <button type="button" onclick="rpClear()"
+            class="w-full mt-3 text-slate-500 hover:text-slate-300 text-[9px] font-bold uppercase tracking-widest transition-colors py-1">
+        <i class="bi bi-x-circle mr-1" aria-hidden="true"></i> Clear all
+    </button>
+</div>
+<script src="{{ url_for('static', filename='js/report_presets.js') }}" defer></script>
 {% endmacro %}

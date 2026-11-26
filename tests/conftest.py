@@ -275,6 +275,9 @@ def app(database_url):
     from routes.super_report import super_report_bp
     flask_app.register_blueprint(admin_bp)
     flask_app.register_blueprint(super_report_bp)
+    # the saved filter presets under the shared panel (Report 22 first, 2026-11-26)
+    from routes.report_presets import report_presets_bp
+    flask_app.register_blueprint(report_presets_bp)
     # the reports moved onto the shared left panel (_report_filter_panel.html)
     from routes.report_25 import report_25_bp
     from routes.report_34 import report_34_bp
