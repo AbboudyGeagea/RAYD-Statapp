@@ -65,8 +65,8 @@ def test_the_narrative_names_the_comparison_window_not_the_current_one(client, a
         study(date(2026, 9, 10), 'CTX1', 'CT')
     r = client.get('/viewer/super-report?start=2026-10-05&end=2026-10-11'
                    '&cmp_start=2026-09-01&cmp_end=2026-09-30', headers=ADMIN).get_json()
-    overview = next(s for s in r['narrative'] if s['title'] == 'Overview')['bullets'][0]
-    assert 'vs prior 30-day period' in overview, overview
+    volume = next(s for s in r['narrative'] if s['title'] == 'Volume')['bullets'][0]
+    assert volume.startswith('2 studies (+1)'), volume          # 2 against the comparison's 1
     assert (r['delta_days'], r['cmp_days']) == (7, 30)
     # the automatic window: the same length, ending the day before start
     r = client.get('/viewer/super-report?start=2026-10-05&end=2026-10-11', headers=ADMIN).get_json()
@@ -157,20 +157,38 @@ def test_migration_0180_takes_the_dead_filters_out_of_the_presets(app):
         sql("DELETE FROM users WHERE id = :u", u=uid)
 
 
-def test_the_comparison_period_skips_what_the_page_never_reads(app, capsys):
-    """2.2: for the comparison period the page reads the critical count and the utilization
-    (their change badges); the rest of the CRN summary and the wet reads are not computed."""
+def test_a_hidden_block_skips_its_slow_queries(app, capsys):
+    """Item 43: only the sections the blocks shown need are computed (utils/super_report_blocks);
+    the radiologist tables, lead time, utilization, CRN and wet reads run for their block only."""
     from routes.super_report import _collect_data
+    from utils import super_report_blocks as sr_blocks
     with app.app_context():
         with Statements() as full:
             a = _collect_data('2026-03-01', '2026-03-07', {}, site_id('RH'))
         with Statements() as light:
-            b = _collect_data('2026-04-01', '2026-04-07', {}, site_id('RH'), include_rollups=False)
-    assert set(b['crn']) == {'critical_count'} and b['resident_wetreads'] is None
-    assert 'available' in b['utilization'] and a['resident_wetreads'] is not None
+            b = _collect_data('2026-04-01', '2026-04-07', {}, site_id('RH'),
+                              sections=sr_blocks.sections(['summary', 'volume']))
+    assert b['crn'] == {} and b['resident_wetreads'] is None and b['lead_time'] is None
+    assert b['utilization'] == {'available': False} and 'kpis' in b and 'volume' in b
+    assert a['resident_wetreads'] is not None and 'critical_count' in a['crn']
     assert len(light.seen) < len(full.seen)
+    assert sr_blocks.sections(['radiologists']) == {'rad_matrix', 'tat'}
+    assert sr_blocks.clean(['nope', 'tat', 'tat']) == ['tat'] and sr_blocks.clean([]) == list(sr_blocks.KEYS)
     with capsys.disabled():
-        print(f"\n  statements per period: current {len(full.seen)}, comparison {len(light.seen)}")
+        print(f"\n  statements: every block {len(full.seen)}, summary + volume only {len(light.seen)}")
+
+
+def test_the_comparison_period_gets_the_same_sections_and_the_page_sends_its_blocks(client, monkeypatch):
+    """Item 42: the analysis compares every figure, so both periods are computed alike."""
+    from routes import super_report
+    seen = []
+    real = super_report._collect_data
+    monkeypatch.setattr(super_report, '_collect_data',
+                        lambda *a, **k: seen.append(k.get('sections')) or real(*a, **k))
+    r = client.get('/viewer/super-report?start=2026-06-01&end=2026-06-07&blocks=tat&blocks=volume',
+                   headers=ADMIN).get_json()
+    assert seen == [{'tat'}, {'tat'}] and r['blocks'] == ['tat', 'volume']
+    assert {s['title'] for s in r['narrative']} <= {'In three lines', 'Volume', 'Reporting', 'To act on this week'}
 
 
 def test_the_orders_site_probe_runs_once_per_process_and_database(app):
@@ -204,28 +222,6 @@ def test_the_same_choices_in_another_order_hit_the_same_cache_entry(client, app,
     assert len(calls) == 2                                   # served from the cache
 
 
-def test_the_narrative_thresholds_are_settings(app):
-    """2.6: each threshold is a settings key, the old literal when absent."""
-    from routes.super_report import _generate_narrative
-    cur = {'kpis': {'total_studies': 100, 'total_patients': 90, 'total_images': 1000, 'active_aes': 3},
-           'orders': {'total': 10, 'fulfilled': 10, 'fulfillment_pct': 100},
-           'storage': {'total_gb': 10, 'avg_gb_per_day': 1.5, 'by_modality': []},
-           'volume': {'avg_per_day': 10, 'top_modalities': []}, 'physicians': [],
-           'demographics': {'male': 50, 'female': 50},
-           'tat': {'median_tat_min': 600, 'reported_count': 80, 'by_modality': []}}
-    prev = {**cur, 'kpis': {**cur['kpis'], 'total_studies': 100}}
-    text_of = lambda: ' | '.join(b for s in _generate_narrative(cur, prev, 'a', 'b', 'c', 'd', 7) for b in s['bullets'])
-    with app.app_context():
-        t = text_of()
-        assert 'above the 8-hour inpatient guideline' in t and 'below 90% target' in t
-        assert 'Storage intake elevated' not in t
-        sql("""INSERT INTO settings (key, value) VALUES ('sr_tat_inpatient_warn_min', '720'),
-               ('sr_coverage_warn_pct', '85'), ('sr_storage_gb_day_warn', '1'), ('sr_volume_drop_warn_pct', 'oops')
-               ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value""")
-        t = text_of()
-        assert 'within acceptable benchmark' in t                       # 600 min < 12 h
-        assert 'Coverage below 85% — significant reporting backlog' in t
-        assert 'Storage intake elevated at 1.5 GB/day' in t
 
 
 def _page_js():
@@ -312,12 +308,10 @@ def test_the_lead_time_card_has_report_40s_figures_for_both_periods(client, app)
     assert lt['kpi']['same_day_pct'] == 33.3 and lt['kpi']['cancelled_pct'] == 33.3
     assert {row['value']: row['exams'] for row in lt['by_modality']} == {'CT': 2, 'MR': 1}
     assert sum(b['exams'] for b in lt['buckets']) == 3 and lt['modality_filter'] is False
-    assert set(plt) == {'kpi', 'ahead_days'} and (plt['kpi']['exams'], plt['kpi']['median_days']) == (1, 10)
-    section = next(s for s in r['narrative'] if s['title'] == 'Patient Lead Time')['bullets']
-    assert 'a median of 6 days before the appointment (10 days in the prior period)' in section[0], section
-    assert not any('Longest wait' in b for b in section)          # under 20 appointments: no "longest"
-    comp = next(s for s in r['narrative'] if s['title'] == 'Period Comparison')['bullets']
-    assert 'Median booking lead time: 10 days → 6 days' in comp
+    assert (plt['kpi']['exams'], plt['kpi']['median_days']) == (1, 10) and 'by_modality' in plt   # full (item 42)
+    section = next(s for s in r['narrative'] if s['title'] == 'Scheduling')['bullets']
+    assert section[0].startswith('3 RIS appointments (+2)'), section
+    assert 'Median lead time 6 days, from 10.' in section
     r = client.get(q + '&modality=MR', headers=ADMIN).get_json()
     assert r['current']['lead_time']['kpi']['exams'] == 1 and r['current']['lead_time']['modality_filter']
 

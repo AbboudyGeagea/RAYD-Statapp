@@ -45,9 +45,15 @@ routes/site_controller.py       — POST /site/switch, the header's site dropdow
 routes/
   report_22.py                  — main radiology stats (date/modality/physician filters)
   super_report.py               — aggregated multi-section report; page script static/js/super_report.js
-                                   (2026-11-20); narrative thresholds are settings sr_* (fallbacks
-                                   in _NARRATIVE_DEFAULTS); dates validated (400); tests in
-                                   tests/test_super_report.py. Patient Schedule Lead Time card
+                                   (2026-11-20); dates validated (400); tests in
+                                   tests/test_super_report.py. Its blocks (key, label, the slow data
+                                   sections each needs) are utils/super_report_blocks.py: a hidden
+                                   block is neither queried nor written about; both periods get the
+                                   same sections. The written analysis is by rules,
+                                   utils/super_report_analysis.py (item 42, 2026-11-26: changes in
+                                   counts then %, from 10 %, what drives them, data checks, "To act
+                                   on this week"; tests/test_super_report_analysis.py); the old
+                                   narrative and its sr_* thresholds are gone. Patient Schedule Lead Time card
                                    (2026-11-21): Report 40's build() (utils/schedule_lead_time.py)
                                    on the page's period, the comparison's headline beside it, a
                                    narrative section; only the Modality filter applies (the others

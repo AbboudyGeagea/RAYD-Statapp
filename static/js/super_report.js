@@ -336,7 +336,7 @@ function render(d) {
 
     // Physicians
     document.getElementById('super-physicians').innerHTML =
-        (cur.physicians||[]).map(p => row(p.physician, fmt(p.cnt), null)).join('') ||
+        (cur.physicians||[]).slice(0, 10).map(p => row(p.physician, fmt(p.cnt), null)).join('') ||
         '<p class="text-slate-600 text-xs">No data</p>';
 
     // Orders
@@ -356,7 +356,7 @@ function render(d) {
             (t.er_reported_count && pt_.er_reported_count) ? pct(t.er_median_tat_min, pt_.er_median_tat_min) : null) +
         row('Non-ER median', t.non_er_reported_count ? fmtD(t.non_er_median_tat_min)+' min' : '—',
             (t.non_er_reported_count && pt_.non_er_reported_count) ? pct(t.non_er_median_tat_min, pt_.non_er_median_tat_min) : null) +
-        subSection('Slowest Modalities', (t.by_modality||[]).map(m=>row(m.modality, fmtD(m.median_tat_min)+' min', null)).join('')
+        subSection('Slowest Modalities', (t.by_modality||[]).slice(0, 5).map(m=>row(m.modality, fmtD(m.median_tat_min)+' min', null)).join('')
             || '<p class="text-slate-600 text-xs">No data</p>');
 
     // Critical Findings (CRN)

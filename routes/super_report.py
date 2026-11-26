@@ -433,6 +433,11 @@ def super_report():
     )
 
     filters = _request_filters()
+    # the blocks shown (item 43): only their slow sections are computed, for both periods
+    from utils import super_report_blocks as sr_blocks
+
+    blocks = sr_blocks.clean(request.args.getlist("blocks"))
+    sections = sr_blocks.sections(blocks)
 
     # Cache key built post-resolution so an implicit vs. explicit cmp_start/end
     # (auto-computed above when omitted) still lands on the same key, and
@@ -445,6 +450,7 @@ def super_report():
         "cmp_start": cmp_start,
         "cmp_end": cmp_end,
         **{k: (sorted(v) if isinstance(v, list) else v) for k, v in filters.items()},
+        "blocks": sorted(blocks),
     }
     # LAUMC site rule (operator instruction, 2026-07-26): reports show RH (main
     # site) only, SJH excluded, for now. Resolved once per request and threaded
@@ -468,12 +474,11 @@ def super_report():
         crn_enabled = bool((crn_cfg.get("crn_live_since") or "").strip())
         crn_dry_run = (crn_cfg.get("crn_sms_provider") or "log") == "log"
 
-        current = _collect_data(start, end, filters, rh_site_id)
-        previous = _collect_data(
-            cmp_start, cmp_end, filters, rh_site_id, include_rollups=False
-        )
+        current = _collect_data(start, end, filters, rh_site_id, sections=sections)
+        previous = _collect_data(cmp_start, cmp_end, filters, rh_site_id, sections=sections)
         narrative = _generate_narrative(
-            current, previous, start, end, cmp_start, cmp_end, cmp_days
+            current, previous, start, end, cmp_start, cmp_end, cmp_days, blocks=blocks,
+            crn_enabled=crn_enabled,
         )
         result = {
             "current": current,
@@ -485,6 +490,7 @@ def super_report():
             "cmp_days": cmp_days,
             "crn_enabled": crn_enabled,
             "crn_dry_run": crn_dry_run,
+            "blocks": blocks,
         }
         cache_put("super_report", cache_key, result)
         return jsonify(result)
@@ -803,12 +809,15 @@ def _joins():
     return mj, pj
 
 
-def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
-    """include_rollups=False for the comparison period: of the rollups the page reads only the
-    critical-findings count (the CRN card's change badge: render() pct(c.critical_count,
-    pc_.critical_count)) and the device utilization (its badge: pu.available,
-    pu.avg_utilization); the rest of the CRN summary and the residents' wet reads are never read
-    for it, so they are not computed (review of 2026-11-20)."""
+def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True, sections=None):
+    """sections: the slow data sections to compute (utils/super_report_blocks.sections of the
+    blocks shown); None computes all. Items 42/43 (26 Nov): the comparison period is computed
+    with the same sections as the current one, so the analysis compares every figure.
+    include_rollups=False still leaves out the CRN summary's detail and the wet reads (kept
+    for callers that read only the headline)."""
+    def want(section):
+        return sections is None or section in sections
+
     where, params = _build_where(start, end, filters, rh_site_id)
     # LATERAL ... LIMIT 1, not a plain LEFT JOIN. aetitle_modality_map's UNIQUE is on
     # the RAW aetitle while every consumer matches on UPPER(TRIM(...)), so 'ct99' and
@@ -975,7 +984,7 @@ def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
                COUNT(*) AS cnt
         FROM etl_didb_studies s {mj} {pj} WHERE {where}
           AND s.referring_physician_last_name IS NOT NULL AND s.referring_physician_last_name != ''
-        GROUP BY 1 ORDER BY cnt DESC LIMIT 10
+        GROUP BY 1 ORDER BY cnt DESC LIMIT 30
     """
             ),
             params,
@@ -1094,7 +1103,7 @@ def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
     # 2026-07-27) -- rep_study_last_composed_ts is the PACS field confirmed
     # reliable here and already the standard TAT anchor in report_25.py.
     # Non-ER studies with TAT > P75 on days that also had ER volume (resource contention proxy)
-    if "pc_emergency" in pc_params:
+    if "pc_emergency" in pc_params and want("er_delayed"):
         # er_days applies the page's own WHERE (site, modality, patient class and every other
         # filter), like p75 and the count: it used to take any ER study of any site or
         # modality, so with CT on RH picked a day counted for an ER MR or an SJH ER study.
@@ -1172,17 +1181,42 @@ def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
                )::numeric, 1) AS median_tat_min,
                COUNT(*) AS cnt
         FROM etl_didb_studies s {mj} {pj}
-        WHERE {where}
+        WHERE {where} AND :tat_on
           AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
           AND s.insert_time IS NOT NULL
-        GROUP BY 1 ORDER BY median_tat_min DESC LIMIT 5
+        GROUP BY 1 ORDER BY median_tat_min DESC
     """
             ),
-            params,
+            {**params, "tat_on": want("tat")},
         )
         .mappings()
         .fetchall()
     )
+
+    # Reports whose last author is a resident (PACS "residents" group, utils/pacs_roles): their
+    # time counts the preliminary read; a radiologist's approval moves it later (item 42).
+    resident_last = 0
+    if want("tat"):
+        from utils.pacs_roles import role_lookup_cte
+
+        resident_last = int(
+            db.session.execute(
+                text(
+                    f"""
+            WITH {role_lookup_cte('role_lookup')}
+            SELECT COUNT(DISTINCT s.study_db_uid)
+            FROM etl_didb_studies s {mj} {pj}
+            WHERE {where}
+              AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
+              AND EXISTS (SELECT 1 FROM role_lookup r
+                          WHERE r.role = 'residents'
+                            AND r.login_id = UPPER(SPLIT_PART(BTRIM(s.rep_study_last_composed_by), '@', 1)))
+        """
+                ),
+                params,
+            ).scalar()
+            or 0
+        )
 
     # ── Daily study volume (time series for charts) ───────────────
     daily_series = (
@@ -1241,11 +1275,11 @@ def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
                COALESCE(m.modality, s.study_modality, 'Unknown') AS dim,
                COUNT(DISTINCT s.study_db_uid) AS cnt
         FROM etl_didb_studies s {mj} {pj} {_PAM_SR}
-        WHERE {where} AND {_RAD_OK}
+        WHERE {where} AND {_RAD_OK} AND :rad_on
         GROUP BY 1, 2 ORDER BY 1, 3 DESC
     """
             ),
-            params,
+            {**params, "rad_on": want("rad_matrix")},
         )
         .mappings()
         .fetchall()
@@ -1259,11 +1293,11 @@ def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
                COALESCE(m.station_name, s.storing_ae, 'Unknown') AS dim,
                COUNT(DISTINCT s.study_db_uid) AS cnt
         FROM etl_didb_studies s {mj} {pj} {_PAM_SR}
-        WHERE {where} AND {_RAD_OK}
+        WHERE {where} AND {_RAD_OK} AND :rad_on
         GROUP BY 1, 2 ORDER BY 1, 3 DESC
     """
             ),
-            params,
+            {**params, "rad_on": want("rad_matrix")},
         )
         .mappings()
         .fetchall()
@@ -1276,7 +1310,7 @@ def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
         WITH top_procs AS (
             SELECT s.procedure_code
             FROM etl_didb_studies s {mj} {pj}
-            WHERE {where} AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
+            WHERE {where} AND :rad_on AND COALESCE(s.rep_study_last_composed_ts, s.rep_final_timestamp) IS NOT NULL
               AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
             GROUP BY 1 ORDER BY COUNT(DISTINCT s.study_db_uid) DESC LIMIT 60
         )
@@ -1286,11 +1320,11 @@ def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
         FROM etl_didb_studies s {mj} {pj} {_PAM_SR}
         LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
         JOIN top_procs tp ON tp.procedure_code = s.procedure_code
-        WHERE {where} AND {_RAD_OK}
+        WHERE {where} AND {_RAD_OK} AND :rad_on
         GROUP BY 1, 2 ORDER BY 2, 3 DESC
     """
             ),
-            params,
+            {**params, "rad_on": want("rad_matrix")},
         )
         .mappings()
         .fetchall()
@@ -1304,11 +1338,11 @@ def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
                TO_CHAR(s.study_date, 'YYYY-MM') AS dim,
                COUNT(DISTINCT s.study_db_uid) AS cnt
         FROM etl_didb_studies s {mj} {pj} {_PAM_SR}
-        WHERE {where} AND {_RAD_OK}
+        WHERE {where} AND {_RAD_OK} AND :rad_on
         GROUP BY 1, 2 ORDER BY 1, 2
     """
             ),
-            params,
+            {**params, "rad_on": want("rad_matrix")},
         )
         .mappings()
         .fetchall()
@@ -1342,6 +1376,7 @@ def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
             "er_delayed": er_delayed,
         },
         "tat": {
+            "resident_last_author": resident_last,
             "median_tat_min": float(tat.get("median_tat_min") or 0) if tat else 0,
             "reported_count": int(tat.get("reported_count") or 0) if tat else 0,
             "er_median_tat_min": float(tat.get("er_median_tat_min") or 0) if tat else 0,
@@ -1363,18 +1398,25 @@ def _collect_data(start, end, filters, rh_site_id=None, include_rollups=True):
             "by_month": [dict(r) for r in rad_month_rows],
         },
         "crn": (
-            _get_crn_summary(start, end)
-            if include_rollups
-            else {"critical_count": _critical_count(start, end)}
+            (
+                _get_crn_summary(start, end)
+                if include_rollups
+                else {"critical_count": _critical_count(start, end)}
+            )
+            if want("crn")
+            else {}
         ),
-        "utilization": _get_utilization_summary(
-            start, end
-        ),  # both periods: see the docstring
+        "utilization": (
+            _get_utilization_summary(start, end) if want("utilization") else {"available": False}
+        ),
         "resident_wetreads": (
-            _get_resident_wetreads(where, params, mj, pj) if include_rollups else None
+            _get_resident_wetreads(where, params, mj, pj)
+            if include_rollups and want("resident_wetreads")
+            else None
         ),
-        # both periods: the comparison's headline gives the card's and the narrative's changes
-        "lead_time": _get_lead_time(start, end, filters, full=include_rollups),
+        "lead_time": (
+            _get_lead_time(start, end, filters, full=include_rollups) if want("lead_time") else None
+        ),
     }
 
 
@@ -1591,435 +1633,31 @@ def _fp(p):
     return f"{'+' if p >= 0 else ''}{s}%"
 
 
-def _trend(p):
-    # Bands derived from Intermedic operational experience: ±5% is day-to-day
-    # noise; ±20% marks a shift meaningful enough to warrant attention.
-    if p is None:
-        return "unchanged"
-    if p > 20:
-        return "significantly up"
-    if p > 5:
-        return "up"
-    if p > 0:
-        return "slightly up"
-    if p < -20:
-        return "significantly down"
-    if p < -5:
-        return "down"
-    if p < 0:
-        return "slightly down"
-    return "flat"
+def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, cmp_days, blocks=None,
+                        crn_enabled=False):
+    """The written analysis (item 42, utils/super_report_analysis.py), in the narrative's section
+    format the page draws, and the Clinical Insights signals for their card. Only the blocks
+    shown are written about. cmp_days: the length of the comparison window."""
+    from utils import super_report_blocks as sr_blocks
+    from utils.super_report_analysis import analyse
 
+    blocks = sr_blocks.clean(blocks)
+    period = {"start": start, "end": end, "cmp_start": cmp_start, "cmp_end": cmp_end,
+              "cmp_days": cmp_days, "crn_enabled": crn_enabled}
+    sections = analyse(cur, prev, period, blocks)
 
-# The narrative's thresholds, each a settings key; these values when a key is absent or not a
-# number (review of 2026-11-20: they were literals in the code).
-_NARRATIVE_DEFAULTS = {
-    "sr_tat_outpatient_warn_min": 1440,  # 24 h: the outpatient reporting target
-    "sr_tat_inpatient_warn_min": 480,  # 8 h: the inpatient guideline (ACR/ESR)
-    "sr_coverage_warn_pct": 70,  # below: "significant reporting backlog"
-    "sr_coverage_target_pct": 90,  # below: "minor backlog"
-    "sr_storage_gb_day_warn": 2,  # GB a day above which intake is "elevated"
-    "sr_storage_growth_warn_pct": 30,  # storage growth vs the comparison period
-    "sr_volume_drop_warn_pct": -20,  # study volume change vs the comparison period
-    "sr_gender_skew_warn_pct": 70,  # share of one sex (and 100 minus it the other way)
-}
-
-
-def _narrative_thresholds():
-    rows = db.session.execute(
-        text("SELECT key, value FROM settings WHERE key = ANY(:keys)"),
-        {"keys": list(_NARRATIVE_DEFAULTS)},
-    ).fetchall()
-    out = dict(_NARRATIVE_DEFAULTS)
-    for key, value in rows:
+    if "insights" in blocks:
         try:
-            out[key] = float(value)
-        except (TypeError, ValueError):
-            logger.warning(
-                "settings %s = %r is not a number; using %s", key, value, out[key]
-            )
-    return out
-
-
-def _num(v):
-    """A threshold as text: 24 not 24.0, 2.5 as it is."""
-    return f"{v:g}"
-
-
-def _generate_narrative(cur, prev, start, end, cmp_start, cmp_end, cmp_days):
-    """cmp_days: the length of the COMPARISON window, which the user can set to any length;
-    "vs prior N-day period" names that window, not the current one."""
-    th = _narrative_thresholds()
-    current_kpis = cur["kpis"]
-    prev_kpis = prev["kpis"]
-    current_orders = cur["orders"]
-    prev_orders = prev["orders"]
-    current_storage = cur["storage"]
-    prev_storage = prev["storage"]
-    current_volume = cur["volume"]
-    current_demo = cur["demographics"]
-    current_physicians = cur["physicians"]
-    tat_data = cur.get("tat", {})
-
-    studies_chg = _pct(
-        current_kpis.get("total_studies"), prev_kpis.get("total_studies")
-    )
-    patients_chg = _pct(
-        current_kpis.get("total_patients"), prev_kpis.get("total_patients")
-    )
-    storage_chg = _pct(current_storage.get("total_gb"), prev_storage.get("total_gb"))
-    orders_chg = _pct(current_orders.get("total"), prev_orders.get("total"))
-    images_chg = _pct(current_kpis.get("total_images"), prev_kpis.get("total_images"))
-
-    sections = []
-
-    # ── Overview ──────────────────────────────────────────────
-    overview = []
-    chg_str = (
-        f" ({_fp(studies_chg)} vs prior {cmp_days}-day period)"
-        if studies_chg is not None
-        else ""
-    )
-    overview.append(
-        f"{_fmt(current_kpis.get('total_studies'))} studies completed between {start} and {end}{chg_str}"
-    )
-    overview.append(
-        f"{_fmt(current_kpis.get('total_patients'))} unique patients seen"
-        + (f", {_fp(patients_chg)} vs prior period" if patients_chg is not None else "")
-    )
-    overview.append(
-        f"{_fmt(current_kpis.get('total_images'))} images acquired across {_fmt(current_kpis.get('active_aes'))} active devices"
-        + (f" ({_fp(images_chg)})" if images_chg is not None else "")
-    )
-    fulfillment_pct = float(current_orders.get("fulfillment_pct") or 0)
-    overview.append(
-        f"{_fmt(current_orders.get('total'))} orders received — {fulfillment_pct:.1f}% fulfillment rate "
-        f"({_fmt(current_orders.get('fulfilled'))} completed)"
-    )
-    sections.append(
-        {
-            "icon": "bi-bar-chart-line",
-            "color": "#60a5fa",
-            "title": "Overview",
-            "bullets": overview,
-        }
-    )
-
-    # ── Volume & Modality ─────────────────────────────────────
-    volume_bullets = []
-    avg_day = float(current_volume.get("avg_per_day") or 0)
-    volume_bullets.append(f"Average throughput: {avg_day:.1f} studies per day")
-    if current_volume.get("peak_day"):
-        volume_bullets.append(
-            f"Peak day: {current_volume['peak_day']} with {_fmt(current_volume['peak_count'])} studies"
-        )
-    mods = current_volume.get("top_modalities", [])
-    study_count = float(current_kpis.get("total_studies") or 1)
-    for m in mods:
-        pct_share = round(float(m["cnt"]) / study_count * 100, 1)
-        volume_bullets.append(
-            f"{m['modality']}: {_fmt(m['cnt'])} studies ({pct_share}% of total)"
-        )
-    sections.append(
-        {
-            "icon": "bi-graph-up",
-            "color": "#34d399",
-            "title": "Volume & Modality Mix",
-            "bullets": volume_bullets,
-        }
-    )
-
-    # ── Physicians ────────────────────────────────────────────
-    if current_physicians:
-        phys_bullets = []
-        for i, p in enumerate(current_physicians[:5]):
-            share = round(float(p["cnt"]) / study_count * 100, 1)
-            prefix = ["Top referrer", "2nd", "3rd", "4th", "5th"][i]
-            phys_bullets.append(
-                f"{prefix}: {p['physician']} — {_fmt(p['cnt'])} referrals ({share}%)"
-            )
-        sections.append(
-            {
-                "icon": "bi-person-badge",
-                "color": "#a78bfa",
-                "title": "Top Referring Physicians",
-                "bullets": phys_bullets,
-            }
-        )
-
-    # ── Demographics ──────────────────────────────────────────
-    demo_bullets = []
-    male = float(current_demo.get("male") or 0)
-    female = float(current_demo.get("female") or 0)
-    inp = float(current_demo.get("inpatient") or 0)
-    outp = float(current_demo.get("outpatient") or 0)
-    tot_gen = male + female
-    if tot_gen > 0:
-        demo_bullets.append(
-            f"Gender split: {round(male/tot_gen*100)}% male / {round(female/tot_gen*100)}% female"
-        )
-    tot_cls = inp + outp
-    if tot_cls > 0:
-        demo_bullets.append(
-            f"Patient class: {round(inp/tot_cls*100)}% inpatient / {round(outp/tot_cls*100)}% outpatient"
-        )
-    avg_age = current_demo.get("avg_age")
-    if avg_age:
-        demo_bullets.append(
-            f"Average patient age: {float(avg_age):.1f} years (range {int(current_demo.get('min_age') or 0)}–{int(current_demo.get('max_age') or 0)})"
-        )
-    if demo_bullets:
-        sections.append(
-            {
-                "icon": "bi-people",
-                "color": "#f472b6",
-                "title": "Patient Demographics",
-                "bullets": demo_bullets,
-            }
-        )
-
-    # ── TAT & Reporting ───────────────────────────────────────
-    tat_bullets = []
-    median_tat = float(tat_data.get("median_tat_min") or 0)
-    reported = int(tat_data.get("reported_count") or 0)
-    total_st = int(current_kpis.get("total_studies") or 1)
-    if median_tat > 0:
-        tat_h = median_tat / 60
-        outp_min, inp_min = (
-            th["sr_tat_outpatient_warn_min"],
-            th["sr_tat_inpatient_warn_min"],
-        )
-        if median_tat > outp_min:
-            tat_bullets.append(
-                f"Median TAT: {tat_h:.1f} hours — exceeds {_num(outp_min / 60)}-hour reporting target ⚠"
-            )
-        elif median_tat > inp_min:
-            tat_bullets.append(
-                f"Median TAT: {tat_h:.1f} hours — above the {_num(inp_min / 60)}-hour inpatient guideline"
-            )
-        else:
-            tat_bullets.append(
-                f"Median TAT: {median_tat:.0f} minutes — within acceptable benchmark"
-            )
-    if reported > 0:
-        cov = round(reported / total_st * 100, 1)
-        tat_bullets.append(
-            f"Reporting coverage: {cov}% ({_fmt(reported)} of {_fmt(total_st)} studies signed)"
-        )
-        cov_warn, cov_target = th["sr_coverage_warn_pct"], th["sr_coverage_target_pct"]
-        if cov < cov_warn:
-            tat_bullets.append(
-                f"Coverage below {_num(cov_warn)}% — significant reporting backlog detected ⚠"
-            )
-        elif cov < cov_target:
-            tat_bullets.append(
-                f"Coverage below {_num(cov_target)}% target — minor backlog present"
-            )
-    for row in (tat_data.get("by_modality") or [])[:3]:
-        m_tat = float(row.get("median_tat_min") or 0)
-        if m_tat > 0:
-            tat_bullets.append(
-                f"{row['modality']}: median {m_tat/60:.1f}h TAT ({_fmt(row['cnt'])} studies)"
-            )
-    if not tat_bullets:
-        tat_bullets.append(
-            "TAT data not yet available — ETL reporting timestamps pending"
-        )
-    sections.append(
-        {
-            "icon": "bi-clock-history",
-            "color": "#f59e0b",
-            "title": "TAT & Reporting",
-            "bullets": tat_bullets,
-        }
-    )
-
-    # ── Patient lead time (Report 40's definitions) ───────────
-    lt_k = (cur.get("lead_time") or {}).get("kpi") or {}
-    lt_pk = (prev.get("lead_time") or {}).get("kpi") or {}
-    if lt_k.get("exams"):
-        ahead = (cur.get("lead_time") or {}).get("ahead_days", 7)
-        lead_bullets = [
-            f"Exams were booked a median of {_days(lt_k.get('median_days'))} before the appointment"
-            + (
-                f" ({_days(lt_pk.get('median_days'))} in the prior period)"
-                if lt_pk.get("median_days") is not None
-                else ""
-            )
-            + f", over {_fmt(lt_k['exams'])} appointments"
-        ]
-        if lt_k.get("same_day_pct") is not None:
-            lead_bullets.append(
-                f"{lt_k['same_day_pct']:g}% booked the same day, {lt_k['ahead_pct']:g}% "
-                f"{ahead} days or more ahead; 9 in 10 within {_days(lt_k.get('p90_days'))}"
-            )
-        if lt_k.get("cancelled_pct") is not None:
-            lead_bullets.append(
-                f"{lt_k['cancelled_pct']:g}% cancelled, {lt_k['rescheduled_pct']:g}% scheduled more than once"
-            )
-        busy = [
-            r
-            for r in (cur.get("lead_time") or {}).get("by_modality") or []
-            if r.get("median_days") is not None and r["exams"] >= 20
-        ]
-        if busy:
-            longest = max(busy, key=lambda r: (r["median_days"], r["exams"]))
-            lead_bullets.append(
-                f"Longest wait: {longest['value']}, booked a median of {_days(longest['median_days'])} ahead "
-                f"({_fmt(longest['exams'])} appointments)"
-            )
-        sections.append(
-            {
-                "icon": "bi-calendar-check",
-                "color": "#38bdf8",
-                "title": "Patient Lead Time",
-                "bullets": lead_bullets,
-            }
-        )
-
-    # ── Storage ───────────────────────────────────────────────
-    storage_bullets = []
-    storage_bullets.append(
-        f"Total storage consumed: {float(current_storage.get('total_gb') or 0):.1f} GB"
-        + (f" ({_fp(storage_chg)} vs prior period)" if storage_chg is not None else "")
-    )
-    avg_gb = float(current_storage.get("avg_gb_per_day") or 0)
-    storage_bullets.append(f"Average daily intake: {avg_gb:.1f} GB/day")
-    for m in (current_storage.get("by_modality") or [])[:4]:
-        storage_bullets.append(f"{m['modality']}: {float(m['gb']):.1f} GB")
-    sections.append(
-        {
-            "icon": "bi-hdd-stack",
-            "color": "#2dd4bf",
-            "title": "Storage",
-            "bullets": storage_bullets,
-        }
-    )
-
-    # ── Period Comparison ─────────────────────────────────────
-    comp_bullets = []
-    if studies_chg is not None:
-        comp_bullets.append(
-            f"Study volume: {_trend(studies_chg)} at {_fp(studies_chg)}"
-        )
-    if patients_chg is not None:
-        comp_bullets.append(
-            f"Unique patients: {_trend(patients_chg)} at {_fp(patients_chg)}"
-        )
-    if orders_chg is not None:
-        comp_bullets.append(
-            f"Orders received: {_trend(orders_chg)} at {_fp(orders_chg)}"
-        )
-    if storage_chg is not None:
-        comp_bullets.append(
-            f"Storage consumed: {_trend(storage_chg)} at {_fp(storage_chg)}"
-        )
-    if images_chg is not None:
-        comp_bullets.append(
-            f"Images acquired: {_trend(images_chg)} at {_fp(images_chg)}"
-        )
-    if lt_k.get("median_days") is not None and lt_pk.get("median_days") is not None:
-        comp_bullets.append(
-            f"Median booking lead time: {_days(lt_pk['median_days'])} → {_days(lt_k['median_days'])}"
-        )
-    if comp_bullets:
-        comp_bullets.insert(
-            0, f"Comparing {start} → {end} against {cmp_start} → {cmp_end}"
-        )
-        sections.append(
-            {
-                "icon": "bi-arrow-left-right",
-                "color": "#fb923c",
-                "title": "Period Comparison",
-                "bullets": comp_bullets,
-            }
-        )
-
-    # ── Alerts ────────────────────────────────────────────────
-    alerts = []
-    if fulfillment_pct < 70:
-        unfulfilled = int(current_orders.get("total", 0) or 0) - int(
-            current_orders.get("fulfilled", 0) or 0
-        )
-        alerts.append(
-            f"Order fulfillment critically low at {fulfillment_pct:.1f}% — {_fmt(unfulfilled)} orders not completed"
-        )
-    elif fulfillment_pct < 85:
-        alerts.append(
-            f"Order fulfillment below 85% target — currently at {fulfillment_pct:.1f}%"
-        )
-    if avg_gb > th["sr_storage_gb_day_warn"]:
-        alerts.append(
-            f"Storage intake elevated at {avg_gb:.1f} GB/day — review archiving policy"
-        )
-    if storage_chg is not None and storage_chg > th["sr_storage_growth_warn_pct"]:
-        alerts.append(
-            f"Storage grew {_fp(storage_chg)} vs prior period — capacity planning recommended"
-        )
-    if studies_chg is not None and studies_chg < th["sr_volume_drop_warn_pct"]:
-        alerts.append(
-            f"Study volume fell {_fp(studies_chg)} — investigate scheduling gaps or cancellations"
-        )
-    if tot_gen > 0:
-        mp = round(male / tot_gen * 100)
-        skew = th["sr_gender_skew_warn_pct"]
-        if mp > skew:
-            alerts.append(
-                f"Notable gender skew: {mp}% male — verify referral population"
-            )
-        elif mp < 100 - skew:
-            alerts.append(
-                f"Notable gender skew: {100-mp}% female — verify referral population"
-            )
-    if alerts:
-        sections.append(
-            {
-                "icon": "bi-exclamation-triangle",
-                "color": "#f87171",
-                "title": "Alerts & Anomalies",
-                "bullets": alerts,
-            }
-        )
-    else:
-        sections.append(
-            {
-                "icon": "bi-check-circle",
-                "color": "#34d399",
-                "title": "Alerts & Anomalies",
-                "bullets": [
-                    "No critical anomalies detected — all key metrics within normal ranges"
-                ],
-            }
-        )
-
-    # ── Clinical Insights (statistical signal engine) ─────────────────
-    try:
-        dept_signals = run_dept_insights(cur, prev)
-        severity_order = {"critical": 0, "warning": 1, "info": 2}
-        dept_signals.sort(
-            key=lambda s: severity_order.get(s.get("severity", "info"), 2)
-        )
-        if dept_signals:
-            insight_bullets = []
-            for s in dept_signals:
-                icon = {"critical": "⚠", "warning": "▲", "info": "ℹ"}.get(
-                    s.get("severity", "info"), "•"
-                )
-                insight_bullets.append(f"{icon} {s.get('message', '')}")
-        else:
-            insight_bullets = [
-                "All department metrics within normal thresholds — no anomalies detected."
-            ]
-        sections.append(
-            {
+            dept_signals = run_dept_insights(cur, prev)
+            severity_order = {"critical": 0, "warning": 1, "info": 2}
+            dept_signals.sort(key=lambda s: severity_order.get(s.get("severity", "info"), 2))
+            sections.append({
                 "icon": "bi-lightbulb",
                 "color": "#fbbf24",
                 "title": "Clinical Insights",
-                "bullets": insight_bullets,
+                "bullets": [s.get("message", "") for s in dept_signals],
                 "signals": dept_signals,
-            }
-        )
-    except Exception as _ins_e:
-        logger.warning(f"Clinical insights error: {_ins_e}")
-
+            })
+        except Exception as _ins_e:
+            logger.warning(f"Clinical insights error: {_ins_e}")
     return sections
