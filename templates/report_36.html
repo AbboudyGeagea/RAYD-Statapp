@@ -7,6 +7,8 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}"></script>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
@@ -118,7 +120,7 @@
     <main class="flex-1 flex flex-col overflow-hidden">
         <header class="h-20 border-b border-[#28332e] flex items-center justify-between px-10 bg-[#181f1c]/95 backdrop-blur-xl z-10 shrink-0">
             <div>
-                <p class="text-sm font-black text-white uppercase tracking-widest">Radiology Reporting Analytics</p>
+                <p class="text-sm font-black text-white uppercase tracking-widest">Radiology Reporting Analytics<i class="bi bi-info-circle chart-info-icon" data-explain="r36-about" role="button" tabindex="0" aria-label="How this report counts" title="How this report counts"></i></p>
                 <p class="text-[11px] text-zinc-500">Report 36 · reports counted by finalization date</p>
             </div>
             {% if data %}
@@ -142,6 +144,7 @@
                 <!-- Statistical Insights — filled from data.rad_insights at the bottom of the page -->
                 {% if run_report %}
                 <div id="rad-insights-wrapper">
+                    <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2 flex items-center">Statistical Insights<i class="bi bi-info-circle chart-info-icon" data-explain="r36-insights" role="button" tabindex="0" aria-label="About this panel" title="About this panel"></i></p>
                     <div class="flex items-center gap-2 px-4 py-3 rounded-xl bg-zinc-800/40 border border-white/5 text-zinc-600" id="rad-insights-loading">
                         <i class="bi bi-hourglass-split animate-pulse text-sm"></i>
                         <span class="text-[11px] font-black uppercase tracking-widest">Computing statistical insights…</span>
@@ -156,7 +159,7 @@
                 <div class="glass-card" id="unread-assign-card">
                     <div class="flex items-start justify-between mb-3 flex-wrap gap-2">
                         <div>
-                            <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Unread Backlog by Assigned Radiologist</p>
+                            <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center">Unread Backlog by Assigned Radiologist<i class="bi bi-info-circle chart-info-icon" data-explain="r36-unread-assign" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></p>
                             <p class="text-[11px] text-zinc-600 mt-1">
                                 PACS status Unread · studies dated {{ ua.start }} → {{ ua.end }}
                                 {% if ua.as_of %} · status as of last sync {{ ua.as_of }}{% endif %}
@@ -213,10 +216,11 @@
 
                 <p class="section-desc">
                     Radiologist performance heatmap — avg TAT per radiologist × modality. Darker = slower. Hover for detail.
+                    <i class="bi bi-info-circle chart-info-icon" data-explain="r36-tat-heatmap" role="button" tabindex="0" aria-label="About this chart" title="About this chart"></i>
                 </p>
                 {% set ts = data.tat_summary %}
                 <p class="text-[11px] text-zinc-500" style="margin-top:-8px;">
-                    <span class="text-zinc-300 font-bold">TAT = first open → final report.</span>
+                    <span class="text-zinc-300 font-bold">TAT = first open → final report.</span><i class="bi bi-info-circle chart-info-icon" data-explain="r36-tat" role="button" tabindex="0" aria-label="How TAT is measured" title="How TAT is measured" style="margin-right:4px;"></i>
                     First open is the first time a radiologist displayed the images or locked the study for reading, from the PACS audit trail.
                     {% if ts and ts.audit %}
                         {{ ts.timed }} of {{ ts.reports }} final reports timed.
@@ -235,7 +239,7 @@
                 <!-- Peer Ranking Table — JS rendered for sort + drilldown -->
                 <div class="glass-card" id="rad-peer-card">
                     <div class="flex items-center justify-between mb-3">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Peer Ranking</p>
+                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center">Peer Ranking<i class="bi bi-info-circle chart-info-icon" data-explain="r36-peer" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></p>
                         <div class="flex gap-2 text-[9px] text-zinc-600 uppercase font-black">
                             Sort:
                             <button class="rad-sort-btn active" data-key="overall" onclick="sortRadTable('overall',this)">Avg TAT</button>
@@ -251,7 +255,7 @@
                 {% if data.rad_volume_matrix %}
                 <div class="glass-card" id="r25-rad-matrix-card">
                     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Reports per Radiologist</p>
+                        <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center">Reports per Radiologist<i class="bi bi-info-circle chart-info-icon" data-explain="r36-volume" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></p>
                         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                             <div style="display:inline-flex;border:1px solid #3f3f46;border-radius:6px;overflow:hidden;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;">
                                 <button id="r25-rad-toggle-mod" onclick="r25RadToggle('mod')"
@@ -277,7 +281,7 @@
                     <!-- Procedure cross-tab -->
                     <div style="margin-top:20px;">
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
-                            <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;">Procedure Breakdown</span>
+                            <span style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;">Procedure Breakdown<i class="bi bi-info-circle chart-info-icon" data-explain="r36-procedures" role="button" tabindex="0" aria-label="About this table" title="About this table"></i></span>
                             <input id="r25-proc-search" type="text" placeholder="Search procedure…" oninput="r25ProcFilter()"
                                 style="flex:1;min-width:120px;max-width:220px;background:#18181b;border:1px solid #3f3f46;color:#e4e4e7;border-radius:5px;padding:3px 8px;font-size:11px;outline:none;">
                             <span style="font-size:9px;color:#71717a;font-weight:700;">Show top</span>
@@ -749,7 +753,7 @@
                 {% if run_report %}
                 <div class="mt-8" id="shift-patterns-section">
                     <div class="flex items-center justify-between mb-1">
-                        <p class="text-xs font-black text-blue-500 uppercase tracking-widest">Reporting Cadence Analysis</p>
+                        <p class="text-xs font-black text-blue-500 uppercase tracking-widest flex items-center">Reporting Cadence Analysis<i class="bi bi-info-circle chart-info-icon" data-explain="r36-cadence" role="button" tabindex="0" aria-label="About this section" title="About this section"></i></p>
                         <button id="sp-mode-btn" onclick="toggleSpMode()"
                             title="Enhanced view"
                             class="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border transition-all"

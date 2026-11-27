@@ -18,6 +18,14 @@ _MJ = "LEFT JOIN aetitle_modality_map m ON s.original_storing_ae = m.aetitle"
 _SR = "COALESCE(m.modality, s.study_modality, '') != 'SR'"
 _PHY = "TRIM(CONCAT(s.referring_physician_first_name, ' ', s.referring_physician_last_name))"
 
+# The History Window (6M / 12M / 24M / All) on every panel; months=0 is "All": no window.
+_IN_WINDOW = "(:months = 0 OR s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month'))"
+
+
+def _months_arg():
+    months = int(request.args.get("months", 24))
+    return 0 if months <= 0 else min(months, 60)
+
 
 # ─────────────────────────────────────────────
 #  PAGE
@@ -51,10 +59,11 @@ def referring_intel_list():
             WHERE s.referring_physician_last_name IS NOT NULL
               AND s.referring_physician_last_name != ''
               AND {_SR}
+              AND {_IN_WINDOW}
             GROUP BY 1
             ORDER BY total_studies DESC
             LIMIT 300
-        """)).mappings().fetchall()
+        """), {"months": _months_arg()}).mappings().fetchall()
         return jsonify([dict(r) for r in rows])
     except Exception as e:
         logger.error(f"Physician list error: {e}", exc_info=True)
@@ -75,8 +84,7 @@ def referring_intel_loyalty():
     filtered to one -- referring_intel_list()/_detail() don't fit a scatter-style
     cohort view: list() has no TAT/return-rate, detail() is single-physician only.
     """
-    months = min(int(request.args.get("months", 24)), 60)
-    p = {"months": months}
+    p = {"months": _months_arg()}
 
     try:
         rows = db.session.execute(text(f"""
@@ -84,7 +92,7 @@ def referring_intel_loyalty():
                 SELECT s.patient_db_uid, s.study_date, {_PHY} AS physician
                 FROM etl_didb_studies s {_MJ}
                 WHERE {_PHY} IS NOT NULL AND {_PHY} != '' AND {_SR}
-                  AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
+                  AND {_IN_WINDOW}
             ),
             gaps AS (
                 SELECT physician, patient_db_uid, study_date,
@@ -111,7 +119,7 @@ def referring_intel_loyalty():
                                    AND s.rep_final_timestamp > s.insert_time
                        )::numeric, 1) AS median_tat_min
                 FROM etl_didb_studies s {_MJ}
-                WHERE {_SR} AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
+                WHERE {_SR} AND {_IN_WINDOW}
                 GROUP BY 1
             )
             SELECT t.physician, t.total_studies, t.median_tat_min,
@@ -138,11 +146,10 @@ def referring_intel_loyalty():
 @login_required
 def referring_intel_detail():
     physician = request.args.get("physician", "").strip()
-    months    = min(int(request.args.get("months", 24)), 60)
     if not physician:
         return jsonify({"error": "physician required"}), 400
 
-    p = {"physician": physician, "months": months}
+    p = {"physician": physician, "months": _months_arg()}
 
     try:
         # ── Summary KPIs ──────────────────────────────────────────────
@@ -166,6 +173,7 @@ def referring_intel_detail():
                 )                                   AS pct_last_30d
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
+              AND {_IN_WINDOW}
         """), p).mappings().fetchone()
 
         # Department median TAT baseline (last 90 days)
@@ -189,7 +197,7 @@ def referring_intel_detail():
                 COUNT(DISTINCT s.patient_db_uid)   AS patients
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
-              AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
+              AND {_IN_WINDOW}
             GROUP BY 1 ORDER BY 1
         """), p).mappings().fetchall()
 
@@ -206,7 +214,7 @@ def referring_intel_detail():
               AND s.rep_final_timestamp IS NOT NULL
               AND s.insert_time IS NOT NULL
               AND s.rep_final_timestamp > s.insert_time
-              AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
+              AND {_IN_WINDOW}
             GROUP BY 1 ORDER BY 1
         """), p).mappings().fetchall()
 
@@ -217,6 +225,7 @@ def referring_intel_detail():
                 COUNT(*) AS cnt
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
+              AND {_IN_WINDOW}
             GROUP BY 1 ORDER BY cnt DESC LIMIT 12
         """), p).mappings().fetchall()
 
@@ -227,6 +236,7 @@ def referring_intel_detail():
                 COUNT(*) AS cnt
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
+              AND {_IN_WINDOW}
             GROUP BY 1 ORDER BY cnt DESC LIMIT 10
         """), p).mappings().fetchall()
 
@@ -239,6 +249,7 @@ def referring_intel_detail():
                 JOIN hl7_oru_analysis a ON a.report_id = r.id
                 JOIN etl_didb_studies s ON s.accession_number = r.accession_number
                 WHERE {_PHY} = :physician
+                  AND {_IN_WINDOW}
                   AND a.affirmed_labels IS NOT NULL
                   AND array_length(a.affirmed_labels, 1) > 0
             ) sub
@@ -254,6 +265,7 @@ def referring_intel_detail():
             JOIN hl7_oru_analysis a ON a.report_id = r.id
             JOIN etl_didb_studies s ON s.accession_number = r.accession_number
             WHERE {_PHY} = :physician
+              AND {_IN_WINDOW}
         """), p).mappings().fetchone()
 
         # ── Patient return rate ────────────────────────────────────────
@@ -265,7 +277,7 @@ def referring_intel_detail():
                 SELECT DISTINCT s.patient_db_uid, s.study_date
                 FROM etl_didb_studies s {_MJ}
                 WHERE {_PHY} = :physician AND {_SR}
-                  AND s.study_date >= CURRENT_DATE - (:months * INTERVAL '1 month')
+                  AND {_IN_WINDOW}
             ),
             gaps AS (
                 SELECT
@@ -297,6 +309,7 @@ def referring_intel_detail():
                 COUNT(*) AS cnt
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
+              AND {_IN_WINDOW}
             GROUP BY 1 ORDER BY cnt DESC
         """), p).mappings().fetchall()
 
@@ -317,6 +330,7 @@ def referring_intel_detail():
                 COUNT(*) AS cnt
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
+              AND {_IN_WINDOW}
               AND s.age_at_exam IS NOT NULL
             GROUP BY 1 ORDER BY 1
         """), p).mappings().fetchall()
@@ -336,6 +350,7 @@ def referring_intel_detail():
                 ) AS tat_min
             FROM etl_didb_studies s {_MJ}
             WHERE {_PHY} = :physician AND {_SR}
+              AND {_IN_WINDOW}
             ORDER BY s.study_date DESC, s.study_db_uid DESC
             LIMIT 20
         """), p).mappings().fetchall()

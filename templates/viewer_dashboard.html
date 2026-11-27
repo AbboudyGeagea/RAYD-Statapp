@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <title>RAYD | Viewer Dashboard</title>
     <script src="{{ url_for('static', filename='js/tailwind.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="{{ url_for('static', filename='js/chart-explanations.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <style>
         :root { --accent: #60a5fa; }
@@ -96,6 +98,7 @@
                     <div id="yest-content" class="hidden space-y-6">
 
                         <!-- KPI Row -->
+                        <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest -mb-3">Yesterday at a Glance<i class="bi bi-info-circle chart-info-icon" data-explain="yd-glance" role="button" tabindex="0" aria-label="About these numbers" title="About these numbers"></i></p>
                         <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4" id="yest-kpis"></div>
 
                         <!-- Middle row: Physicians + AE tabs -->
@@ -103,14 +106,14 @@
 
                             <!-- Top Referring Physicians -->
                             <div class="card-custom p-5">
-                                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest mb-4">Top Referring Physicians</p>
+                                <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest mb-4">Top Referring Physicians<i class="bi bi-info-circle chart-info-icon" data-explain="yd-physicians" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></p>
                                 <div id="yest-physicians" class="space-y-2"></div>
                             </div>
 
                             <!-- AE Performance (2 sub-tabs) -->
                             <div class="card-custom p-5">
                                 <div class="flex items-center justify-between mb-4">
-                                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest">AE Performance</p>
+                                    <p class="text-[10px] font-black text-[#60a5fa] uppercase tracking-widest">AE Performance<i class="bi bi-info-circle chart-info-icon" data-explain="yd-ae" role="button" tabindex="0" aria-label="About this card" title="About this card"></i></p>
                                     <div class="flex gap-1">
                                         <button onclick="switchAeTab('count')" id="ae-tab-count"
                                             class="px-3 py-1 text-[10px] font-black uppercase rounded-lg bg-[#60a5fa] text-white transition-all">Procedures</button>
@@ -126,7 +129,7 @@
                         <!-- Orders vs PACS Studies Reconciliation -->
                         <div class="exec-card" style="background:#0f1a16;border:1px solid #1a2d22;border-radius:12px;padding:16px 20px;margin-top:12px;">
                           <div style="font-size:10px;font-weight:800;color:#34d399;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">
-                            Orders &#8596; PACS Reconciliation
+                            Orders &#8596; PACS Reconciliation<i class="bi bi-info-circle chart-info-icon" data-explain="yd-reconciliation" role="button" tabindex="0" aria-label="About this card" title="About this card"></i>
                           </div>
                           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
                             <div class="rec-kpi">
