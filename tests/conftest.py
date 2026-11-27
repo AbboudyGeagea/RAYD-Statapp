@@ -67,7 +67,7 @@ DATA_TABLES = [
     # what the Report Composer views read (migration 0136): the RIS and PACS detail,
     # before the PACS studies they point at (std_pps.study_db_uid)
     'std_pps_person_reference', 'std_worklist_scheduled', 'std_worklist_arrivals',
-    'std_worklist_exam_done', 'std_worklist_cancellations', 'std_reports', 'std_pps',
+    'std_worklist_exam_done', 'std_worklist_cancellations', 'std_reports', 'std_site_pps_ext', 'std_pps',
     'std_patient_ids', 'std_patients_ris', 'std_resources_ris', 'std_pacs_user_groups',
     'std_procedure_priorities',
     'etl_didb_serieses', 'summary_storage_daily', 'fact_exam',

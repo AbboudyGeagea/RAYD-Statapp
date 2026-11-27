@@ -541,7 +541,7 @@ def get_reporting_cadence(form_data):
 # the first time it is opened (/report/36/part/<name>, the same filters in the address); each
 # part is cached five minutes on its own, and the two parts that share data (the reading TAT;
 # residents' and radiologists' TAT) share one cache entry each.
-PARTS = ('radiologists', 'residents', 'bands', 'compare', 'modality', 'workload')
+PARTS = ('radiologists', 'residents', 'bands', 'compare', 'modality', 'workload', 'unread')
 
 
 def _cached(key, form_data, compute):
@@ -633,6 +633,18 @@ def part_context(name, form_data):
                     'tech_tat_cards': gold.get('tech_tat_cards'),
                     'shift_patterns': get_reporting_cadence(form_data)}
         return _cached('workload', form_data, workload)
+    if name == 'unread':
+        # item 45: exams done on the RIS, not reported, per assigned radiologist; a snapshot of the
+        # last nightly copy, so the panel's dates and filters do not apply (cache keyed without them)
+        def unread():
+            from utils import unread_assigned
+            try:
+                return unread_assigned.build()
+            except Exception:
+                logger.exception("Failed to compute the exams waiting to be read")
+                db.session.rollback()
+                return None
+        return {'unread': _cached('unread', {}, unread)}
     raise KeyError(name)
 
 

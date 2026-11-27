@@ -771,6 +771,36 @@ const ChartExplanations = {
       valueMeaning: 'Limits 3, 5, 12, 24 give five bands: up to 3 hours, 3 to 5, 5 to 12, 12 to 24 and over 24 hours. Apply changes the table at once, for you only; Everyone\'s bands goes back to the saved ones; Save for everyone (administrators) makes yours the bands everyone starts with.',
       interpretation: 'Use the hospital\'s own targets as limits, so the first bands mean on time and the last band means late.'
     },
+    'r36-unread-total': {
+      title: 'Waiting to be read',
+      purpose: 'Exams the technologist has marked done on the RIS that have no report yet.',
+      valueMeaning: 'Exams whose RIS status is Exam Done (or Pending, and the other exam-done statuses) at the last nightly copy from the RIS. Each exam (each line of the RIS worklist) counts once.',
+      interpretation: 'The radiology department\'s reading backlog. The figure is as of last night; exams done or reported today show tomorrow.'
+    },
+    'r36-unread-assigned': {
+      title: 'Assigned',
+      purpose: 'Exams waiting to be read that have a radiologist in the RIS field "Assign to radiologist".',
+      valueMeaning: 'How many waiting exams carry an assigned radiologist, and how many different radiologists they are assigned to.',
+      interpretation: 'Normally almost every exam is assigned when it is done; see the table for each radiologist\'s share.'
+    },
+    'r36-unread-not-assigned': {
+      title: 'Not assigned',
+      purpose: 'Exams waiting to be read with nobody in "Assign to radiologist".',
+      valueMeaning: 'Waiting exams with an empty assignment on the RIS, or an assignment to a person the RIS no longer knows.',
+      interpretation: 'These exams belong to nobody\'s list; assign them on the RIS so they are read.'
+    },
+    'r36-unread-over-7': {
+      title: 'Waiting more than 7 days',
+      purpose: 'Waiting exams whose exam was done more than a week ago.',
+      valueMeaning: 'Exams in the 8-30 days and over 30 days columns: days since the last Exam Done on the RIS, on the hospital\'s calendar.',
+      interpretation: 'Old exams are either forgotten reports or exams that will never be reported (repeated, cancelled outside the RIS) and should be closed on the RIS.'
+    },
+    'r36-unread-table': {
+      title: 'Waiting to be read, per assigned radiologist',
+      purpose: 'Each radiologist\'s list of exams to read, from the RIS field "Assign to radiologist".',
+      valueMeaning: 'Waiting = exams done on the RIS and not reported; the next columns split them by how long ago the exam was done (today, 1-7, 8-30, over 30 days); Oldest = the earliest exam done in the list; Modalities = how many of each kind. A radiologist with two RIS accounts is counted once, under one name.',
+      interpretation: 'A long list or red columns show who has a backlog. Exams done today are expected; those older than a week need attention. The list is as of the last nightly copy from the RIS.'
+    },
     'r36-reading-by-rad': {
       title: 'Reading TAT by approving radiologist',
       purpose: 'Each radiologist\'s own reading time, from their first open after the wet read to their approval.',

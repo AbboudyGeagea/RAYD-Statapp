@@ -32,7 +32,7 @@ ORDER BY 2, 4 DESC;
 -- ════ Part C — RIS connection (the account RAYD's RIS copy reads; tables unqualified) ════
 
 -- ── C1. RH's CT and PT worklist rows booked in October 2026, per RIS modality, status and device ──
--- What a "dynamic worklist" counts depends on its own filters (booked date or performed date, which
+-- What a RIS worklist screen counts depends on its own filters (booked date or performed date, which
 -- statuses, which rooms): compare its number with the row of the same status here. STATUS 100 is
 -- Exam Done; cancelled rows keep their own code.
 SELECT w.MODALITY_TYPE AS ris_modality, w.STATUS AS ris_status,

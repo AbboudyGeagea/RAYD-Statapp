@@ -109,6 +109,7 @@
                 <button class="r36-tab" role="tab" data-tab="compare" aria-selected="false">TAT comparison: RIS · PACS · reading</button>
                 <button class="r36-tab" role="tab" data-tab="modality" aria-selected="false">Modality &amp; wait</button>
                 <button class="r36-tab" role="tab" data-tab="workload" aria-selected="false">Workload, technicians &amp; cadence</button>
+                <button class="r36-tab" role="tab" data-tab="unread" aria-selected="false">Waiting to be read</button>
             </div>
             <div id="r36-hint" class="glass-card text-center py-10 text-zinc-500">
                 <i class="bi bi-hand-index-thumb text-3xl block opacity-40 mb-2"></i>
@@ -120,6 +121,7 @@
             <div class="r36-part" id="r36-part-compare" role="tabpanel" data-part-template="_report_36_compare.html" hidden></div>
             <div class="r36-part" id="r36-part-modality" role="tabpanel" data-part-template="_report_36_modality.html" hidden></div>
             <div class="r36-part" id="r36-part-workload" role="tabpanel" data-part-template="_report_36_workload.html" hidden></div>
+            <div class="r36-part" id="r36-part-unread" role="tabpanel" data-part-template="_report_36_unread.html" hidden></div>
 
             <script>
             // ── Report 36's shared pieces: the median-TAT heatmap cards, and the tab loader ──

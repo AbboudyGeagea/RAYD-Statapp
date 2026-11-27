@@ -72,7 +72,13 @@ routes/
                                    the hospital sets (settings tat_bands_wetread / _approve, saved
                                    from the tab with the settings capability), PACS audit trail.
                                    Report 32's "Reports per Radiologist per Day" (14b) comes from
-                                   the same module. Check against PACS: scripts/sql/item14_validate_oracle.sql
+                                   the same module. Check against PACS: scripts/sql/item14_validate_oracle.sql.
+                                   Tab "Waiting to be read" (item 45, 2026-11-27, utils/unread_assigned.py):
+                                   exams whose RIS status is exam done, per ASSIGNED radiologist =
+                                   SITE_PPS.ASSIGNED_TO (std_site_pps_ext.assigned_to, resource key as
+                                   text, via std_worklist_exam_done's pps_key), counted per name; the
+                                   columns named ASSIGNRAD* / ASSIGNED_RADIOLOGIST are empty or dead
+                                   (scripts/sql/assigned_radiologist_oracle.sql)
   report_38.py                  — Report 38, the ER dashboard (until 2026-11-14 the page /er,
                                    routes/er_dashboard.py; /er redirects): TAT, target compliance,
                                    unread ER studies; migration 0150

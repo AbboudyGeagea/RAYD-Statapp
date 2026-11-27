@@ -1,0 +1,78 @@
+{# Report 36, tab "Waiting to be read" (loaded alone, item 45): exams whose RIS status is exam done,
+   per assigned radiologist (utils/unread_assigned.build). A snapshot of the last nightly copy: the
+   dates and filters on the left do not apply. #}
+{% from '_report_36_macros.html' import info, band_bar %}
+{% set u = unread %}
+            <p class="section-desc">
+                Exams done on the RIS and not reported yet, per radiologist they are assigned to on the RIS
+                ("Assign to radiologist"). This is the list as it stood at the last nightly copy from the
+                RIS{% if u and u.as_of %} ({{ u.as_of }}){% endif %}; the dates and filters on the left do not change it.
+            </p>
+            {% if not u %}
+            <div class="glass-card text-center py-10 text-zinc-500">This tab could not be worked out; try again in a few minutes.</div>
+            {% elif not u.total %}
+            <div class="glass-card text-center py-10 text-zinc-500">
+                <i class="bi bi-check2-circle text-3xl block opacity-40 mb-2"></i>
+                No exam is waiting to be read at the last nightly copy.
+            </div>
+            {% else %}
+            <div class="glass-card mb-8">
+                <div class="grid grid-cols-4 gap-3 mb-6">
+                    <div class="r36-kpi"><div class="v">{{ '{:,}'.format(u.total) }}</div><div class="l">Waiting to be read{{ info('r36-unread-total') }}</div></div>
+                    <div class="r36-kpi"><div class="v">{{ '{:,}'.format(u.assigned) }}</div><div class="l">Assigned, to {{ u.radiologists }} radiologist{{ 's' if u.radiologists != 1 }}{{ info('r36-unread-assigned') }}</div></div>
+                    <div class="r36-kpi"><div class="v" {% if u.not_assigned %}style="color:#f59e0b"{% endif %}>{{ '{:,}'.format(u.not_assigned) }}</div><div class="l">Not assigned{{ info('r36-unread-not-assigned') }}</div></div>
+                    <div class="r36-kpi"><div class="v" {% if u.over_7 %}style="color:#ef4444"{% endif %}>{{ '{:,}'.format(u.over_7) }}</div><div class="l">Waiting more than 7 days{{ info('r36-unread-over-7') }}</div></div>
+                </div>
+                <div class="chart-card-header" style="padding:0 0 12px 0;">
+                    <span class="chart-card-title" style="color:#60a5fa;">Waiting to be read, per assigned radiologist{{ info('r36-unread-table', 'this table') }}</span>
+                    <button class="r36-mini-btn" onclick="R36unread.csv()" title="Download as CSV"><i class="bi bi-download"></i> CSV</button>
+                </div>
+                <table class="r36-tbl">
+                    <thead><tr>
+                        <th>Radiologist</th><th>Waiting</th>
+                        {% for l in u.bands %}<th>{{ l }}</th>{% endfor %}
+                        <th>Oldest exam done</th>
+                        <th style="text-align:left;">Modalities</th>
+                        <th style="text-align:left;min-width:200px;">{% for l in u.bands %}<span class="r36-band b{{ loop.index }}" style="display:inline-block;width:auto;padding:0 6px;border-radius:4px;margin-right:4px;">{{ l }}</span>{% endfor %}</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for r in u.rows %}
+                    <tr>
+                        <td class="font-bold" {% if not r.assigned %}style="color:#f59e0b"{% endif %}>{{ r.name }}</td>
+                        <td class="font-bold">{{ r.n }}</td>
+                        <td>{{ r.today or '–' }}</td><td>{{ r.d1_7 or '–' }}</td>
+                        <td {% if r.d8_30 %}style="color:#f59e0b"{% endif %}>{{ r.d8_30 or '–' }}</td>
+                        <td {% if r.over30 %}style="color:#ef4444"{% endif %}>{{ r.over30 or '–' }}</td>
+                        <td>{% if r.oldest %}{{ r.oldest }} <span class="text-zinc-500">({{ r.oldest_days }} d)</span>{% else %}–{% endif %}</td>
+                        <td style="text-align:left;">{% for m, n in r.modalities %}{{ m }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</td>
+                        <td style="text-align:left;">{{ band_bar(r.bands) }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                    <tfoot><tr>
+                        <td class="font-bold">Total</td><td class="font-bold">{{ u.total }}</td>
+                        {% for k in ['today', 'd1_7', 'd8_30', 'over30'] %}<td class="font-bold">{{ u.rows | sum(attribute=k) }}</td>{% endfor %}
+                        <td></td><td></td><td></td>
+                    </tr></tfoot>
+                </table>
+                {% set no_date = u.rows | sum(attribute='no_date') %}
+                {% if no_date %}<p class="text-xs text-zinc-500 italic mt-3">{{ no_date }} exam{{ 's' if no_date != 1 }} with no RIS exam-done time {{ 'are' if no_date != 1 else 'is' }} counted in Waiting but in no age column.</p>{% endif %}
+            </div>
+            <script>
+            window.R36unread = (function () {
+                const D = {{ u | tojson }};
+                function csv() {
+                    const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+                    const head = ['Radiologist', 'Waiting', ...D.bands, 'Oldest exam done', 'Modalities'];
+                    const lines = D.rows.map(r => [r.name, r.n, r.today, r.d1_7, r.d8_30, r.over30, r.oldest,
+                                                   r.modalities.map(m => m[0] + ' ' + m[1]).join(' · ')]);
+                    const text = [head, ...lines].map(l => l.map(q).join(',')).join('\n');
+                    const blob = new Blob(['﻿' + text], {type: 'text/csv;charset=utf-8;'});
+                    const url = URL.createObjectURL(blob), a = document.createElement('a');
+                    a.href = url; a.download = 'waiting_to_be_read_' + new Date().toISOString().slice(0, 10) + '.csv';
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                }
+                return {csv};
+            })();
+            </script>
+            {% endif %}
