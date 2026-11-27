@@ -158,8 +158,8 @@
                         <div>
                             <p class="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Unread Backlog by Assigned Radiologist</p>
                             <p class="text-[11px] text-zinc-600 mt-1">
-                                PACS status Unread · studies from the last {{ ua.window_days }} days · not tied to the date range above
-                                {% if ua.as_of %} · as of last sync {{ ua.as_of }}{% endif %}
+                                PACS status Unread · studies dated {{ ua.start }} → {{ ua.end }}
+                                {% if ua.as_of %} · status as of last sync {{ ua.as_of }}{% endif %}
                             </p>
                         </div>
                         <div class="flex gap-2">
@@ -206,13 +206,25 @@
                         </table>
                     </div>
                     {% else %}
-                    <p class="text-sm text-zinc-500 italic">No unread studies in the last {{ ua.window_days }} days.</p>
+                    <p class="text-sm text-zinc-500 italic">No unread studies dated in this period.</p>
                     {% endif %}
                 </div>
                 {% endif %}
 
                 <p class="section-desc">
                     Radiologist performance heatmap — avg TAT per radiologist × modality. Darker = slower. Hover for detail.
+                </p>
+                {% set ts = data.tat_summary %}
+                <p class="text-[11px] text-zinc-500" style="margin-top:-8px;">
+                    <span class="text-zinc-300 font-bold">TAT = first open → final report.</span>
+                    First open is the first time a radiologist displayed the images or locked the study for reading, from the PACS audit trail.
+                    {% if ts and ts.audit %}
+                        {{ ts.timed }} of {{ ts.reports }} final reports timed.
+                        {% if ts.not_opened %}{{ ts.not_opened }} not measured: no radiologist open before the final.{% endif %}
+                        {% if ts.outside_audit %}{{ ts.outside_audit }} not measured: outside the audit copy ({{ ts.audit.from }} → {{ ts.audit.until }}).{% endif %}
+                    {% else %}
+                        <span class="text-amber-400">The audit trail has not been copied yet, so no TAT can be measured.</span>
+                    {% endif %}
                 </p>
 
                 <!-- TAT Heatmap: radiologist × modality -->
@@ -546,14 +558,14 @@
                     function buildDrilldown(r) {
                         const allMods = {};
                         r.drilldown.forEach(loc => loc.mods.forEach(m => {
-                            if (!allMods[m.m]) allMods[m.m] = {sum:0, cnt:0, rvu:0};
-                            allMods[m.m].sum += m.avg * m.count;
+                            if (!allMods[m.m]) allMods[m.m] = {sum:0, timed:0, cnt:0, rvu:0};
+                            if (m.timed) { allMods[m.m].sum += m.avg * m.timed; allMods[m.m].timed += m.timed; }
                             allMods[m.m].cnt += m.count;
                             allMods[m.m].rvu += m.rvu;
                         }));
                         const rows = Object.entries(allMods)
-                            .map(([mod, v]) => ({mod, avg: Math.round(v.sum/v.cnt), cnt: v.cnt, rvu: Math.round(v.rvu*10)/10}))
-                            .sort((a,b) => a.avg - b.avg);
+                            .map(([mod, v]) => ({mod, avg: v.timed ? Math.round(v.sum/v.timed) : null, cnt: v.cnt, rvu: Math.round(v.rvu*10)/10}))
+                            .sort((a,b) => (a.avg ?? Infinity) - (b.avg ?? Infinity));
                         if (!rows.length) return '<p class="text-[10px] text-zinc-600 px-2 py-2">No modality data.</p>';
                         return `<table class="w-full text-[10px] border-collapse mt-1">
                             <thead><tr class="text-zinc-500 uppercase text-[9px]">
@@ -564,7 +576,7 @@
                             </tr></thead>
                             <tbody>${rows.map(m => `<tr class="border-t border-white/5">
                                 <td class="py-1 pr-4 font-bold text-blue-300">${m.mod}</td>
-                                <td class="py-1 pr-4 text-right font-mono font-black text-white">${m.avg}m</td>
+                                <td class="py-1 pr-4 text-right font-mono font-black text-white">${m.avg != null ? m.avg+'m' : '—'}</td>
                                 <td class="py-1 pr-4 text-right text-zinc-400">${m.cnt}</td>
                                 <td class="py-1 text-right text-amber-500">${m.rvu}</td>
                             </tr>`).join('')}</tbody>
@@ -573,7 +585,8 @@
 
                     function renderRadTable() {
                         const sorted = [...RAD_CARDS].sort((a,b) => {
-                            const va = a[_sortKey] ?? 0, vb = b[_sortKey] ?? 0;
+                            const va = a[_sortKey], vb = b[_sortKey];
+                            if (va == null || vb == null) return (va == null) - (vb == null);   // untimed last
                             return _sortAsc ? va - vb : vb - va;
                         });
                         const maxOvr = Math.max(...RAD_CARDS.map(r => r.overall || 0));
@@ -586,6 +599,7 @@
                                 <th class="pb-3 pr-4 text-right">Avg TAT</th>
                                 <th class="pb-3 pr-4 text-right">Median</th>
                                 <th class="pb-3 pr-4 text-right">Studies</th>
+                                <th class="pb-3 pr-4 text-right" title="Final reports with a measured TAT (a radiologist open before the final, inside the audit copy)">Timed</th>
                                 <th class="pb-3 pr-4 text-right">RVU</th>
                                 <th class="pb-3 pr-4">Bar</th>
                                 <th class="pb-3 w-6"></th>
@@ -593,13 +607,14 @@
                             <tbody id="rad-table-body">
                             ${sorted.map((r, i) => {
                                 const pct = r.tat_percentile;
-                                const barW = maxOvr > 0 ? Math.min(Math.round(r.overall / maxOvr * 100), 100) : 0;
+                                const barW = maxOvr > 0 && r.overall != null ? Math.min(Math.round(r.overall / maxOvr * 100), 100) : 0;
                                 return `<tr class="border-t border-white/5 hover:bg-white/[0.02] transition-colors" id="rad-row-${r.name.replace(/\s+/g,'_')}">
                                     <td class="py-2 pr-2 text-[10px] font-black text-zinc-600">${i+1}</td>
                                     <td class="py-2 pr-4 text-xs font-bold text-zinc-200 max-w-[160px] truncate">${r.name}</td>
-                                    <td class="py-2 pr-4 text-right text-xs font-black font-mono ${tatColor(pct)}">${r.overall}m</td>
+                                    <td class="py-2 pr-4 text-right text-xs font-black font-mono ${tatColor(pct)}">${r.overall != null ? r.overall+'m' : '—'}</td>
                                     <td class="py-2 pr-4 text-right text-xs font-mono text-zinc-400">${r.tat_median != null ? r.tat_median+'m' : '—'}</td>
                                     <td class="py-2 pr-4 text-right text-xs text-zinc-400">${r.count}</td>
+                                    <td class="py-2 pr-4 text-right text-xs text-zinc-500">${r.timed ?? 0}</td>
                                     <td class="py-2 pr-4 text-right text-xs text-amber-500">${r.total_rvu}</td>
                                     <td class="py-2 pr-4">
                                         <div class="w-24 bg-white/5 rounded-full h-1.5">
@@ -613,7 +628,7 @@
                                     </td>
                                 </tr>
                                 <tr id="rad-drill-${i}" class="hidden bg-[#181f1c]">
-                                    <td colspan="8" class="px-4 pb-3">${buildDrilldown(r)}</td>
+                                    <td colspan="9" class="px-4 pb-3">${buildDrilldown(r)}</td>
                                 </tr>`;
                             }).join('')}
                             </tbody>
@@ -651,20 +666,20 @@
                     RAD_CARDS.forEach(r => r.drilldown.forEach(loc => loc.mods.forEach(m => modsSet.add(m.m))));
                     const mods = [...modsSet].sort();
 
-                    // Build [modIdx, radIdx, avgTat, count, rvu]
+                    // Build [modIdx, radIdx, avgTat, count, rvu, timed]
                     const heatData = [];
                     RAD_CARDS.forEach((r, ri) => {
                         const modMap = {};
                         r.drilldown.forEach(loc => loc.mods.forEach(m => {
-                            if (!modMap[m.m]) modMap[m.m] = {sum:0, cnt:0, rvu:0};
-                            modMap[m.m].sum += m.avg * m.count;
+                            if (!modMap[m.m]) modMap[m.m] = {sum:0, timed:0, cnt:0, rvu:0};
+                            if (m.timed) { modMap[m.m].sum += m.avg * m.timed; modMap[m.m].timed += m.timed; }
                             modMap[m.m].cnt += m.count;
                             modMap[m.m].rvu += m.rvu;
                         }));
                         mods.forEach((mod, mi) => {
-                            if (modMap[mod] && modMap[mod].cnt > 0) {
-                                const avg = Math.round(modMap[mod].sum / modMap[mod].cnt);
-                                heatData.push([mi, ri, avg, modMap[mod].cnt, Math.round(modMap[mod].rvu * 10) / 10]);
+                            if (modMap[mod] && modMap[mod].timed > 0) {   // a cell needs at least one timed study
+                                const avg = Math.round(modMap[mod].sum / modMap[mod].timed);
+                                heatData.push([mi, ri, avg, modMap[mod].cnt, Math.round(modMap[mod].rvu * 10) / 10, modMap[mod].timed]);
                             }
                         });
                     });
@@ -683,7 +698,7 @@
                                 return `<b>${rads[d[1]]}</b><br/>
                                         Modality: <b>${mods[d[0]]}</b><br/>
                                         Avg TAT: <b style="color:#60a5fa">${d[2]}m</b><br/>
-                                        Studies: ${d[3]}<br/>
+                                        Studies: ${d[3]} (timed: ${d[5]})<br/>
                                         RVU: ${d[4]}`;
                             }
                         },
@@ -745,6 +760,7 @@
                     <p class="text-[11px] text-zinc-500 mb-5">
                         Derived from <code class="text-blue-400 bg-blue-500/10 px-1 rounded">rep_final_timestamp</code>.
                         Shows each physician's signing density by hour and day of week. Inactive intervals ≥ 20 min are noted in the daily log.
+                        Click a box to list the accessions signed in it.
                     </p>
                     <div id="shift-patterns-loading" class="glass-card text-center py-8 text-zinc-500">
                         <i class="bi bi-hourglass-split text-2xl mb-2 block opacity-40 animate-pulse"></i>
@@ -866,6 +882,7 @@
                                     },
                                     series:[{ type:'heatmap', data: info.heatmap, itemStyle:{borderRadius:2, borderWidth:1, borderColor:'#181f1c'} }]
                                 });
+                                _chart.on('click', p => showCadenceCell(rad, p.data[1], p.data[0], p.data[2]));
 
                                 // table rows
                                 const tbody = document.getElementById(`log-body-${idx}`);
@@ -904,6 +921,86 @@
                         hm.render(false);
                     }); // end Object.entries forEach
                     } // end renderAll
+
+                    // ── Box click → accessions signed in that weekday × hour ──
+                    // Uses the filters the page was rendered with (URL for a GET,
+                    // else the sidebar form), so the list matches the box count.
+                    let _ccSeq = 0;
+                    function _esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+
+                    function showCadenceCell(rad, dow, hour, cnt) {
+                        document.getElementById('cc-overlay')?.remove();
+                        const seq = ++_ccSeq;
+                        const ov = document.createElement('div');
+                        ov.id = 'cc-overlay';
+                        ov.style.cssText = 'position:fixed;inset:0;z-index:60;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:16px;';
+                        ov.innerHTML = `
+                            <div style="background:#18181b;border:1px solid #3f3f46;border-radius:12px;width:100%;max-width:460px;max-height:80vh;display:flex;flex-direction:column;">
+                                <div style="display:flex;align-items:flex-start;gap:8px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.06);">
+                                    <div style="flex:1;min-width:0;">
+                                        <p style="font-size:12px;font-weight:900;color:#e4e4e7;text-transform:uppercase;letter-spacing:0.04em;">${_esc(rad)}</p>
+                                        <p style="font-size:11px;color:#71717a;margin-top:2px;">${DOW[dow]} ${HOURS[hour]} · ${cnt} report${cnt!==1?'s':''} signed</p>
+                                    </div>
+                                    <button id="cc-copy" disabled title="Copy accessions"
+                                        style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;padding:4px 9px;border:1px solid #3f3f46;border-radius:6px;color:#71717a;background:transparent;cursor:pointer;">
+                                        <i class="bi bi-clipboard"></i> Copy
+                                    </button>
+                                    <button id="cc-close" title="Close" style="color:#71717a;background:transparent;border:none;font-size:16px;line-height:1;cursor:pointer;">&times;</button>
+                                </div>
+                                <div id="cc-body" style="overflow-y:auto;padding:8px 16px 16px;font-size:11px;color:#a1a1aa;">Loading…</div>
+                            </div>`;
+                        document.body.appendChild(ov);
+
+                        const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+                        const onKey = e => { if (e.key === 'Escape') close(); };
+                        document.addEventListener('keydown', onKey);
+                        ov.addEventListener('click', e => { if (e.target === ov) close(); });
+                        ov.querySelector('#cc-close').onclick = close;
+
+                        const form = document.getElementById('mainForm');
+                        const qs = new URLSearchParams(location.search.includes('start_date') ? location.search : new FormData(form));
+                        qs.set('rad', rad); qs.set('dow', dow); qs.set('hour', hour);
+
+                        fetch('/report/36/cadence-cell?' + qs.toString())
+                            .then(r => r.ok ? r.json() : Promise.reject(r.status))
+                            .then(res => {
+                                if (seq !== _ccSeq) return;   // a newer box was clicked
+                                const rows = res.rows || [];
+                                const body = ov.querySelector('#cc-body');
+                                if (!rows.length) { body.textContent = 'No accessions found.'; return; }
+                                body.innerHTML = `
+                                    <table style="width:100%;border-collapse:collapse;">
+                                        <thead style="position:sticky;top:0;background:#18181b;">
+                                            <tr style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;color:#71717a;">
+                                                <th style="text-align:left;padding:6px 8px 6px 0;">Accession</th>
+                                                <th style="text-align:left;padding:6px 8px;">Signed</th>
+                                                <th style="text-align:left;padding:6px 0 6px 8px;">Modality</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>${rows.map(r => `
+                                            <tr style="border-top:1px solid rgba(255,255,255,0.04);">
+                                                <td style="padding:4px 8px 4px 0;font-family:monospace;font-weight:700;color:#e4e4e7;">${_esc(r.accession)}</td>
+                                                <td style="padding:4px 8px;font-family:monospace;color:#a1a1aa;">${_esc(r.signed)}</td>
+                                                <td style="padding:4px 0 4px 8px;color:#93c5fd;">${_esc(r.modality)}</td>
+                                            </tr>`).join('')}
+                                        </tbody>
+                                    </table>`;
+                                const copyBtn = ov.querySelector('#cc-copy');
+                                copyBtn.disabled = false;
+                                copyBtn.onclick = () => {
+                                    const txt  = rows.map(r => r.accession).join('\n');
+                                    const done = () => { copyBtn.innerHTML = '<i class="bi bi-check2"></i> Copied'; };
+                                    if (navigator.clipboard) { navigator.clipboard.writeText(txt).then(done); return; }
+                                    // navigator.clipboard is missing on plain-HTTP pages
+                                    const ta = document.createElement('textarea');
+                                    ta.value = txt; ov.appendChild(ta); ta.select();
+                                    document.execCommand('copy'); ta.remove(); done();
+                                };
+                            })
+                            .catch(() => {
+                                if (seq === _ccSeq) ov.querySelector('#cc-body').textContent = 'Could not load the accessions.';
+                            });
+                    }
 
                     window.toggleLog = function(idx) {
                         const el = document.getElementById(`log-${idx}`);

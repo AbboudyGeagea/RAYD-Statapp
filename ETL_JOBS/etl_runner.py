@@ -13,6 +13,7 @@ Execution phases (in order):
   Phase 7 — Storage summary(etl_analytics_refresh)
   Phase 8 — Procedure duration mapping (strategies A–E, see _perform_migration)
   Phase 9 — Procedure clustering (optional TF-IDF + ensemble, etl_phase9_clustering)
+  Phase 10 — PACS audit trail: first opens for Report 36 TAT (etl_pacs_audit)
 
 Triggered by APScheduler in app.py or manually via `python app.py -m`.
 """
@@ -39,6 +40,7 @@ from etl_image_locations   import run_images_etl
 from etl_patients_view     import run_patients_etl
 from etl_orders            import run_orders_etl
 from etl_analytics_refresh import refresh_storage_summary
+from etl_pacs_audit        import run_pacs_audit_etl
 
 logger = logging.getLogger("ETL_WORKER")
 
@@ -202,6 +204,16 @@ def _perform_migration(engine):
         logger.info("📋 Phase 7: Storage Summary Rollup")
         refresh_storage_summary()
         logger.info("✅ Phase 7 done")
+
+        # ── PHASE 10: PACS audit trail (first opens, Report 36 TAT) ───────
+        # A failure (e.g. no read access to AUDITING.AUDIT_LOG) is logged in
+        # etl_job_log and does not fail the sync.
+        logger.info("📋 Phase 10: PACS audit trail (first opens)")
+        try:
+            n_audit = run_pacs_audit_etl(engine, src, go_live)
+            logger.info(f"✅ Phase 10 done — {n_audit:,} audit rows")
+        except Exception as _e:
+            logger.warning(f"Phase 10 (PACS audit trail) failed: {_e}")
 
         # ── Mark overall sync SUCCESS ─────────────────────────────────────
         with engine.begin() as conn:

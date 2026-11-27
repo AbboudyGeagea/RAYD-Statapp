@@ -9,6 +9,10 @@ reports per radiologist (by modality / AE / month / procedure), and reporting
 cadence (signing density + daily log). Plus the current unread backlog grouped
 by the PACS "assign to radiologist" value (DIDB_STUDIES.ASSIGN_TO_DOCTOR).
 
+TAT runs from the FIRST OPEN by a radiologist (PACS audit trail) to the final
+report (utils/tat_first_open.py); a report that cannot be timed counts in the
+volumes and is reported as not measured, never given a guessed start.
+
 Every count here follows one rule (utils/radiologist_sql.py): a report is
 counted on the day it was FINALIZED, not the study day. Unlike Report 25, this
 page does not depend on Report 25's study-date dataset, so a period with
@@ -24,7 +28,7 @@ import logging
 from datetime import date
 
 import pandas as pd
-from flask import Blueprint, render_template, request
+from flask import Blueprint, jsonify, render_template, request
 from flask_login import login_required
 from sqlalchemy import text
 
@@ -32,16 +36,12 @@ from db import db, get_etl_cutoff_date
 from routes.report_cache import cache_get, cache_put
 from routes.insights_engine import run_rad_insights
 from utils.radiologist_sql import MOD_JOIN, ALIAS_JOIN, RAD_NAME, RAD_OK, FINAL_IN_RANGE, NOT_SR
+from utils.tat_first_open import (READERS_CTE, FIRST_OPEN_JOIN, IN_AUDIT, TAT_MIN,
+                                  audit_params, audit_window)
 
 logger = logging.getLogger("report_36")
 
 report_36_bp = Blueprint("report_36", __name__)
-
-# The studies ETL re-reads only the last 10 days of study dates
-# (ETL_JOBS/etl_didb_studies.py, lookback_date). Older studies keep whatever status
-# and assignee they had then, so the unread backlog is limited to this window.
-_BACKLOG_DAYS = 10
-
 
 def _filters(form_data):
     """Date range + sidebar filters → (start, end, params, sql fragment on `s`/`m`)."""
@@ -67,34 +67,56 @@ def _filters(form_data):
     return start, end, params, sec
 
 
+def _tat_avg(series):
+    """Mean of the timed studies, None when none were timed."""
+    return round(float(series.mean()), 1) if series.notna().any() else None
+
+
 def _rad_cards(params, sec):
-    """Per-radiologist TAT / volume / RVU cards (peer ranking + heatmap)."""
+    """Per-radiologist TAT / volume / RVU cards (peer ranking + heatmap).
+
+    TAT = first open by a reader -> final report (utils/tat_first_open.py). A study that
+    cannot be timed still counts in the volume and RVU, not in any TAT figure.
+    Returns (cards, tat_summary).
+    """
     rad_cards = []
+    tat_summary = {"reports": 0, "timed": 0, "not_opened": 0, "outside_audit": 0,
+                   "audit": audit_window(db.session)}
     rows = db.session.execute(text(f"""
+        WITH {READERS_CTE}
         SELECT
             {RAD_NAME} AS reading_radiologist,
             COALESCE(UPPER(m.modality), UPPER(s.study_modality), 'Unknown') AS modality,
             COALESCE(s.patient_location, '') AS patient_location,
-            GREATEST(EXTRACT(EPOCH FROM (s.rep_final_timestamp - s.study_date::timestamp)) / 60, 0) AS total_tat_min,
+            {IN_AUDIT} AS in_audit,
+            {TAT_MIN} AS total_tat_min,
             COALESCE(pm.duration_minutes, 0) AS proc_duration,
             COALESCE(pm.clinical_rvu, 1.0) AS clinical_rvu
         FROM etl_didb_studies s {MOD_JOIN} {ALIAS_JOIN}
         LEFT JOIN procedure_duration_map pm ON UPPER(TRIM(s.procedure_code)) = UPPER(TRIM(pm.procedure_code))
+        {FIRST_OPEN_JOIN}
         WHERE {FINAL_IN_RANGE}
           AND {NOT_SR}
           AND COALESCE(m.exclude_from_stats, FALSE) = FALSE
           {sec} {RAD_OK}
-    """), params).mappings().all()
+    """), {**params, **audit_params(db.session)}).mappings().all()
     rc_df = pd.DataFrame(rows)
     if rc_df.empty:
-        return rad_cards
+        return rad_cards, tat_summary
 
-    for col in ['total_tat_min', 'proc_duration', 'clinical_rvu']:
+    rc_df['total_tat_min'] = pd.to_numeric(rc_df['total_tat_min'], errors='coerce')   # NaN = not measured
+    for col in ['proc_duration', 'clinical_rvu']:
         rc_df[col] = pd.to_numeric(rc_df[col], errors='coerce').fillna(0)
+    timed = rc_df['total_tat_min'].notna()
+    tat_summary.update(reports=int(len(rc_df)), timed=int(timed.sum()),
+                       not_opened=int((rc_df['in_audit'] & ~timed).sum()),
+                       outside_audit=int((~rc_df['in_audit']).sum()))
+
     for rad, r_df in rc_df.groupby('reading_radiologist'):
         drill = []
         for loc, l_df in r_df.groupby('patient_location'):
-            mods = [{"m": m, "avg": round(m_df['total_tat_min'].mean(), 1), "count": len(m_df),
+            mods = [{"m": m, "avg": _tat_avg(m_df['total_tat_min']), "count": len(m_df),
+                     "timed": int(m_df['total_tat_min'].notna().sum()),
                      "rvu": round(m_df['clinical_rvu'].sum(), 1)} for m, m_df in l_df.groupby('modality')]
             drill.append({"loc": loc or 'Unknown', "mods": mods, "loc_rvu": round(l_df['clinical_rvu'].sum(), 1)})
         # Only count studies with a mapped duration — unmapped studies (0 min)
@@ -102,26 +124,27 @@ def _rad_cards(params, sec):
         r_df_mapped = r_df[r_df['proc_duration'] > 0]
         total_scan_hours = r_df_mapped['proc_duration'].sum() / 60
         rvu_per_hour = round(r_df_mapped['clinical_rvu'].sum() / total_scan_hours, 2) if total_scan_hours > 0 else 0.0
-        r_df_valid = r_df[r_df['total_tat_min'] > 0]
+        r_tat = r_df['total_tat_min'].dropna()
         rad_cards.append({
             "name": rad,
             "count": int(len(r_df)),
-            "overall": round(r_df_valid['total_tat_min'].mean(), 1) if len(r_df_valid) > 0 else 0.0,
-            "tat_median": round(float(r_df_valid['total_tat_min'].median()), 1) if len(r_df_valid) > 0 else 0.0,
+            "timed": int(len(r_tat)),
+            "overall": _tat_avg(r_tat),
+            "tat_median": round(float(r_tat.median()), 1) if len(r_tat) else None,
             "total_rvu": round(r_df['clinical_rvu'].sum(), 1),
             "rvu_per_hour": rvu_per_hour,
             "drilldown": drill,
         })
 
-    peer_tats = sorted(r['overall'] for r in rad_cards if r['overall'] > 0)
+    peer_tats = sorted(r['overall'] for r in rad_cards if r['overall'] is not None)
     n = len(peer_tats)
     for r in rad_cards:
-        if r['overall'] > 0 and n > 0:
+        if r['overall'] is not None and n > 0:
             rank = sum(1 for t in peer_tats if t <= r['overall'])
             r['tat_percentile'] = round(rank / n * 100)
         else:
             r['tat_percentile'] = None
-    return rad_cards
+    return rad_cards, tat_summary
 
 
 def _volume_matrix(params, sec):
@@ -151,24 +174,36 @@ def _volume_matrix(params, sec):
               {sec} {RAD_OK}
             GROUP BY 1, 2 ORDER BY 1, 3 DESC
         """),
+        # Procedures are shown by their description from the order table (the most
+        # common etl_orders.proc_text for the code); codes with no order text keep
+        # the code. Codes sharing one description count as one row.
         "by_procedure": q(f"""
-            WITH top_procs AS (
-                SELECT s.procedure_code
-                FROM etl_didb_studies s {MOD_JOIN}
+            WITH proc_desc AS MATERIALIZED (
+                SELECT UPPER(TRIM(proc_id)) AS code,
+                       MODE() WITHIN GROUP (ORDER BY TRIM(proc_text)) AS descr
+                FROM etl_orders
+                WHERE NULLIF(TRIM(proc_id), '') IS NOT NULL
+                  AND NULLIF(TRIM(proc_text), '') IS NOT NULL
+                GROUP BY 1
+            ),
+            reported AS (
+                SELECT {RAD_NAME} AS radiologist,
+                       COALESCE(pd.descr, TRIM(s.procedure_code)) AS proc,
+                       s.study_db_uid
+                FROM etl_didb_studies s {MOD_JOIN} {ALIAS_JOIN}
+                LEFT JOIN proc_desc pd ON pd.code = UPPER(TRIM(s.procedure_code))
                 WHERE {FINAL_IN_RANGE}
                   AND {NOT_SR}
-                  AND s.procedure_code IS NOT NULL AND s.procedure_code != ''
-                  {sec}
-                GROUP BY 1 ORDER BY COUNT(DISTINCT s.study_db_uid) DESC LIMIT 60
+                  AND NULLIF(TRIM(s.procedure_code), '') IS NOT NULL
+                  {sec} {RAD_OK}
+            ),
+            top_procs AS (
+                SELECT proc FROM reported
+                GROUP BY 1 ORDER BY COUNT(DISTINCT study_db_uid) DESC LIMIT 60
             )
-            SELECT {RAD_NAME} AS radiologist,
-                   s.procedure_code AS proc,
-                   COUNT(DISTINCT s.study_db_uid) AS cnt
-            FROM etl_didb_studies s {MOD_JOIN} {ALIAS_JOIN}
-            JOIN top_procs tp ON tp.procedure_code = s.procedure_code
-            WHERE {FINAL_IN_RANGE}
-              AND {NOT_SR}
-              {sec} {RAD_OK}
+            SELECT r.radiologist, r.proc, COUNT(DISTINCT r.study_db_uid) AS cnt
+            FROM reported r
+            JOIN top_procs USING (proc)
             GROUP BY 1, 2 ORDER BY 2, 3 DESC
         """),
         "by_month": q(f"""
@@ -263,12 +298,16 @@ def _shift_patterns(params, sec):
 
 
 def _unread_by_assignee(params, sec):
-    """Current unread backlog grouped by the PACS "assign to radiologist" value.
+    """Unread studies of the selected period, grouped by the PACS "assign to radiologist" value.
 
-    A snapshot as of the last studies sync, not tied to the period filter (unread
-    studies have no final date). Unread = PACS study status unread, same as the home
-    page and Report 25. Assignee logins (DBUSTROS@DN) become display names through
-    physician_alias_map, else the name on reports that login signed, else the login.
+    The period is the study date (unread studies have no final date), so a 2025 filter
+    never shows a radiologist who joined in 2026. Status and assignee are as of the last
+    studies sync. Unread = PACS study status unread, same as the home page and Report 25.
+    Assignee logins (DBUSTROS@DN) become display names through physician_alias_map, else
+    the name on reports that login signed, else the login.
+
+    Caveat: the studies ETL re-reads only the last 10 days of study dates
+    (ETL_JOBS/etl_didb_studies.py), so a study read later than that keeps "unread" here.
     """
     rows = db.session.execute(text(f"""
         WITH login_names AS (
@@ -287,7 +326,7 @@ def _unread_by_assignee(params, sec):
                    s.study_date
             FROM etl_didb_studies s {MOD_JOIN}
             WHERE s.study_status ILIKE '%unread%'
-              AND s.study_date >= CURRENT_DATE - :backlog_days
+              AND s.study_date BETWEEN CAST(:start AS date) AND CAST(:end AS date)
               AND {NOT_SR}
               {sec}
         )
@@ -299,7 +338,7 @@ def _unread_by_assignee(params, sec):
         LEFT JOIN physician_alias_map pa ON pa.dismissed = false AND pa.alias = u.raw_assignee
         LEFT JOIN login_names ln ON ln.login = u.login
         GROUP BY 1, 2
-    """), {**params, "backlog_days": _BACKLOG_DAYS}).mappings().all()
+    """), params).mappings().all()
 
     groups = {}
     for r in rows:
@@ -321,7 +360,8 @@ def _unread_by_assignee(params, sec):
         "SELECT MAX(end_time) FROM etl_job_log WHERE job_name = 'STUDIES_ETL' AND status = 'SUCCESS'"
     )).scalar()
     return {
-        "window_days":  _BACKLOG_DAYS,
+        "start":        params["start"],
+        "end":          params["end"],
         "assigned":     assigned,
         "not_assigned": not_assigned,
         "total":        sum(g["total"] for g in assigned) + (not_assigned["total"] if not_assigned else 0),
@@ -339,9 +379,9 @@ def get_radiology_data(form_data):
     start, end, params, sec = _filters(form_data)
 
     # Each panel fails on its own so one bad query never blanks the page
-    rad_cards = []
+    rad_cards, tat_summary = [], None
     try:
-        rad_cards = _rad_cards(params, sec)
+        rad_cards, tat_summary = _rad_cards(params, sec)
     except Exception:
         logger.exception("Failed to build radiologist performance cards")
         db.session.rollback()
@@ -383,6 +423,7 @@ def get_radiology_data(form_data):
                 "radiologists":  len(rad_cards),
             },
             "rad_cards":         rad_cards,
+            "tat_summary":       tat_summary,
             "rad_volume_matrix": rad_volume_matrix,
             "shift_patterns":    shift_patterns,
             "rad_insights":      rad_insights,
@@ -407,6 +448,41 @@ def report_36():
         data, display_start, display_end = get_radiology_data(request.values)
     return render_template("report_36.html", data=data, run_report=run_report,
                            display_start=display_start, display_end=display_end)
+
+
+@report_36_bp.route("/report/36/cadence-cell")
+@login_required
+def cadence_cell():
+    """Accessions behind one Reporting Cadence box: the reports one radiologist
+    finalized on one weekday (0 = Mon) and hour, with the page's period and filters.
+    Same rows as _shift_patterns, so the list length equals the box's count."""
+    rad = (request.args.get("rad") or "").strip()
+    try:
+        dow, hour = int(request.args["dow"]), int(request.args["hour"])
+    except (KeyError, ValueError):
+        return jsonify({"error": "dow and hour are required"}), 400
+    if not rad or not (0 <= dow <= 6 and 0 <= hour <= 23):
+        return jsonify({"error": "invalid radiologist, day or hour"}), 400
+
+    _, _, params, sec = _filters(request.args)
+    rows = db.session.execute(text(f"""
+        SELECT s.accession_number,
+               s.rep_final_timestamp,
+               COALESCE(UPPER(m.modality), UPPER(s.study_modality), 'Unknown') AS modality
+        FROM etl_didb_studies s {MOD_JOIN} {ALIAS_JOIN}
+        WHERE {FINAL_IN_RANGE}
+          AND {NOT_SR}
+          AND {RAD_NAME} = :rad
+          AND EXTRACT(ISODOW FROM s.rep_final_timestamp) = :isodow
+          AND EXTRACT(HOUR FROM s.rep_final_timestamp) = :hour
+          {sec} {RAD_OK}
+        ORDER BY s.rep_final_timestamp
+    """), {**params, "rad": rad, "isodow": dow + 1, "hour": hour}).fetchall()
+    return jsonify({"rows": [{
+        "accession": r.accession_number or "—",
+        "signed":    r.rep_final_timestamp.strftime("%Y-%m-%d %H:%M"),
+        "modality":  r.modality,
+    } for r in rows]})
 
 
 # ── Self-register ─────────────────────────────────────────────
