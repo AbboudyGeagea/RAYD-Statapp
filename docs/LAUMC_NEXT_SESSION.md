@@ -1,35 +1,40 @@
 # LAUMC — To do
 
-Updated 2026-11-24. This file holds only what is still open. What was built is in the commit
+Updated 2026-11-26. This file holds only what is still open. What was built is in the commit
 messages, and the July version of this file (history, punch list round 2) is in git history.
 Companion docs: `LAUMC_SCOPE.md` (features), `LAUMC_RIS_TABLES.md` (RIS map),
 `LAUMC_OPEN_QUESTIONS.md` (vendor questions), `LAUMC_DATA_REQUEST.md` (discovery record).
 
 ---
 
-## Where we stopped (2026-11-24, evening) — START HERE in a new session
+## Where we stopped (2026-11-26, evening) — START HERE in a new session
 
-**24 Nov evening.** Read the pending table (search "Pending table (24 Nov)") first.
-- **Closed 23–24 Nov:** 13-V (SJH validated against PACS and RIS), 14 (Report 36 Time bands,
-  Report 32 per day, Report 25's copies out, checked against PACS), 13, 1, 4, 9, 21, 33, 37, and
-  the Shimadzu room → DX.
-- **Parked:** 20 (CRN go-live, until the operator retriggers it). **On hold:** 30.
-- **Production runs everything up to 0c82a3e2** (ETL log from the main database).
-- **Closed 26 Nov (operator: the items without numbers):** the Live board (94f94441: an exam
-  with no "exam done" ends when the next patient starts; 452efd59: "Side by side"), the
-  hospital's logo in the header (7e74bf8d, resized f646eb6b, following the site picked 11cf038d,
-  `utils/site_branding.py`), Report 39 per hospital (b7786f18). Whatever of these production
-  does not run yet comes with the next `cd /opt/rayd && sudo bash update.sh LAUMC`.
-- **Built 26 Nov: items 42 and 43 together** (operator: "let's work on 42,43 together. same
-  code"), steps A–D of "42 + 43, the build" below the item 43 entry; deploy waiting.
-- **Open:**
-  - 17: the R2I side. The operator is the R2I vendor: 595 missing CMs, starting with
-    1005003450900; ORC-9 empty; a queue alert. ORPHAN_EVENT goes on in the BRAYN console.
-  - 35: Report AI, watching; verdict about 18 Dec.
-  - 42 + 43: built 26 Nov (the analysis by rules, the blocks, the scheduled emails), waiting
-    for the deploy and the operator's look; see their rows in the table.
-  - 44 (25 Nov): a well-formatted PDF for each report; layout agreed on a sample the same day
-    (`D:\Intermedic\Statistics app\PDF_layout_item44\`), built after 30 Nov with 43.
+**26 Nov evening.** Read the pending table (search "Pending table (26 Nov)") first; it ends every
+reply. Deadline Sun 30 Nov. Everything below is pushed (last commit 23ff42b8, origin/LAUMC).
+- **Production runs up to 0c82a3e2 at least**, plus whatever the operator deployed on 25–26 Nov (the
+  header logo was seen live). **The next deploy brings** migrations 0183 and 0184 and all of 26 Nov:
+  `cd /opt/rayd && sudo bash update.sh LAUMC && git log --oneline -1`.
+- **Built 26 Nov, waiting for the deploy and the operator's look:**
+  - 42 + 43 (the Super Report): the analysis by rules (`utils/super_report_analysis.py`, d685d9a7),
+    blocks chosen / ordered for me, for everyone and per preset (`utils/super_report_blocks.py`,
+    2b69a28b, 0183), scheduled emails (`utils/super_report_email.py`, 2b678d1f, 0184). Steps A–D in
+    "42 + 43, the build" below the item 43 entry. The old narrative's sr_* thresholds are gone.
+  - Report 22: saved presets like the Super Report's (`routes/report_presets.py`, macro
+    `report_presets(n)`, a9d64657; any report on the shared panel can take it: ask which next) and
+    per-chart Excel of the rows behind the numbers (`/report/22/rows`, 23ff42b8).
+  - Report 39 per hospital (b7786f18), the hospital's logo per site in the header (11cf038d,
+    `utils/site_branding.py`), both closed by the operator with the other unnumbered items.
+- **Open, waiting on the operator:**
+  - Report 22 CT October tie-out: all explained but 4 studies (RAYD 888 vs PACS 884) and 7 exams
+    (1,241 vs 1,190 + 44); download both Excel files after the deploy to name them; BAY85CT (CT-guided
+    procedures on the PET-CT room's CT) stays CT? Script: scripts/sql/report22_ct_october_check.sql.
+  - "Users tab filters not working": Administration > Users' search and role filter work in tests;
+    asked which page, which filter, what happens.
+  - 44 PDF per report: layout agreed (sample in `D:\Intermedic\Statistics app\PDF_layout_item44\`);
+    asked for a larger / coloured SJH logo, the curehealthtech line, which reports after the Super Report.
+  - 17 (R2I: 595 missing CMs, ORC-9 empty), 35 (Report AI, verdict ~18 Dec). Parked 20, on hold 30.
+- **Tests**: run in the local runner with `-e TZ=Asia/Beirut` (without it 3 Live board tests fail);
+  full suite 1,506 passed on 26 Nov.
 - No code is open.
 
 **21 Nov evening.** The operator approved the Report Composer and the after-hours report, set SJH's
@@ -307,7 +312,7 @@ tables, and nothing can produce it on the server, so item 43's scheduled email h
 Estimate: a shared frame (templates, styles, charts, checkboxes) 3–4 days, then 0.5–1.5 days per
 report; Super Report first, with item 43.
 
-**Pending table (24 Nov)** — show it, kept current, at the end of each reply. Deadline Sun 30 Nov.
+**Pending table (26 Nov)** — show it, kept current, at the end of each reply. Deadline Sun 30 Nov.
 
 | # | Item | Who | Status |
 |---|------|-----|--------|
